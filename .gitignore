@@ -1,0 +1,34 @@
+# Large data files
+*.jsonl
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.DS_Store
+
+# Cache & runtime
+.cache/
+.dist_addr/
+.deepspeed_hostfiles/
+/data/
+dataset_cache/
+.colab-runs/
+
+# Outputs
+outputs/
+output/
+work_dir/
+logs/
+tensorboard/
+wandb/
+*.log
+*.out
+
+# Secrets
+.env*
+cookies.txt
+youtube-cookies*.txt
+
+# Git
+.git/
