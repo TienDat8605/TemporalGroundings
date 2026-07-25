@@ -161,7 +161,8 @@ as a compressed archive. Use repeated `--output-path` options on `start` to
 include other repository-relative result directories. Pressing Ctrl-C while
 monitoring only detaches; it does not cancel the remote process.
 At every terminal state, the monitor performs a final download and prints the
-local `job.log` and `status.json` paths under `.colab-runs/<session>/<job-id>/`.
+local `job.log` and `status.json` paths under
+`../results/colab_runs/<session>/<job-id>/`.
 OMTG runs also create a compact checkpoint every 30 seconds and the monitor
 downloads it to the same local job directory. If the remote job files disappear
 for six consecutive checks, the monitor records `LOST` and exits instead of
@@ -188,6 +189,83 @@ budget overflow, router recall, and offline oracle router recall. A comparison
 is marked compute-matched only when aggregate GPU time is within 5%; otherwise
 the result is a Pareto comparison.
 
+The strictly budgeted v2 schedules are `score-window-local`,
+`residual-window-local`, and `residual-window-local-no-stop`. They use
+budget-specific routes, one fixed local resolution per example, deterministic
+residual-evidence ranking, and an optional stability/remaining-mass stop rule.
+Every selection decision and stop reason is stored in `predictions.jsonl`.
+
+On a rented single-GPU machine, first validate the dataset and paths without
+loading either model:
+
+```bash
+OMTG_PHASE=validate OMTG_RUN_NAME=validate OMTG_MAX_SAMPLES=0 \
+  bash evaluation/scripts/run_omtg_search_local.sh
+```
+
+Run a one-query runtime smoke under a fresh name, then the complete experiment:
+
+```bash
+OMTG_RUN_NAME=residual-smoke OMTG_MAX_SAMPLES=1 \
+  bash evaluation/scripts/run_omtg_search_local.sh
+
+OMTG_RUN_NAME=timelens2-residual-64-128 OMTG_MAX_SAMPLES=0 \
+  bash evaluation/scripts/run_omtg_search_local.sh
+```
+
+The runner is append-only. Repeat the full command to resume it, or set
+`OMTG_PHASE=route`, `ground`, or `evaluate` to run one phase. Outputs and phase
+logs are stored under `../results/omtg_residual_search/<run-name>/`. Override
+`OMTG_MODEL=Qwen/Qwen3-VL-4B-Instruct` to repeat with the base model.
+
+### Paper-style 2 FPS TimeLens2 baseline
+
+The OMTG paper evaluates open-source models with `fps=2`,
+`min_pixels=2048`, and `total_pixels=8388608`. It reports TimeLens-8B rather
+than the later TimeLens2 release, so this produces a new TimeLens2-4B baseline
+rather than reproducing a row from the paper. The local runner uses the
+Transformers backend to match the hierarchical experiment and runs both the
+official TSV prompt and the experiment's controlled JSON prompt:
+
+```bash
+OMTG_RUN_NAME=timelens2-4b-paper-2fps \
+bash evaluation/scripts/run_omtg_2fps_baseline_local.sh
+```
+
+The full run covers all 320 queries by default. Set `OMTG_MAX_SAMPLES=5` for a
+smoke test. Predictions are append-only, so rerunning the same command resumes
+incomplete work. Results are written under
+`../results/omtg_2fps/<run-name>/`.
+
+The launcher forces qwen-vl-utils to use Decord and verifies CUDA before
+loading the checkpoint. If PyTorch reports that its CUDA build is newer than
+the host driver supports, reinstall matching wheels. For a driver exposing
+CUDA 12.8:
+
+```bash
+python -m pip install --force-reinstall \
+  torch==2.11.0+cu128 torchvision==0.26.0+cu128 \
+  --index-url https://download.pytorch.org/whl/cu128
+python -m pip install decord==0.6.0
+```
+
+After both the baseline and hierarchical runs are available, generate one
+comparison report:
+
+```bash
+python evaluation/compare_omtg_inference.py \
+  --baseline-summary ../results/omtg_2fps/timelens2-4b-paper-2fps-full/summary.json \
+  --baseline-summary ../results/omtg_2fps/qwen3-vl-4b-paper-2fps-full/summary.json \
+  --search-summary ../results/omtg_fixed_frame/timelens2-64-128/summary.json \
+  --search-summary ../results/omtg_fixed_frame/qwen3-vl-4b-64/summary.json \
+  --output-dir ../results
+```
+
+Summary arguments are repeatable. The generator rescores raw predictions,
+checks them against every stored summary, and reports paired 95% bootstrap
+confidence intervals over query IDs. Runtime is descriptive: the 2 FPS input
+count varies with duration, and each setting has only one timing run.
+
 ### Run locally
 
 The local launcher supports any NVIDIA GPU with enough memory for the 2B router
@@ -210,8 +288,8 @@ bash evaluation/scripts/run_omtg_search_local.sh
 ```
 
 By default, data is stored under `TimeLens2/data`, frame caches under
-`evaluation/.cache`, and resumable results under
-`evaluation/outputs/omtg_search/smoke`. Re-running the same command resumes
+`evaluation/.cache`, and resumable results under `../results/omtg_fixed_frame/smoke`.
+Re-running the same command resumes
 from the append-only route and prediction files.
 
 Select a GPU or override the run configuration with environment variables:

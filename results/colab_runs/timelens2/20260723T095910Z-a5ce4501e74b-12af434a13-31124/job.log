@@ -1,0 +1,687 @@
+[2026-07-23T09:59:23.254990+00:00] worker pid=539 job=20260723T095910Z-a5ce4501e74b-12af434a13-31124
+[2026-07-23T09:59:23.255032+00:00] python=3.12.13 cwd=/content/timelens2-runs/20260723T095910Z-a5ce4501e74b-12af434a13-31124/repo/evaluation
+[2026-07-23T09:59:23.255046+00:00] gpu_names=['Tesla T4'] video_backend=pyav t4_safe_mode=1
+[2026-07-23T09:59:23.264541+00:00] restored checkpoint 232fb60e8ac889c60bcb1c69e95f80aad83cfa27a1425efb19c0b82ba8ecafd2 into /content/timelens2-experiment-outputs/omtg_search
+Thu Jul 23 09:59:23 2026       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 580.82.07              Driver Version: 580.82.07      CUDA Version: 13.0     |
++-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  Tesla T4                       Off |   00000000:00:04.0 Off |                    0 |
+| N/A   47C    P8             10W /   70W |       0MiB /  15360MiB |      0%      Default |
+|                                         |                        |                  N/A |
++-----------------------------------------+------------------------+----------------------+
+
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|  No running processes found                                                             |
++-----------------------------------------------------------------------------------------+
+[2026-07-23T09:59:23.455847+00:00] setup: python -m pip install -e .
+Obtaining file:///content/timelens2-runs/20260723T095910Z-a5ce4501e74b-12af434a13-31124/repo/evaluation
+  Preparing metadata (setup.py): started
+  Preparing metadata (setup.py): finished with status 'done'
+Requirement already satisfied: accelerate in /usr/local/lib/python3.12/dist-packages (from vlmeval==0.1.0) (1.14.0)
+Requirement already satisfied: datasets in /usr/local/lib/python3.12/dist-packages (from vlmeval==0.1.0) (4.0.0)
+Collecting dotenv (from vlmeval==0.1.0)
+  Downloading dotenv-0.9.9-py2.py3-none-any.whl.metadata (279 bytes)
+Requirement already satisfied: einops in /usr/local/lib/python3.12/dist-packages (from vlmeval==0.1.0) (0.8.2)
+Requirement already satisfied: google-genai in /usr/local/lib/python3.12/dist-packages (from vlmeval==0.1.0) (2.11.0)
+Requirement already satisfied: gradio in /usr/local/lib/python3.12/dist-packages (from vlmeval==0.1.0) (6.20.0)
+Collecting huggingface_hub==0.36.2 (from vlmeval==0.1.0)
+  Downloading huggingface_hub-0.36.2-py3-none-any.whl.metadata (15 kB)
+Requirement already satisfied: imageio in /usr/local/lib/python3.12/dist-packages (from vlmeval==0.1.0) (2.37.3)
+Collecting ipdb (from vlmeval==0.1.0)
+  Downloading ipdb-0.13.13-py3-none-any.whl.metadata (14 kB)
+Collecting json_repair (from vlmeval==0.1.0)
+  Downloading json_repair-0.61.7-py3-none-any.whl.metadata (20 kB)
+Collecting math-verify (from vlmeval==0.1.0)
+  Downloading math_verify-0.9.0-py3-none-any.whl.metadata (1.6 kB)
+Requirement already satisfied: matplotlib in /usr/local/lib/python3.12/dist-packages (from vlmeval==0.1.0) (3.10.0)
+Requirement already satisfied: nltk in /usr/local/lib/python3.12/dist-packages (from vlmeval==0.1.0) (3.9.1)
+Requirement already satisfied: numpy in /usr/local/lib/python3.12/dist-packages (from vlmeval==0.1.0) (2.0.2)
+Requirement already satisfied: omegaconf in /usr/local/lib/python3.12/dist-packages (from vlmeval==0.1.0) (2.3.1)
+Requirement already satisfied: openai in /usr/local/lib/python3.12/dist-packages (from vlmeval==0.1.0) (2.45.0)
+Requirement already satisfied: opencv-python>=4.7.0.72 in /usr/local/lib/python3.12/dist-packages (from vlmeval==0.1.0) (5.0.0.93)
+Requirement already satisfied: openpyxl in /usr/local/lib/python3.12/dist-packages (from vlmeval==0.1.0) (3.1.5)
+Requirement already satisfied: pandas in /usr/local/lib/python3.12/dist-packages (from vlmeval==0.1.0) (2.2.2)
+Requirement already satisfied: pillow in /usr/local/lib/python3.12/dist-packages (from vlmeval==0.1.0) (11.3.0)
+Collecting portalocker (from vlmeval==0.1.0)
+  Downloading portalocker-3.2.0-py3-none-any.whl.metadata (8.7 kB)
+Requirement already satisfied: protobuf in /usr/local/lib/python3.12/dist-packages (from vlmeval==0.1.0) (5.29.6)
+Collecting pylatexenc==2.10 (from vlmeval==0.1.0)
+  Downloading pylatexenc-2.10.tar.gz (162 kB)
+     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 162.6/162.6 kB 7.3 MB/s eta 0:00:00
+  Preparing metadata (setup.py): started
+  Preparing metadata (setup.py): finished with status 'done'
+Requirement already satisfied: python-dotenv in /usr/local/lib/python3.12/dist-packages (from vlmeval==0.1.0) (1.2.2)
+Collecting qwen_vl_utils==0.0.14 (from vlmeval==0.1.0)
+  Downloading qwen_vl_utils-0.0.14-py3-none-any.whl.metadata (9.0 kB)
+Requirement already satisfied: requests in /usr/local/lib/python3.12/dist-packages (from vlmeval==0.1.0) (2.32.4)
+Requirement already satisfied: rich in /usr/local/lib/python3.12/dist-packages (from vlmeval==0.1.0) (13.9.4)
+Collecting scenedetect==0.6.7.1 (from vlmeval==0.1.0)
+  Downloading scenedetect-0.6.7.1-py3-none-any.whl.metadata (3.8 kB)
+Requirement already satisfied: scipy in /usr/local/lib/python3.12/dist-packages (from vlmeval==0.1.0) (1.16.3)
+Requirement already satisfied: scikit-learn in /usr/local/lib/python3.12/dist-packages (from vlmeval==0.1.0) (1.6.1)
+Requirement already satisfied: sentencepiece in /usr/local/lib/python3.12/dist-packages (from vlmeval==0.1.0) (0.2.2)
+Requirement already satisfied: setuptools in /usr/local/lib/python3.12/dist-packages (from vlmeval==0.1.0) (75.2.0)
+Collecting sty (from vlmeval==0.1.0)
+  Downloading sty-1.0.6-py3-none-any.whl.metadata (5.7 kB)
+Requirement already satisfied: sympy in /usr/local/lib/python3.12/dist-packages (from vlmeval==0.1.0) (1.14.0)
+Requirement already satisfied: tabulate in /usr/local/lib/python3.12/dist-packages (from vlmeval==0.1.0) (0.9.0)
+Requirement already satisfied: tiktoken in /usr/local/lib/python3.12/dist-packages (from vlmeval==0.1.0) (0.13.0)
+Collecting timeout-decorator (from vlmeval==0.1.0)
+  Downloading timeout-decorator-0.5.0.tar.gz (4.8 kB)
+  Preparing metadata (setup.py): started
+  Preparing metadata (setup.py): finished with status 'done'
+Requirement already satisfied: timm in /usr/local/lib/python3.12/dist-packages (from vlmeval==0.1.0) (1.0.28)
+Requirement already satisfied: torch in /usr/local/lib/python3.12/dist-packages (from vlmeval==0.1.0) (2.11.0+cu128)
+Requirement already satisfied: torchvision in /usr/local/lib/python3.12/dist-packages (from vlmeval==0.1.0) (0.26.0+cu128)
+Requirement already satisfied: tqdm in /usr/local/lib/python3.12/dist-packages (from vlmeval==0.1.0) (4.67.3)
+Collecting transformers==4.57.6 (from vlmeval==0.1.0)
+  Downloading transformers-4.57.6-py3-none-any.whl.metadata (43 kB)
+     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 44.0/44.0 kB 4.2 MB/s eta 0:00:00
+Requirement already satisfied: typing_extensions in /usr/local/lib/python3.12/dist-packages (from vlmeval==0.1.0) (4.16.0)
+Collecting validators (from vlmeval==0.1.0)
+  Downloading validators-0.35.0-py3-none-any.whl.metadata (3.9 kB)
+Collecting xlsxwriter (from vlmeval==0.1.0)
+  Downloading xlsxwriter-3.2.9-py3-none-any.whl.metadata (2.7 kB)
+Requirement already satisfied: filelock in /usr/local/lib/python3.12/dist-packages (from huggingface_hub==0.36.2->vlmeval==0.1.0) (3.29.7)
+Requirement already satisfied: fsspec>=2023.5.0 in /usr/local/lib/python3.12/dist-packages (from huggingface_hub==0.36.2->vlmeval==0.1.0) (2025.3.0)
+Requirement already satisfied: hf-xet<2.0.0,>=1.1.3 in /usr/local/lib/python3.12/dist-packages (from huggingface_hub==0.36.2->vlmeval==0.1.0) (1.5.1)
+Requirement already satisfied: packaging>=20.9 in /usr/local/lib/python3.12/dist-packages (from huggingface_hub==0.36.2->vlmeval==0.1.0) (26.2)
+Requirement already satisfied: pyyaml>=5.1 in /usr/local/lib/python3.12/dist-packages (from huggingface_hub==0.36.2->vlmeval==0.1.0) (6.0.3)
+Collecting av (from qwen_vl_utils==0.0.14->vlmeval==0.1.0)
+  Downloading av-18.0.0-cp311-abi3-manylinux_2_28_x86_64.whl.metadata (4.5 kB)
+Collecting click<8.3.0,~=8.0 (from scenedetect==0.6.7.1->vlmeval==0.1.0)
+  Downloading click-8.2.1-py3-none-any.whl.metadata (2.5 kB)
+Requirement already satisfied: platformdirs in /usr/local/lib/python3.12/dist-packages (from scenedetect==0.6.7.1->vlmeval==0.1.0) (4.10.0)
+Requirement already satisfied: regex!=2019.12.17 in /usr/local/lib/python3.12/dist-packages (from transformers==4.57.6->vlmeval==0.1.0) (2025.11.3)
+Requirement already satisfied: tokenizers<=0.23.0,>=0.22.0 in /usr/local/lib/python3.12/dist-packages (from transformers==4.57.6->vlmeval==0.1.0) (0.22.2)
+Requirement already satisfied: safetensors>=0.4.3 in /usr/local/lib/python3.12/dist-packages (from transformers==4.57.6->vlmeval==0.1.0) (0.8.0)
+Requirement already satisfied: psutil in /usr/local/lib/python3.12/dist-packages (from accelerate->vlmeval==0.1.0) (5.9.5)
+Requirement already satisfied: networkx>=2.5.1 in /usr/local/lib/python3.12/dist-packages (from torch->vlmeval==0.1.0) (3.6.1)
+Requirement already satisfied: jinja2 in /usr/local/lib/python3.12/dist-packages (from torch->vlmeval==0.1.0) (3.1.6)
+Requirement already satisfied: cuda-toolkit==12.8.1 in /usr/local/lib/python3.12/dist-packages (from cuda-toolkit[cublas,cudart,cufft,cufile,cupti,curand,cusolver,cusparse,nvjitlink,nvrtc,nvtx]==12.8.1; platform_system == "Linux"->torch->vlmeval==0.1.0) (12.8.1)
+Requirement already satisfied: cuda-bindings<13,>=12.9.4 in /usr/local/lib/python3.12/dist-packages (from torch->vlmeval==0.1.0) (12.9.7)
+Requirement already satisfied: nvidia-cudnn-cu12==9.19.0.56 in /usr/local/lib/python3.12/dist-packages (from torch->vlmeval==0.1.0) (9.19.0.56)
+Requirement already satisfied: nvidia-cusparselt-cu12==0.7.1 in /usr/local/lib/python3.12/dist-packages (from torch->vlmeval==0.1.0) (0.7.1)
+Requirement already satisfied: nvidia-nccl-cu12==2.28.9 in /usr/local/lib/python3.12/dist-packages (from torch->vlmeval==0.1.0) (2.28.9)
+Requirement already satisfied: nvidia-nvshmem-cu12==3.4.5 in /usr/local/lib/python3.12/dist-packages (from torch->vlmeval==0.1.0) (3.4.5)
+Requirement already satisfied: triton==3.6.0 in /usr/local/lib/python3.12/dist-packages (from torch->vlmeval==0.1.0) (3.6.0)
+Requirement already satisfied: nvidia-cublas-cu12==12.8.4.1.* in /usr/local/lib/python3.12/dist-packages (from cuda-toolkit[cublas,cudart,cufft,cufile,cupti,curand,cusolver,cusparse,nvjitlink,nvrtc,nvtx]==12.8.1; platform_system == "Linux"->torch->vlmeval==0.1.0) (12.8.4.1)
+Requirement already satisfied: nvidia-cuda-runtime-cu12==12.8.90.* in /usr/local/lib/python3.12/dist-packages (from cuda-toolkit[cublas,cudart,cufft,cufile,cupti,curand,cusolver,cusparse,nvjitlink,nvrtc,nvtx]==12.8.1; platform_system == "Linux"->torch->vlmeval==0.1.0) (12.8.90)
+Requirement already satisfied: nvidia-cufft-cu12==11.3.3.83.* in /usr/local/lib/python3.12/dist-packages (from cuda-toolkit[cublas,cudart,cufft,cufile,cupti,curand,cusolver,cusparse,nvjitlink,nvrtc,nvtx]==12.8.1; platform_system == "Linux"->torch->vlmeval==0.1.0) (11.3.3.83)
+Requirement already satisfied: nvidia-cufile-cu12==1.13.1.3.* in /usr/local/lib/python3.12/dist-packages (from cuda-toolkit[cublas,cudart,cufft,cufile,cupti,curand,cusolver,cusparse,nvjitlink,nvrtc,nvtx]==12.8.1; platform_system == "Linux"->torch->vlmeval==0.1.0) (1.13.1.3)
+Requirement already satisfied: nvidia-cuda-cupti-cu12==12.8.90.* in /usr/local/lib/python3.12/dist-packages (from cuda-toolkit[cublas,cudart,cufft,cufile,cupti,curand,cusolver,cusparse,nvjitlink,nvrtc,nvtx]==12.8.1; platform_system == "Linux"->torch->vlmeval==0.1.0) (12.8.90)
+Requirement already satisfied: nvidia-curand-cu12==10.3.9.90.* in /usr/local/lib/python3.12/dist-packages (from cuda-toolkit[cublas,cudart,cufft,cufile,cupti,curand,cusolver,cusparse,nvjitlink,nvrtc,nvtx]==12.8.1; platform_system == "Linux"->torch->vlmeval==0.1.0) (10.3.9.90)
+Requirement already satisfied: nvidia-cusolver-cu12==11.7.3.90.* in /usr/local/lib/python3.12/dist-packages (from cuda-toolkit[cublas,cudart,cufft,cufile,cupti,curand,cusolver,cusparse,nvjitlink,nvrtc,nvtx]==12.8.1; platform_system == "Linux"->torch->vlmeval==0.1.0) (11.7.3.90)
+Requirement already satisfied: nvidia-cusparse-cu12==12.5.8.93.* in /usr/local/lib/python3.12/dist-packages (from cuda-toolkit[cublas,cudart,cufft,cufile,cupti,curand,cusolver,cusparse,nvjitlink,nvrtc,nvtx]==12.8.1; platform_system == "Linux"->torch->vlmeval==0.1.0) (12.5.8.93)
+Requirement already satisfied: nvidia-nvjitlink-cu12==12.8.93.* in /usr/local/lib/python3.12/dist-packages (from cuda-toolkit[cublas,cudart,cufft,cufile,cupti,curand,cusolver,cusparse,nvjitlink,nvrtc,nvtx]==12.8.1; platform_system == "Linux"->torch->vlmeval==0.1.0) (12.8.93)
+Requirement already satisfied: nvidia-cuda-nvrtc-cu12==12.8.93.* in /usr/local/lib/python3.12/dist-packages (from cuda-toolkit[cublas,cudart,cufft,cufile,cupti,curand,cusolver,cusparse,nvjitlink,nvrtc,nvtx]==12.8.1; platform_system == "Linux"->torch->vlmeval==0.1.0) (12.8.93)
+Requirement already satisfied: nvidia-nvtx-cu12==12.8.90.* in /usr/local/lib/python3.12/dist-packages (from cuda-toolkit[cublas,cudart,cufft,cufile,cupti,curand,cusolver,cusparse,nvjitlink,nvrtc,nvtx]==12.8.1; platform_system == "Linux"->torch->vlmeval==0.1.0) (12.8.90)
+Requirement already satisfied: mpmath<1.4,>=1.1.0 in /usr/local/lib/python3.12/dist-packages (from sympy->vlmeval==0.1.0) (1.3.0)
+Requirement already satisfied: pyarrow>=15.0.0 in /usr/local/lib/python3.12/dist-packages (from datasets->vlmeval==0.1.0) (18.1.0)
+Requirement already satisfied: dill<0.3.9,>=0.3.0 in /usr/local/lib/python3.12/dist-packages (from datasets->vlmeval==0.1.0) (0.3.8)
+Requirement already satisfied: xxhash in /usr/local/lib/python3.12/dist-packages (from datasets->vlmeval==0.1.0) (3.8.1)
+Requirement already satisfied: multiprocess<0.70.17 in /usr/local/lib/python3.12/dist-packages (from datasets->vlmeval==0.1.0) (0.70.16)
+Requirement already satisfied: charset_normalizer<4,>=2 in /usr/local/lib/python3.12/dist-packages (from requests->vlmeval==0.1.0) (3.4.9)
+Requirement already satisfied: idna<4,>=2.5 in /usr/local/lib/python3.12/dist-packages (from requests->vlmeval==0.1.0) (3.18)
+Requirement already satisfied: urllib3<3,>=1.21.1 in /usr/local/lib/python3.12/dist-packages (from requests->vlmeval==0.1.0) (2.5.0)
+Requirement already satisfied: certifi>=2017.4.17 in /usr/local/lib/python3.12/dist-packages (from requests->vlmeval==0.1.0) (2026.6.17)
+Requirement already satisfied: anyio<5.0.0,>=4.8.0 in /usr/local/lib/python3.12/dist-packages (from google-genai->vlmeval==0.1.0) (4.14.2)
+Requirement already satisfied: google-auth<3.0.0,>=2.48.1 in /usr/local/lib/python3.12/dist-packages (from google-auth[requests]<3.0.0,>=2.48.1->google-genai->vlmeval==0.1.0) (2.49.0)
+Requirement already satisfied: httpx<1.0.0,>=0.28.1 in /usr/local/lib/python3.12/dist-packages (from google-genai->vlmeval==0.1.0) (0.28.1)
+Requirement already satisfied: pydantic<3.0.0,>=2.12.5 in /usr/local/lib/python3.12/dist-packages (from google-genai->vlmeval==0.1.0) (2.13.4)
+Requirement already satisfied: tenacity<9.2.0,>=8.2.3 in /usr/local/lib/python3.12/dist-packages (from google-genai->vlmeval==0.1.0) (9.1.4)
+Requirement already satisfied: websockets<17.0,>=13.0.0 in /usr/local/lib/python3.12/dist-packages (from google-genai->vlmeval==0.1.0) (15.0.1)
+Requirement already satisfied: distro<2,>=1.7.0 in /usr/local/lib/python3.12/dist-packages (from google-genai->vlmeval==0.1.0) (1.9.0)
+Requirement already satisfied: sniffio in /usr/local/lib/python3.12/dist-packages (from google-genai->vlmeval==0.1.0) (1.3.1)
+Requirement already satisfied: brotli>=1.1.0 in /usr/local/lib/python3.12/dist-packages (from gradio->vlmeval==0.1.0) (1.2.0)
+Requirement already satisfied: fastapi<1.0,>=0.115.2 in /usr/local/lib/python3.12/dist-packages (from gradio->vlmeval==0.1.0) (0.139.0)
+Requirement already satisfied: gradio-client==2.5.0 in /usr/local/lib/python3.12/dist-packages (from gradio->vlmeval==0.1.0) (2.5.0)
+Requirement already satisfied: groovy~=0.1 in /usr/local/lib/python3.12/dist-packages (from gradio->vlmeval==0.1.0) (0.1.2)
+Requirement already satisfied: hf-gradio<1.0,>=0.4.1 in /usr/local/lib/python3.12/dist-packages (from gradio->vlmeval==0.1.0) (0.4.1)
+INFO: pip is looking at multiple versions of gradio to determine which version is compatible with other requirements. This could take a while.
+Collecting gradio (from vlmeval==0.1.0)
+  Downloading gradio-6.19.0-py3-none-any.whl.metadata (17 kB)
+  Downloading gradio-6.18.0-py3-none-any.whl.metadata (17 kB)
+  Downloading gradio-6.17.3-py3-none-any.whl.metadata (17 kB)
+Requirement already satisfied: markupsafe<4.0,>=2.0 in /usr/local/lib/python3.12/dist-packages (from gradio->vlmeval==0.1.0) (3.0.3)
+Requirement already satisfied: orjson~=3.0 in /usr/local/lib/python3.12/dist-packages (from gradio->vlmeval==0.1.0) (3.11.9)
+Requirement already satisfied: pydub<1.0 in /usr/local/lib/python3.12/dist-packages (from gradio->vlmeval==0.1.0) (0.25.1)
+Requirement already satisfied: python-multipart<1.0,>=0.0.18 in /usr/local/lib/python3.12/dist-packages (from gradio->vlmeval==0.1.0) (0.0.32)
+Requirement already satisfied: pytz>=2017.2 in /usr/local/lib/python3.12/dist-packages (from gradio->vlmeval==0.1.0) (2025.2)
+Requirement already satisfied: safehttpx<0.2.0,>=0.1.7 in /usr/local/lib/python3.12/dist-packages (from gradio->vlmeval==0.1.0) (0.1.7)
+Requirement already satisfied: semantic-version~=2.0 in /usr/local/lib/python3.12/dist-packages (from gradio->vlmeval==0.1.0) (2.10.0)
+Requirement already satisfied: starlette<2.0,>=1.0.1 in /usr/local/lib/python3.12/dist-packages (from gradio->vlmeval==0.1.0) (1.3.1)
+Requirement already satisfied: tomlkit<0.15.0,>=0.12.0 in /usr/local/lib/python3.12/dist-packages (from gradio->vlmeval==0.1.0) (0.14.0)
+Requirement already satisfied: typer<1.0,>=0.12 in /usr/local/lib/python3.12/dist-packages (from gradio->vlmeval==0.1.0) (0.26.8)
+Requirement already satisfied: uvicorn>=0.14.0 in /usr/local/lib/python3.12/dist-packages (from gradio->vlmeval==0.1.0) (0.51.0)
+Requirement already satisfied: python-dateutil>=2.8.2 in /usr/local/lib/python3.12/dist-packages (from pandas->vlmeval==0.1.0) (2.9.0.post0)
+Requirement already satisfied: tzdata>=2022.7 in /usr/local/lib/python3.12/dist-packages (from pandas->vlmeval==0.1.0) (2026.3)
+Requirement already satisfied: ipython>=7.31.1 in /usr/local/lib/python3.12/dist-packages (from ipdb->vlmeval==0.1.0) (7.34.0)
+Requirement already satisfied: decorator in /usr/local/lib/python3.12/dist-packages (from ipdb->vlmeval==0.1.0) (4.4.2)
+Collecting latex2sympy2_extended==1.11.0 (from math-verify->vlmeval==0.1.0)
+  Downloading latex2sympy2_extended-1.11.0-py3-none-any.whl.metadata (5.3 kB)
+Requirement already satisfied: antlr4-python3-runtime<=4.13.2,>=4.9.3 in /usr/local/lib/python3.12/dist-packages (from latex2sympy2_extended==1.11.0->math-verify->vlmeval==0.1.0) (4.9.3)
+Requirement already satisfied: contourpy>=1.0.1 in /usr/local/lib/python3.12/dist-packages (from matplotlib->vlmeval==0.1.0) (1.3.3)
+Requirement already satisfied: cycler>=0.10 in /usr/local/lib/python3.12/dist-packages (from matplotlib->vlmeval==0.1.0) (0.12.1)
+Requirement already satisfied: fonttools>=4.22.0 in /usr/local/lib/python3.12/dist-packages (from matplotlib->vlmeval==0.1.0) (4.63.0)
+Requirement already satisfied: kiwisolver>=1.3.1 in /usr/local/lib/python3.12/dist-packages (from matplotlib->vlmeval==0.1.0) (1.5.0)
+Requirement already satisfied: pyparsing>=2.3.1 in /usr/local/lib/python3.12/dist-packages (from matplotlib->vlmeval==0.1.0) (3.3.2)
+Requirement already satisfied: joblib in /usr/local/lib/python3.12/dist-packages (from nltk->vlmeval==0.1.0) (1.5.3)
+Requirement already satisfied: jiter<1,>=0.10.0 in /usr/local/lib/python3.12/dist-packages (from openai->vlmeval==0.1.0) (0.16.0)
+Requirement already satisfied: et-xmlfile in /usr/local/lib/python3.12/dist-packages (from openpyxl->vlmeval==0.1.0) (2.0.0)
+Requirement already satisfied: markdown-it-py>=2.2.0 in /usr/local/lib/python3.12/dist-packages (from rich->vlmeval==0.1.0) (4.2.0)
+Requirement already satisfied: pygments<3.0.0,>=2.13.0 in /usr/local/lib/python3.12/dist-packages (from rich->vlmeval==0.1.0) (2.20.0)
+Requirement already satisfied: threadpoolctl>=3.1.0 in /usr/local/lib/python3.12/dist-packages (from scikit-learn->vlmeval==0.1.0) (3.6.0)
+Requirement already satisfied: cuda-pathfinder~=1.1 in /usr/local/lib/python3.12/dist-packages (from cuda-bindings<13,>=12.9.4->torch->vlmeval==0.1.0) (1.5.6)
+Requirement already satisfied: typing-inspection>=0.4.2 in /usr/local/lib/python3.12/dist-packages (from fastapi<1.0,>=0.115.2->gradio->vlmeval==0.1.0) (0.4.2)
+Requirement already satisfied: annotated-doc>=0.0.2 in /usr/local/lib/python3.12/dist-packages (from fastapi<1.0,>=0.115.2->gradio->vlmeval==0.1.0) (0.0.4)
+Requirement already satisfied: aiohttp!=4.0.0a0,!=4.0.0a1 in /usr/local/lib/python3.12/dist-packages (from fsspec[http]<=2025.3.0,>=2023.1.0->datasets->vlmeval==0.1.0) (3.14.1)
+Requirement already satisfied: pyasn1-modules>=0.2.1 in /usr/local/lib/python3.12/dist-packages (from google-auth<3.0.0,>=2.48.1->google-auth[requests]<3.0.0,>=2.48.1->google-genai->vlmeval==0.1.0) (0.4.2)
+Requirement already satisfied: cryptography>=38.0.3 in /usr/local/lib/python3.12/dist-packages (from google-auth<3.0.0,>=2.48.1->google-auth[requests]<3.0.0,>=2.48.1->google-genai->vlmeval==0.1.0) (49.0.0)
+Requirement already satisfied: rsa<5,>=3.1.4 in /usr/local/lib/python3.12/dist-packages (from google-auth<3.0.0,>=2.48.1->google-auth[requests]<3.0.0,>=2.48.1->google-genai->vlmeval==0.1.0) (4.9.1)
+Requirement already satisfied: httpcore==1.* in /usr/local/lib/python3.12/dist-packages (from httpx<1.0.0,>=0.28.1->google-genai->vlmeval==0.1.0) (1.0.9)
+Requirement already satisfied: h11>=0.16 in /usr/local/lib/python3.12/dist-packages (from httpcore==1.*->httpx<1.0.0,>=0.28.1->google-genai->vlmeval==0.1.0) (0.16.0)
+Collecting jedi>=0.16 (from ipython>=7.31.1->ipdb->vlmeval==0.1.0)
+  Downloading jedi-0.20.0-py2.py3-none-any.whl.metadata (23 kB)
+Requirement already satisfied: pickleshare in /usr/local/lib/python3.12/dist-packages (from ipython>=7.31.1->ipdb->vlmeval==0.1.0) (0.7.5)
+Requirement already satisfied: traitlets>=4.2 in /usr/local/lib/python3.12/dist-packages (from ipython>=7.31.1->ipdb->vlmeval==0.1.0) (5.7.1)
+Requirement already satisfied: prompt-toolkit!=3.0.0,!=3.0.1,<3.1.0,>=2.0.0 in /usr/local/lib/python3.12/dist-packages (from ipython>=7.31.1->ipdb->vlmeval==0.1.0) (3.0.52)
+Requirement already satisfied: backcall in /usr/local/lib/python3.12/dist-packages (from ipython>=7.31.1->ipdb->vlmeval==0.1.0) (0.2.0)
+Requirement already satisfied: matplotlib-inline in /usr/local/lib/python3.12/dist-packages (from ipython>=7.31.1->ipdb->vlmeval==0.1.0) (0.2.2)
+Requirement already satisfied: pexpect>4.3 in /usr/local/lib/python3.12/dist-packages (from ipython>=7.31.1->ipdb->vlmeval==0.1.0) (4.9.0)
+Requirement already satisfied: mdurl~=0.1 in /usr/local/lib/python3.12/dist-packages (from markdown-it-py>=2.2.0->rich->vlmeval==0.1.0) (0.1.2)
+Requirement already satisfied: annotated-types>=0.6.0 in /usr/local/lib/python3.12/dist-packages (from pydantic<3.0.0,>=2.12.5->google-genai->vlmeval==0.1.0) (0.7.0)
+Requirement already satisfied: pydantic-core==2.46.4 in /usr/local/lib/python3.12/dist-packages (from pydantic<3.0.0,>=2.12.5->google-genai->vlmeval==0.1.0) (2.46.4)
+Requirement already satisfied: six>=1.5 in /usr/local/lib/python3.12/dist-packages (from python-dateutil>=2.8.2->pandas->vlmeval==0.1.0) (1.17.0)
+Requirement already satisfied: shellingham>=1.3.0 in /usr/local/lib/python3.12/dist-packages (from typer<1.0,>=0.12->gradio->vlmeval==0.1.0) (1.5.4)
+Requirement already satisfied: aiohappyeyeballs>=2.5.0 in /usr/local/lib/python3.12/dist-packages (from aiohttp!=4.0.0a0,!=4.0.0a1->fsspec[http]<=2025.3.0,>=2023.1.0->datasets->vlmeval==0.1.0) (2.7.1)
+Requirement already satisfied: aiosignal>=1.4.0 in /usr/local/lib/python3.12/dist-packages (from aiohttp!=4.0.0a0,!=4.0.0a1->fsspec[http]<=2025.3.0,>=2023.1.0->datasets->vlmeval==0.1.0) (1.4.0)
+Requirement already satisfied: attrs>=17.3.0 in /usr/local/lib/python3.12/dist-packages (from aiohttp!=4.0.0a0,!=4.0.0a1->fsspec[http]<=2025.3.0,>=2023.1.0->datasets->vlmeval==0.1.0) (26.1.0)
+Requirement already satisfied: frozenlist>=1.1.1 in /usr/local/lib/python3.12/dist-packages (from aiohttp!=4.0.0a0,!=4.0.0a1->fsspec[http]<=2025.3.0,>=2023.1.0->datasets->vlmeval==0.1.0) (1.8.0)
+Requirement already satisfied: multidict<7.0,>=4.5 in /usr/local/lib/python3.12/dist-packages (from aiohttp!=4.0.0a0,!=4.0.0a1->fsspec[http]<=2025.3.0,>=2023.1.0->datasets->vlmeval==0.1.0) (6.7.1)
+Requirement already satisfied: propcache>=0.2.0 in /usr/local/lib/python3.12/dist-packages (from aiohttp!=4.0.0a0,!=4.0.0a1->fsspec[http]<=2025.3.0,>=2023.1.0->datasets->vlmeval==0.1.0) (0.5.2)
+Requirement already satisfied: yarl<2.0,>=1.17.0 in /usr/local/lib/python3.12/dist-packages (from aiohttp!=4.0.0a0,!=4.0.0a1->fsspec[http]<=2025.3.0,>=2023.1.0->datasets->vlmeval==0.1.0) (1.24.2)
+Requirement already satisfied: cffi>=2.0.0 in /usr/local/lib/python3.12/dist-packages (from cryptography>=38.0.3->google-auth<3.0.0,>=2.48.1->google-auth[requests]<3.0.0,>=2.48.1->google-genai->vlmeval==0.1.0) (2.1.0)
+Requirement already satisfied: parso<0.9.0,>=0.8.6 in /usr/local/lib/python3.12/dist-packages (from jedi>=0.16->ipython>=7.31.1->ipdb->vlmeval==0.1.0) (0.8.7)
+Requirement already satisfied: ptyprocess>=0.5 in /usr/local/lib/python3.12/dist-packages (from pexpect>4.3->ipython>=7.31.1->ipdb->vlmeval==0.1.0) (0.7.0)
+Requirement already satisfied: wcwidth in /usr/local/lib/python3.12/dist-packages (from prompt-toolkit!=3.0.0,!=3.0.1,<3.1.0,>=2.0.0->ipython>=7.31.1->ipdb->vlmeval==0.1.0) (0.8.2)
+Requirement already satisfied: pyasn1<0.7.0,>=0.6.1 in /usr/local/lib/python3.12/dist-packages (from pyasn1-modules>=0.2.1->google-auth<3.0.0,>=2.48.1->google-auth[requests]<3.0.0,>=2.48.1->google-genai->vlmeval==0.1.0) (0.6.4)
+Requirement already satisfied: pycparser in /usr/local/lib/python3.12/dist-packages (from cffi>=2.0.0->cryptography>=38.0.3->google-auth<3.0.0,>=2.48.1->google-auth[requests]<3.0.0,>=2.48.1->google-genai->vlmeval==0.1.0) (3.0)
+Downloading huggingface_hub-0.36.2-py3-none-any.whl (566 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 566.4/566.4 kB 28.1 MB/s eta 0:00:00
+Downloading qwen_vl_utils-0.0.14-py3-none-any.whl (8.1 kB)
+Downloading scenedetect-0.6.7.1-py3-none-any.whl (130 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 130.9/130.9 kB 13.8 MB/s eta 0:00:00
+Downloading transformers-4.57.6-py3-none-any.whl (12.0 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 12.0/12.0 MB 122.0 MB/s eta 0:00:00
+Downloading dotenv-0.9.9-py2.py3-none-any.whl (1.9 kB)
+Downloading gradio-6.17.3-py3-none-any.whl (32.3 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 32.3/32.3 MB 73.6 MB/s eta 0:00:00
+Downloading ipdb-0.13.13-py3-none-any.whl (12 kB)
+Downloading json_repair-0.61.7-py3-none-any.whl (50 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 50.1/50.1 kB 5.7 MB/s eta 0:00:00
+Downloading math_verify-0.9.0-py3-none-any.whl (29 kB)
+Downloading latex2sympy2_extended-1.11.0-py3-none-any.whl (209 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 209.1/209.1 kB 22.6 MB/s eta 0:00:00
+Downloading portalocker-3.2.0-py3-none-any.whl (22 kB)
+Downloading sty-1.0.6-py3-none-any.whl (12 kB)
+Downloading validators-0.35.0-py3-none-any.whl (44 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 44.7/44.7 kB 4.6 MB/s eta 0:00:00
+Downloading xlsxwriter-3.2.9-py3-none-any.whl (175 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 175.3/175.3 kB 20.2 MB/s eta 0:00:00
+Downloading click-8.2.1-py3-none-any.whl (102 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 102.2/102.2 kB 11.9 MB/s eta 0:00:00
+Downloading av-18.0.0-cp311-abi3-manylinux_2_28_x86_64.whl (35.5 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 35.5/35.5 MB 19.9 MB/s eta 0:00:00
+Downloading jedi-0.20.0-py2.py3-none-any.whl (4.9 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 4.9/4.9 MB 137.6 MB/s eta 0:00:00
+Building wheels for collected packages: pylatexenc, timeout-decorator
+  Building wheel for pylatexenc (setup.py): started
+  Building wheel for pylatexenc (setup.py): finished with status 'done'
+  Created wheel for pylatexenc: filename=pylatexenc-2.10-py3-none-any.whl size=136817 sha256=e85e5a159d3dba7b24313e22cc178182418478388288dcddcf0016fde2a23b61
+  Stored in directory: /root/.cache/pip/wheels/06/3e/78/fa1588c1ae991bbfd814af2bcac6cef7a178beee1939180d46
+  Building wheel for timeout-decorator (setup.py): started
+  Building wheel for timeout-decorator (setup.py): finished with status 'done'
+  Created wheel for timeout-decorator: filename=timeout_decorator-0.5.0-py3-none-any.whl size=5006 sha256=f263ee7709f829ff2e362a4f05c1b15014d3c995eeaa9e67580b8cd41020b0bf
+  Stored in directory: /root/.cache/pip/wheels/4d/6a/e3/c4f2cdd67648203ccf069daa31c3935a5c74ec04cccbac9411
+Successfully built pylatexenc timeout-decorator
+Installing collected packages: timeout-decorator, pylatexenc, xlsxwriter, validators, sty, portalocker, json_repair, jedi, dotenv, click, av, scenedetect, qwen_vl_utils, latex2sympy2_extended, huggingface_hub, math-verify, ipdb, transformers, gradio, vlmeval
+  Attempting uninstall: click
+    Found existing installation: click 8.4.2
+    Uninstalling click-8.4.2:
+      Successfully uninstalled click-8.4.2
+  Attempting uninstall: huggingface_hub
+    Found existing installation: huggingface_hub 1.23.0
+    Uninstalling huggingface_hub-1.23.0:
+      Successfully uninstalled huggingface_hub-1.23.0
+  Attempting uninstall: transformers
+    Found existing installation: transformers 5.13.1
+    Uninstalling transformers-5.13.1:
+      Successfully uninstalled transformers-5.13.1
+  Attempting uninstall: gradio
+    Found existing installation: gradio 6.20.0
+    Uninstalling gradio-6.20.0:
+      Successfully uninstalled gradio-6.20.0
+  Running setup.py develop for vlmeval
+ERROR: pip's dependency resolver does not currently take into account all the packages that are installed. This behaviour is the source of the following dependency conflicts.
+rasterio 1.5.0 requires click!=8.2.*,>=4.0, but you have click 8.2.1 which is incompatible.
+rasterstats 0.21.0 requires click!=8.2.1,>7.1, but you have click 8.2.1 which is incompatible.
+Successfully installed av-18.0.0 click-8.2.1 dotenv-0.9.9 gradio-6.17.3 huggingface_hub-0.36.2 ipdb-0.13.13 jedi-0.20.0 json_repair-0.61.7 latex2sympy2_extended-1.11.0 math-verify-0.9.0 portalocker-3.2.0 pylatexenc-2.10 qwen_vl_utils-0.0.14 scenedetect-0.6.7.1 sty-1.0.6 timeout-decorator-0.5.0 transformers-4.57.6 validators-0.35.0 vlmeval-0.1.0 xlsxwriter-3.2.9
+[2026-07-23T09:59:55.675773+00:00] setup exit code: 0
+[2026-07-23T09:59:55.676513+00:00] dataset: bash scripts/download_omtg_bench.sh
+Fetching 2 files:   0%|          | 0/2 [00:00<?, ?it/s]Downloading 'OMTGBench.tsv' to '/content/timelens2-data/OMTGBench/.cache/huggingface/download/3o3h6FjiPDTZOCWXEmwkTGb9zSk=.86b2db68a06cd9035db44452ddc480a4dcf1f865.incomplete'
+Downloading 'videos.zip' to '/content/timelens2-data/OMTGBench/.cache/huggingface/download/xUE6l7_b-8a3JymSmW2TFnhXidw=.5451a90807741e15bef79fafa4f099235be54f77be462809f8fb8e0ee95bace2.incomplete'
+Download complete. Moving file to /content/timelens2-data/OMTGBench/OMTGBench.tsv
+Fetching 2 files:  50%|█████     | 1/2 [00:00<00:00,  4.46it/s]Download complete. Moving file to /content/timelens2-data/OMTGBench/videos.zip
+Fetching 2 files: 100%|██████████| 2/2 [00:29<00:00, 17.07s/it]Fetching 2 files: 100%|██████████| 2/2 [00:29<00:00, 14.55s/it]
+/content/timelens2-data/OMTGBench
+OMTG Bench ready: 320 queries, 287 videos at /content/timelens2-data/OMTGBench
+[2026-07-23T10:01:03.274370+00:00] dataset exit code: 0
+[2026-07-23T10:01:03.274917+00:00] run: OMTG_RUN_NAME=full OMTG_MAX_SAMPLES=0 bash scripts/run_omtg_search.sh
+2026-07-23 10:01:26.451424: I tensorflow/core/platform/cpu_feature_guard.cc:210] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: AVX2 AVX512F FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+Routing already complete: 320 records
+Loading frozen grounder MCG-NJU/TimeLens2-4B...
+Fetching 2 files:   0%|          | 0/2 [00:00<?, ?it/s]Fetching 2 files:  50%|█████     | 1/2 [05:15<05:15, 315.96s/it]Fetching 2 files: 100%|██████████| 2/2 [05:15<00:00, 157.98s/it]
+Loading checkpoint shards:   0%|          | 0/2 [00:00<?, ?it/s]Loading checkpoint shards:  50%|█████     | 1/2 [00:20<00:20, 20.13s/it]Loading checkpoint shards: 100%|██████████| 2/2 [00:39<00:00, 19.40s/it]Loading checkpoint shards: 100%|██████████| 2/2 [00:39<00:00, 19.51s/it]
+[ground 1] id=17 schedule=uniform-window-local budget=64 predicted=2
+[ground 2] id=17 schedule=embedding-window-local budget=64 predicted=2
+[ground 3] id=18 schedule=uniform-one-shot budget=32 predicted=1
+[ground 4] id=18 schedule=full-video-multipass budget=32 predicted=1
+[ground 5] id=18 schedule=uniform-window-local budget=32 predicted=1
+[ground 6] id=18 schedule=embedding-window-local budget=32 predicted=1
+[ground 7] id=18 schedule=uniform-one-shot budget=64 predicted=1
+[ground 8] id=18 schedule=full-video-multipass budget=64 predicted=1
+[ground 9] id=18 schedule=uniform-window-local budget=64 predicted=1
+[ground 10] id=18 schedule=embedding-window-local budget=64 predicted=1
+[ground 11] id=19 schedule=uniform-one-shot budget=32 predicted=2
+[ground 12] id=19 schedule=full-video-multipass budget=32 predicted=1
+[ground 13] id=19 schedule=uniform-window-local budget=32 predicted=2
+[ground 14] id=19 schedule=embedding-window-local budget=32 predicted=1
+[ground 15] id=19 schedule=uniform-one-shot budget=64 predicted=2
+[ground 16] id=19 schedule=full-video-multipass budget=64 predicted=1
+[ground 17] id=19 schedule=uniform-window-local budget=64 predicted=2
+[ground 18] id=19 schedule=embedding-window-local budget=64 predicted=2
+[ground 19] id=20 schedule=uniform-one-shot budget=32 predicted=1
+[ground 20] id=20 schedule=full-video-multipass budget=32 predicted=1
+[ground 21] id=20 schedule=uniform-window-local budget=32 predicted=1
+[ground 22] id=20 schedule=embedding-window-local budget=32 predicted=1
+[ground 23] id=20 schedule=uniform-one-shot budget=64 predicted=1
+[ground 24] id=20 schedule=full-video-multipass budget=64 predicted=1
+[ground 25] id=20 schedule=uniform-window-local budget=64 predicted=2
+[ground 26] id=20 schedule=embedding-window-local budget=64 predicted=1
+[ground 27] id=21 schedule=uniform-one-shot budget=32 predicted=1
+[ground 28] id=21 schedule=full-video-multipass budget=32 predicted=1
+[ground 29] id=21 schedule=uniform-window-local budget=32 predicted=2
+[ground 30] id=21 schedule=embedding-window-local budget=32 predicted=2
+[ground 31] id=21 schedule=uniform-one-shot budget=64 predicted=1
+[ground 32] id=21 schedule=full-video-multipass budget=64 predicted=1
+[ground 33] id=21 schedule=uniform-window-local budget=64 predicted=2
+[ground 34] id=21 schedule=embedding-window-local budget=64 predicted=2
+[ground 35] id=22 schedule=uniform-one-shot budget=32 predicted=1
+[ground 36] id=22 schedule=full-video-multipass budget=32 predicted=1
+[ground 37] id=22 schedule=uniform-window-local budget=32 predicted=2
+[ground 38] id=22 schedule=embedding-window-local budget=32 predicted=2
+[ground 39] id=22 schedule=uniform-one-shot budget=64 predicted=1
+[ground 40] id=22 schedule=full-video-multipass budget=64 predicted=1
+[ground 41] id=22 schedule=uniform-window-local budget=64 predicted=2
+[ground 42] id=22 schedule=embedding-window-local budget=64 predicted=2
+[ground 43] id=23 schedule=uniform-one-shot budget=32 predicted=1
+[ground 44] id=23 schedule=full-video-multipass budget=32 predicted=1
+[ground 45] id=23 schedule=uniform-window-local budget=32 predicted=1
+[ground 46] id=23 schedule=embedding-window-local budget=32 predicted=2
+[ground 47] id=23 schedule=uniform-one-shot budget=64 predicted=1
+[ground 48] id=23 schedule=full-video-multipass budget=64 predicted=2
+[ground 49] id=23 schedule=uniform-window-local budget=64 predicted=1
+[ground 50] id=23 schedule=embedding-window-local budget=64 predicted=2
+[ground 51] id=24 schedule=uniform-one-shot budget=32 predicted=1
+[ground 52] id=24 schedule=full-video-multipass budget=32 predicted=1
+[ground 53] id=24 schedule=uniform-window-local budget=32 predicted=1
+[ground 54] id=24 schedule=embedding-window-local budget=32 predicted=1
+[ground 55] id=24 schedule=uniform-one-shot budget=64 predicted=1
+[ground 56] id=24 schedule=full-video-multipass budget=64 predicted=1
+[ground 57] id=24 schedule=uniform-window-local budget=64 predicted=1
+[ground 58] id=24 schedule=embedding-window-local budget=64 predicted=1
+[ground 59] id=25 schedule=uniform-one-shot budget=32 predicted=2
+[ground 60] id=25 schedule=full-video-multipass budget=32 predicted=1
+[ground 61] id=25 schedule=uniform-window-local budget=32 predicted=2
+[ground 62] id=25 schedule=embedding-window-local budget=32 predicted=2
+[ground 63] id=25 schedule=uniform-one-shot budget=64 predicted=2
+[ground 64] id=25 schedule=full-video-multipass budget=64 predicted=2
+[ground 65] id=25 schedule=uniform-window-local budget=64 predicted=2
+[ground 66] id=25 schedule=embedding-window-local budget=64 predicted=2
+[ground 67] id=26 schedule=uniform-one-shot budget=32 predicted=2
+[ground 68] id=26 schedule=full-video-multipass budget=32 predicted=1
+[ground 69] id=26 schedule=uniform-window-local budget=32 predicted=2
+[ground 70] id=26 schedule=embedding-window-local budget=32 predicted=2
+[ground 71] id=26 schedule=uniform-one-shot budget=64 predicted=1
+[ground 72] id=26 schedule=full-video-multipass budget=64 predicted=2
+[ground 73] id=26 schedule=uniform-window-local budget=64 predicted=2
+[ground 74] id=26 schedule=embedding-window-local budget=64 predicted=1
+[ground 75] id=27 schedule=uniform-one-shot budget=32 predicted=1
+[ground 76] id=27 schedule=full-video-multipass budget=32 predicted=1
+[ground 77] id=27 schedule=uniform-window-local budget=32 predicted=2
+[ground 78] id=27 schedule=embedding-window-local budget=32 predicted=2
+[ground 79] id=27 schedule=uniform-one-shot budget=64 predicted=1
+[ground 80] id=27 schedule=full-video-multipass budget=64 predicted=1
+[ground 81] id=27 schedule=uniform-window-local budget=64 predicted=2
+[ground 82] id=27 schedule=embedding-window-local budget=64 predicted=2
+[ground 83] id=28 schedule=uniform-one-shot budget=32 predicted=2
+[ground 84] id=28 schedule=full-video-multipass budget=32 predicted=1
+[ground 85] id=28 schedule=uniform-window-local budget=32 predicted=1
+[ground 86] id=28 schedule=embedding-window-local budget=32 predicted=2
+[ground 87] id=28 schedule=uniform-one-shot budget=64 predicted=2
+[ground 88] id=28 schedule=full-video-multipass budget=64 predicted=2
+[ground 89] id=28 schedule=uniform-window-local budget=64 predicted=2
+[ground 90] id=28 schedule=embedding-window-local budget=64 predicted=2
+[ground 91] id=29 schedule=uniform-one-shot budget=32 predicted=1
+[ground 92] id=29 schedule=full-video-multipass budget=32 predicted=1
+[ground 93] id=29 schedule=uniform-window-local budget=32 predicted=1
+[ground 94] id=29 schedule=embedding-window-local budget=32 predicted=1
+[ground 95] id=29 schedule=uniform-one-shot budget=64 predicted=1
+[ground 96] id=29 schedule=full-video-multipass budget=64 predicted=1
+[ground 97] id=29 schedule=uniform-window-local budget=64 predicted=1
+[ground 98] id=29 schedule=embedding-window-local budget=64 predicted=1
+[ground 99] id=30 schedule=uniform-one-shot budget=32 predicted=2
+[ground 100] id=30 schedule=full-video-multipass budget=32 predicted=1
+[ground 101] id=30 schedule=uniform-window-local budget=32 predicted=2
+[ground 102] id=30 schedule=embedding-window-local budget=32 predicted=2
+[ground 103] id=30 schedule=uniform-one-shot budget=64 predicted=2
+[ground 104] id=30 schedule=full-video-multipass budget=64 predicted=2
+[ground 105] id=30 schedule=uniform-window-local budget=64 predicted=2
+[ground 106] id=30 schedule=embedding-window-local budget=64 predicted=2
+[ground 107] id=31 schedule=uniform-one-shot budget=32 predicted=1
+[ground 108] id=31 schedule=full-video-multipass budget=32 predicted=1
+[ground 109] id=31 schedule=uniform-window-local budget=32 predicted=2
+[ground 110] id=31 schedule=embedding-window-local budget=32 predicted=2
+[ground 111] id=31 schedule=uniform-one-shot budget=64 predicted=2
+[ground 112] id=31 schedule=full-video-multipass budget=64 predicted=1
+[ground 113] id=31 schedule=uniform-window-local budget=64 predicted=2
+[ground 114] id=31 schedule=embedding-window-local budget=64 predicted=2
+[ground 115] id=32 schedule=uniform-one-shot budget=32 predicted=1
+[ground 116] id=32 schedule=full-video-multipass budget=32 predicted=1
+[ground 117] id=32 schedule=uniform-window-local budget=32 predicted=2
+[ground 118] id=32 schedule=embedding-window-local budget=32 predicted=2
+[ground 119] id=32 schedule=uniform-one-shot budget=64 predicted=1
+[ground 120] id=32 schedule=full-video-multipass budget=64 predicted=1
+[ground 121] id=32 schedule=uniform-window-local budget=64 predicted=4
+[ground 122] id=32 schedule=embedding-window-local budget=64 predicted=4
+[ground 123] id=33 schedule=uniform-one-shot budget=32 predicted=1
+[ground 124] id=33 schedule=full-video-multipass budget=32 predicted=1
+[ground 125] id=33 schedule=uniform-window-local budget=32 predicted=2
+[ground 126] id=33 schedule=embedding-window-local budget=32 predicted=2
+[ground 127] id=33 schedule=uniform-one-shot budget=64 predicted=1
+[ground 128] id=33 schedule=full-video-multipass budget=64 predicted=1
+[ground 129] id=33 schedule=uniform-window-local budget=64 predicted=2
+[ground 130] id=33 schedule=embedding-window-local budget=64 predicted=2
+[ground 131] id=34 schedule=uniform-one-shot budget=32 predicted=1
+[ground 132] id=34 schedule=full-video-multipass budget=32 predicted=1
+[ground 133] id=34 schedule=uniform-window-local budget=32 predicted=2
+[ground 134] id=34 schedule=embedding-window-local budget=32 predicted=2
+[ground 135] id=34 schedule=uniform-one-shot budget=64 predicted=1
+[ground 136] id=34 schedule=full-video-multipass budget=64 predicted=1
+[ground 137] id=34 schedule=uniform-window-local budget=64 predicted=2
+[ground 138] id=34 schedule=embedding-window-local budget=64 predicted=2
+[ground 139] id=35 schedule=uniform-one-shot budget=32 predicted=1
+[ground 140] id=35 schedule=full-video-multipass budget=32 predicted=1
+[ground 141] id=35 schedule=uniform-window-local budget=32 predicted=2
+[ground 142] id=35 schedule=embedding-window-local budget=32 predicted=2
+[ground 143] id=35 schedule=uniform-one-shot budget=64 predicted=1
+[ground 144] id=35 schedule=full-video-multipass budget=64 predicted=1
+[ground 145] id=35 schedule=uniform-window-local budget=64 predicted=2
+[ground 146] id=35 schedule=embedding-window-local budget=64 predicted=2
+[ground 147] id=36 schedule=uniform-one-shot budget=32 predicted=1
+[ground 148] id=36 schedule=full-video-multipass budget=32 predicted=1
+[ground 149] id=36 schedule=uniform-window-local budget=32 predicted=1
+[ground 150] id=36 schedule=embedding-window-local budget=32 predicted=1
+[ground 151] id=36 schedule=uniform-one-shot budget=64 predicted=1
+[ground 152] id=36 schedule=full-video-multipass budget=64 predicted=1
+[ground 153] id=36 schedule=uniform-window-local budget=64 predicted=1
+[ground 154] id=36 schedule=embedding-window-local budget=64 predicted=1
+[ground 155] id=37 schedule=uniform-one-shot budget=32 predicted=2
+[ground 156] id=37 schedule=full-video-multipass budget=32 predicted=2
+[ground 157] id=37 schedule=uniform-window-local budget=32 predicted=2
+[ground 158] id=37 schedule=embedding-window-local budget=32 predicted=2
+[ground 159] id=37 schedule=uniform-one-shot budget=64 predicted=1
+[ground 160] id=37 schedule=full-video-multipass budget=64 predicted=2
+[ground 161] id=37 schedule=uniform-window-local budget=64 predicted=2
+[ground 162] id=37 schedule=embedding-window-local budget=64 predicted=2
+[ground 163] id=38 schedule=uniform-one-shot budget=32 predicted=1
+[ground 164] id=38 schedule=full-video-multipass budget=32 predicted=1
+[ground 165] id=38 schedule=uniform-window-local budget=32 predicted=2
+[ground 166] id=38 schedule=embedding-window-local budget=32 predicted=2
+[ground 167] id=38 schedule=uniform-one-shot budget=64 predicted=1
+[ground 168] id=38 schedule=full-video-multipass budget=64 predicted=1
+[ground 169] id=38 schedule=uniform-window-local budget=64 predicted=2
+[ground 170] id=38 schedule=embedding-window-local budget=64 predicted=2
+[ground 171] id=39 schedule=uniform-one-shot budget=32 predicted=1
+[ground 172] id=39 schedule=full-video-multipass budget=32 predicted=1
+[ground 173] id=39 schedule=uniform-window-local budget=32 predicted=1
+[ground 174] id=39 schedule=embedding-window-local budget=32 predicted=2
+[ground 175] id=39 schedule=uniform-one-shot budget=64 predicted=2
+[ground 176] id=39 schedule=full-video-multipass budget=64 predicted=1
+[ground 177] id=39 schedule=uniform-window-local budget=64 predicted=2
+[ground 178] id=39 schedule=embedding-window-local budget=64 predicted=1
+[ground 179] id=40 schedule=uniform-one-shot budget=32 predicted=1
+[ground 180] id=40 schedule=full-video-multipass budget=32 predicted=2
+[ground 181] id=40 schedule=uniform-window-local budget=32 predicted=2
+[ground 182] id=40 schedule=embedding-window-local budget=32 predicted=2
+[ground 183] id=40 schedule=uniform-one-shot budget=64 predicted=1
+[ground 184] id=40 schedule=full-video-multipass budget=64 predicted=1
+[ground 185] id=40 schedule=uniform-window-local budget=64 predicted=2
+[ground 186] id=40 schedule=embedding-window-local budget=64 predicted=2
+[ground 187] id=41 schedule=uniform-one-shot budget=32 predicted=2
+[ground 188] id=41 schedule=full-video-multipass budget=32 predicted=1
+[ground 189] id=41 schedule=uniform-window-local budget=32 predicted=2
+[ground 190] id=41 schedule=embedding-window-local budget=32 predicted=2
+[ground 191] id=41 schedule=uniform-one-shot budget=64 predicted=2
+[ground 192] id=41 schedule=full-video-multipass budget=64 predicted=2
+[ground 193] id=41 schedule=uniform-window-local budget=64 predicted=2
+[ground 194] id=41 schedule=embedding-window-local budget=64 predicted=2
+[ground 195] id=42 schedule=uniform-one-shot budget=32 predicted=1
+[ground 196] id=42 schedule=full-video-multipass budget=32 predicted=1
+[ground 197] id=42 schedule=uniform-window-local budget=32 predicted=2
+[ground 198] id=42 schedule=embedding-window-local budget=32 predicted=2
+[ground 199] id=42 schedule=uniform-one-shot budget=64 predicted=1
+[ground 200] id=42 schedule=full-video-multipass budget=64 predicted=1
+[ground 201] id=42 schedule=uniform-window-local budget=64 predicted=2
+[ground 202] id=42 schedule=embedding-window-local budget=64 predicted=2
+[ground 203] id=43 schedule=uniform-one-shot budget=32 predicted=1
+[ground 204] id=43 schedule=full-video-multipass budget=32 predicted=1
+[ground 205] id=43 schedule=uniform-window-local budget=32 predicted=1
+[ground 206] id=43 schedule=embedding-window-local budget=32 predicted=2
+[ground 207] id=43 schedule=uniform-one-shot budget=64 predicted=2
+[ground 208] id=43 schedule=full-video-multipass budget=64 predicted=2
+[ground 209] id=43 schedule=uniform-window-local budget=64 predicted=2
+[ground 210] id=43 schedule=embedding-window-local budget=64 predicted=2
+[ground 211] id=44 schedule=uniform-one-shot budget=32 predicted=1
+[ground 212] id=44 schedule=full-video-multipass budget=32 predicted=1
+[ground 213] id=44 schedule=uniform-window-local budget=32 predicted=1
+[ground 214] id=44 schedule=embedding-window-local budget=32 predicted=1
+[ground 215] id=44 schedule=uniform-one-shot budget=64 predicted=2
+[ground 216] id=44 schedule=full-video-multipass budget=64 predicted=1
+[ground 217] id=44 schedule=uniform-window-local budget=64 predicted=2
+[ground 218] id=44 schedule=embedding-window-local budget=64 predicted=1
+[ground 219] id=45 schedule=uniform-one-shot budget=32 predicted=1
+[ground 220] id=45 schedule=full-video-multipass budget=32 predicted=1
+[ground 221] id=45 schedule=uniform-window-local budget=32 predicted=1
+[ground 222] id=45 schedule=embedding-window-local budget=32 predicted=2
+[ground 223] id=45 schedule=uniform-one-shot budget=64 predicted=1
+[ground 224] id=45 schedule=full-video-multipass budget=64 predicted=1
+[ground 225] id=45 schedule=uniform-window-local budget=64 predicted=1
+[ground 226] id=45 schedule=embedding-window-local budget=64 predicted=2
+[ground 227] id=46 schedule=uniform-one-shot budget=32 predicted=1
+[ground 228] id=46 schedule=full-video-multipass budget=32 predicted=1
+[ground 229] id=46 schedule=uniform-window-local budget=32 predicted=3
+[ground 230] id=46 schedule=embedding-window-local budget=32 predicted=2
+[ground 231] id=46 schedule=uniform-one-shot budget=64 predicted=1
+[ground 232] id=46 schedule=full-video-multipass budget=64 predicted=1
+[ground 233] id=46 schedule=uniform-window-local budget=64 predicted=3
+[ground 234] id=46 schedule=embedding-window-local budget=64 predicted=3
+[ground 235] id=47 schedule=uniform-one-shot budget=32 predicted=1
+[ground 236] id=47 schedule=full-video-multipass budget=32 predicted=1
+[ground 237] id=47 schedule=uniform-window-local budget=32 predicted=2
+[ground 238] id=47 schedule=embedding-window-local budget=32 predicted=2
+[ground 239] id=47 schedule=uniform-one-shot budget=64 predicted=2
+[ground 240] id=47 schedule=full-video-multipass budget=64 predicted=1
+[ground 241] id=47 schedule=uniform-window-local budget=64 predicted=2
+[ground 242] id=47 schedule=embedding-window-local budget=64 predicted=2
+[ground 243] id=48 schedule=uniform-one-shot budget=32 predicted=1
+[ground 244] id=48 schedule=full-video-multipass budget=32 predicted=1
+[ground 245] id=48 schedule=uniform-window-local budget=32 predicted=1
+[ground 246] id=48 schedule=embedding-window-local budget=32 predicted=1
+[ground 247] id=48 schedule=uniform-one-shot budget=64 predicted=1
+[ground 248] id=48 schedule=full-video-multipass budget=64 predicted=1
+[ground 249] id=48 schedule=uniform-window-local budget=64 predicted=1
+[ground 250] id=48 schedule=embedding-window-local budget=64 predicted=1
+[ground 251] id=49 schedule=uniform-one-shot budget=32 predicted=1
+[ground 252] id=49 schedule=full-video-multipass budget=32 predicted=1
+[ground 253] id=49 schedule=uniform-window-local budget=32 predicted=1
+[ground 254] id=49 schedule=embedding-window-local budget=32 predicted=1
+[ground 255] id=49 schedule=uniform-one-shot budget=64 predicted=1
+[ground 256] id=49 schedule=full-video-multipass budget=64 predicted=1
+[ground 257] id=49 schedule=uniform-window-local budget=64 predicted=1
+[ground 258] id=49 schedule=embedding-window-local budget=64 predicted=1
+[ground 259] id=50 schedule=uniform-one-shot budget=32 predicted=1
+[ground 260] id=50 schedule=full-video-multipass budget=32 predicted=1
+[ground 261] id=50 schedule=uniform-window-local budget=32 predicted=2
+[ground 262] id=50 schedule=embedding-window-local budget=32 predicted=2
+[ground 263] id=50 schedule=uniform-one-shot budget=64 predicted=1
+[ground 264] id=50 schedule=full-video-multipass budget=64 predicted=1
+[ground 265] id=50 schedule=uniform-window-local budget=64 predicted=2
+[ground 266] id=50 schedule=embedding-window-local budget=64 predicted=2
+[ground 267] id=51 schedule=uniform-one-shot budget=32 predicted=2
+[ground 268] id=51 schedule=full-video-multipass budget=32 predicted=1
+[ground 269] id=51 schedule=uniform-window-local budget=32 predicted=2
+[ground 270] id=51 schedule=embedding-window-local budget=32 predicted=2
+[ground 271] id=51 schedule=uniform-one-shot budget=64 predicted=2
+[ground 272] id=51 schedule=full-video-multipass budget=64 predicted=2
+[ground 273] id=51 schedule=uniform-window-local budget=64 predicted=2
+[ground 274] id=51 schedule=embedding-window-local budget=64 predicted=2
+[ground 275] id=52 schedule=uniform-one-shot budget=32 predicted=1
+[ground 276] id=52 schedule=full-video-multipass budget=32 predicted=1
+[ground 277] id=52 schedule=uniform-window-local budget=32 predicted=1
+[ground 278] id=52 schedule=embedding-window-local budget=32 predicted=1
+[ground 279] id=52 schedule=uniform-one-shot budget=64 predicted=2
+[ground 280] id=52 schedule=full-video-multipass budget=64 predicted=2
+[ground 281] id=52 schedule=uniform-window-local budget=64 predicted=2
+[ground 282] id=52 schedule=embedding-window-local budget=64 predicted=2
+[ground 283] id=53 schedule=uniform-one-shot budget=32 predicted=1
+[ground 284] id=53 schedule=full-video-multipass budget=32 predicted=1
+[ground 285] id=53 schedule=uniform-window-local budget=32 predicted=2
+[ground 286] id=53 schedule=embedding-window-local budget=32 predicted=2
+[ground 287] id=53 schedule=uniform-one-shot budget=64 predicted=1
+[ground 288] id=53 schedule=full-video-multipass budget=64 predicted=1
+[ground 289] id=53 schedule=uniform-window-local budget=64 predicted=2
+[ground 290] id=53 schedule=embedding-window-local budget=64 predicted=2
+[ground 291] id=54 schedule=uniform-one-shot budget=32 predicted=1
+[ground 292] id=54 schedule=full-video-multipass budget=32 predicted=1
+[ground 293] id=54 schedule=uniform-window-local budget=32 predicted=2
+[ground 294] id=54 schedule=embedding-window-local budget=32 predicted=2
+[ground 295] id=54 schedule=uniform-one-shot budget=64 predicted=3
+[ground 296] id=54 schedule=full-video-multipass budget=64 predicted=1
+[ground 297] id=54 schedule=uniform-window-local budget=64 predicted=2
+[ground 298] id=54 schedule=embedding-window-local budget=64 predicted=3
+[ground 299] id=55 schedule=uniform-one-shot budget=32 predicted=2
+[ground 300] id=55 schedule=full-video-multipass budget=32 predicted=1
+[ground 301] id=55 schedule=uniform-window-local budget=32 predicted=2
+[ground 302] id=55 schedule=embedding-window-local budget=32 predicted=2
+[ground 303] id=55 schedule=uniform-one-shot budget=64 predicted=2
+[ground 304] id=55 schedule=full-video-multipass budget=64 predicted=2
+[ground 305] id=55 schedule=uniform-window-local budget=64 predicted=2
+[ground 306] id=55 schedule=embedding-window-local budget=64 predicted=2
+[ground 307] id=56 schedule=uniform-one-shot budget=32 predicted=1
+[ground 308] id=56 schedule=full-video-multipass budget=32 predicted=1
+[ground 309] id=56 schedule=uniform-window-local budget=32 predicted=1
+[ground 310] id=56 schedule=embedding-window-local budget=32 predicted=1
+[ground 311] id=56 schedule=uniform-one-shot budget=64 predicted=1
+[ground 312] id=56 schedule=full-video-multipass budget=64 predicted=1
+[ground 313] id=56 schedule=uniform-window-local budget=64 predicted=1
+[ground 314] id=56 schedule=embedding-window-local budget=64 predicted=1
+[ground 315] id=57 schedule=uniform-one-shot budget=32 predicted=1
+[ground 316] id=57 schedule=full-video-multipass budget=32 predicted=1
+[ground 317] id=57 schedule=uniform-window-local budget=32 predicted=1
+[ground 318] id=57 schedule=embedding-window-local budget=32 predicted=1
+[ground 319] id=57 schedule=uniform-one-shot budget=64 predicted=1
+[ground 320] id=57 schedule=full-video-multipass budget=64 predicted=1
+[ground 321] id=57 schedule=uniform-window-local budget=64 predicted=1
+[ground 322] id=57 schedule=embedding-window-local budget=64 predicted=1
+[ground 323] id=58 schedule=uniform-one-shot budget=32 predicted=1
+[ground 324] id=58 schedule=full-video-multipass budget=32 predicted=1
+[ground 325] id=58 schedule=uniform-window-local budget=32 predicted=2
+[ground 326] id=58 schedule=embedding-window-local budget=32 predicted=2
+[ground 327] id=58 schedule=uniform-one-shot budget=64 predicted=1
+[ground 328] id=58 schedule=full-video-multipass budget=64 predicted=1
+[ground 329] id=58 schedule=uniform-window-local budget=64 predicted=2
+[ground 330] id=58 schedule=embedding-window-local budget=64 predicted=2
+[ground 331] id=59 schedule=uniform-one-shot budget=32 predicted=1
+[ground 332] id=59 schedule=full-video-multipass budget=32 predicted=1
+[ground 333] id=59 schedule=uniform-window-local budget=32 predicted=1
+[ground 334] id=59 schedule=embedding-window-local budget=32 predicted=1
+[ground 335] id=59 schedule=uniform-one-shot budget=64 predicted=1
+[ground 336] id=59 schedule=full-video-multipass budget=64 predicted=1
+[ground 337] id=59 schedule=uniform-window-local budget=64 predicted=1
+[ground 338] id=59 schedule=embedding-window-local budget=64 predicted=1
+[ground 339] id=60 schedule=uniform-one-shot budget=32 predicted=1
+[ground 340] id=60 schedule=full-video-multipass budget=32 predicted=2
+[ground 341] id=60 schedule=uniform-window-local budget=32 predicted=1
+[ground 342] id=60 schedule=embedding-window-local budget=32 predicted=2
+[ground 343] id=60 schedule=uniform-one-shot budget=64 predicted=1
+[ground 344] id=60 schedule=full-video-multipass budget=64 predicted=2
+[ground 345] id=60 schedule=uniform-window-local budget=64 predicted=1
+[ground 346] id=60 schedule=embedding-window-local budget=64 predicted=1
+[ground 347] id=61 schedule=uniform-one-shot budget=32 predicted=1
+[ground 348] id=61 schedule=full-video-multipass budget=32 predicted=1
+[ground 349] id=61 schedule=uniform-window-local budget=32 predicted=2
+[ground 350] id=61 schedule=embedding-window-local budget=32 predicted=2
+[ground 351] id=61 schedule=uniform-one-shot budget=64 predicted=3
+[ground 352] id=61 schedule=full-video-multipass budget=64 predicted=1
+[ground 353] id=61 schedule=uniform-window-local budget=64 predicted=2
+[ground 354] id=61 schedule=embedding-window-local budget=64 predicted=2
+[ground 355] id=62 schedule=uniform-one-shot budget=32 predicted=1
+[ground 356] id=62 schedule=full-video-multipass budget=32 predicted=1
+[ground 357] id=62 schedule=uniform-window-local budget=32 predicted=2
+[ground 358] id=62 schedule=embedding-window-local budget=32 predicted=2
+[ground 359] id=62 schedule=uniform-one-shot budget=64 predicted=1
+[ground 360] id=62 schedule=full-video-multipass budget=64 predicted=1
+[ground 361] id=62 schedule=uniform-window-local budget=64 predicted=2
+[ground 362] id=62 schedule=embedding-window-local budget=64 predicted=2
+[ground 363] id=63 schedule=uniform-one-shot budget=32 predicted=1
+[ground 364] id=63 schedule=full-video-multipass budget=32 predicted=2
+[ground 365] id=63 schedule=uniform-window-local budget=32 predicted=1
+[ground 366] id=63 schedule=embedding-window-local budget=32 predicted=1
+[ground 367] id=63 schedule=uniform-one-shot budget=64 predicted=1
+[ground 368] id=63 schedule=full-video-multipass budget=64 predicted=1
+[ground 369] id=63 schedule=uniform-window-local budget=64 predicted=1
+[ground 370] id=63 schedule=embedding-window-local budget=64 predicted=1
+[ground 371] id=64 schedule=uniform-one-shot budget=32 predicted=1
+[ground 372] id=64 schedule=full-video-multipass budget=32 predicted=1
+[ground 373] id=64 schedule=uniform-window-local budget=32 predicted=2
+[ground 374] id=64 schedule=embedding-window-local budget=32 predicted=2
+[ground 375] id=64 schedule=uniform-one-shot budget=64 predicted=1
+[ground 376] id=64 schedule=full-video-multipass budget=64 predicted=1
+[ground 377] id=64 schedule=uniform-window-local budget=64 predicted=2
+[ground 378] id=64 schedule=embedding-window-local budget=64 predicted=1
+[ground 379] id=65 schedule=uniform-one-shot budget=32 predicted=1
+[ground 380] id=65 schedule=full-video-multipass budget=32 predicted=2
+[ground 381] id=65 schedule=uniform-window-local budget=32 predicted=1
+[ground 382] id=65 schedule=embedding-window-local budget=32 predicted=2
+[ground 383] id=65 schedule=uniform-one-shot budget=64 predicted=1
+[ground 384] id=65 schedule=full-video-multipass budget=64 predicted=1
+[ground 385] id=65 schedule=uniform-window-local budget=64 predicted=1
+[ground 386] id=65 schedule=embedding-window-local budget=64 predicted=2
+[ground 387] id=66 schedule=uniform-one-shot budget=32 predicted=2
+[ground 388] id=66 schedule=full-video-multipass budget=32 predicted=1
+[ground 389] id=66 schedule=uniform-window-local budget=32 predicted=1
+[ground 390] id=66 schedule=embedding-window-local budget=32 predicted=1
+[ground 391] id=66 schedule=uniform-one-shot budget=64 predicted=2
+[ground 392] id=66 schedule=full-video-multipass budget=64 predicted=2

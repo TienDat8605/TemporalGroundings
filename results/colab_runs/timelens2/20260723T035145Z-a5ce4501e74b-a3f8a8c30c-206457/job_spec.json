@@ -1,0 +1,17 @@
+{
+  "action": "launch",
+  "job_id": "20260723T035145Z-a5ce4501e74b-a3f8a8c30c-206457",
+  "archive_path": "/content/timelens2_20260723T035145Z-a5ce4501e74b-a3f8a8c30c-206457_source.tar.gz",
+  "archive_sha256": "a3f8a8c30cefeeb28114b0800136b2ce346e3863409f2dea7dd6171e5d64d5c7",
+  "source_revision": "a5ce4501e74b",
+  "source_dirty": true,
+  "workdir": "evaluation",
+  "setup_command": "python -m pip install -e .",
+  "dataset_command": "bash scripts/download_omtg_bench.sh",
+  "run_command": "OMTG_RUN_NAME=smoke OMTG_MAX_SAMPLES=25 bash scripts/run_omtg_search.sh",
+  "env_file_path": "/content/timelens2_20260723T035145Z-a5ce4501e74b-a3f8a8c30c-206457.env",
+  "youtube_cookies_path": null,
+  "output_paths": [
+    "evaluation/outputs"
+  ]
+}

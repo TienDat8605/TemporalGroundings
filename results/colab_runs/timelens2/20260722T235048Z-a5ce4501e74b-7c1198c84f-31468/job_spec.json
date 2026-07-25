@@ -1,0 +1,16 @@
+{
+  "action": "launch",
+  "job_id": "20260722T235048Z-a5ce4501e74b-7c1198c84f-31468",
+  "archive_path": "/content/timelens2_20260722T235048Z-a5ce4501e74b-7c1198c84f-31468_source.tar.gz",
+  "archive_sha256": "7c1198c84f0b5d5dcd2a26bb3615688a96247a91ef039e3ae1ce6eb92dee62cc",
+  "source_revision": "a5ce4501e74b",
+  "source_dirty": true,
+  "workdir": "evaluation",
+  "setup_command": "python -m pip install -e .",
+  "dataset_command": "bash scripts/download_vue_tr_v2.sh",
+  "run_command": "MODELS=\"TimeLens2-4B\" DATASETS=\"VUE_TR_V2_1fps_limit_2048_px480_ctx128k\" N_GPU=1 bash scripts/srun_eval_all/run_grounding.sh",
+  "env_file_path": "/content/timelens2_20260722T235048Z-a5ce4501e74b-7c1198c84f-31468.env",
+  "output_paths": [
+    "evaluation/outputs"
+  ]
+}

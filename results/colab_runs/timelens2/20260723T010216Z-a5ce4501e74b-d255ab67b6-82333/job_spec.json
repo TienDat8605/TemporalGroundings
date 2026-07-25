@@ -1,0 +1,17 @@
+{
+  "action": "launch",
+  "job_id": "20260723T010216Z-a5ce4501e74b-d255ab67b6-82333",
+  "archive_path": "/content/timelens2_20260723T010216Z-a5ce4501e74b-d255ab67b6-82333_source.tar.gz",
+  "archive_sha256": "d255ab67b6b148d4e12fbd92dfe0bf404cc6d03b59b50b1ee1de07f7123ed8bb",
+  "source_revision": "a5ce4501e74b",
+  "source_dirty": true,
+  "workdir": "evaluation",
+  "setup_command": "",
+  "dataset_command": "for client in web_safari web_embedded tv; do echo \"[probe] client=$client\"; if yt-dlp --simulate --js-runtimes deno --extractor-args \"youtube:player_client=$client\" --extractor-args \"youtubepot-bgutilscript:server_home=/content/timelens2-data/.tools/bgutil-ytdlp-pot-provider/server\" \"https://www.youtube.com/watch?v=RnMZGQFNtRY\"; then echo \"[probe] success=$client\"; exit 0; fi; done; exit 1",
+  "run_command": "true",
+  "env_file_path": null,
+  "youtube_cookies_path": null,
+  "output_paths": [
+    "evaluation/outputs"
+  ]
+}

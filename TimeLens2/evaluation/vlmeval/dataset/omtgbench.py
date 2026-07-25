@@ -47,6 +47,8 @@ def parse_time_intervals(text: str) -> list[list[float]]:
         (r'<time>(\S+?)\s*-\s*(\S+?)\s*seconds?</time>', parse_time_to_seconds),
         (r'(\d+(?::\d+(?:\.\d+)?)?(?:\.\d+)?)\s*-\s*'
          r'(\d+(?::\d+(?:\.\d+)?)?(?:\.\d+)?)\s*seconds?', parse_time_to_seconds),
+        (r'start\s*:\s*(\d+(?::\d+(?:\.\d+)?)?(?:\.\d+)?)\s*,\s*'
+         r'end\s*:\s*(\d+(?::\d+(?:\.\d+)?)?(?:\.\d+)?)', parse_time_to_seconds),
         (r'starts\s+at\s+(\S+?)(?:\s+seconds?)?\s+and\s+ends\s+at\s+'
          r'(\S+?)(?:\s+seconds?)?', parse_time_to_seconds),
         (r'start\s+is\s+at\s+(\S+?)(?:\s+seconds?)?\s+and\s+(?:the\s+)?'

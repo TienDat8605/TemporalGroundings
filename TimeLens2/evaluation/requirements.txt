@@ -1,5 +1,6 @@
 accelerate
 datasets
+decord==0.6.0
 dotenv
 einops
 # for gemini api

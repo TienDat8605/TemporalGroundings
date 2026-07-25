@@ -1,0 +1,3 @@
+[submodule "TimeLens2/OMTG"]
+	path = TimeLens2/OMTG
+	url = https://github.com/Tangent0308/OMTG.git

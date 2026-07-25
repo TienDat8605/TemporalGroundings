@@ -1,0 +1,1065 @@
+[2026-07-23T08:32:16.638996+00:00] worker pid=416 job=20260723T083205Z-a5ce4501e74b-12af434a13-9720
+[2026-07-23T08:32:16.639084+00:00] python=3.12.13 cwd=/content/timelens2-runs/20260723T083205Z-a5ce4501e74b-12af434a13-9720/repo/evaluation
+[2026-07-23T08:32:16.639097+00:00] gpu_names=['Tesla T4'] video_backend=pyav t4_safe_mode=1
+Thu Jul 23 08:32:16 2026       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 580.82.07              Driver Version: 580.82.07      CUDA Version: 13.0     |
++-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  Tesla T4                       Off |   00000000:00:04.0 Off |                    0 |
+| N/A   67C    P8             11W /   70W |       0MiB /  15360MiB |      0%      Default |
+|                                         |                        |                  N/A |
++-----------------------------------------+------------------------+----------------------+
+
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|  No running processes found                                                             |
++-----------------------------------------------------------------------------------------+
+[2026-07-23T08:32:16.821224+00:00] setup: python -m pip install -e .
+Obtaining file:///content/timelens2-runs/20260723T083205Z-a5ce4501e74b-12af434a13-9720/repo/evaluation
+  Preparing metadata (setup.py): started
+  Preparing metadata (setup.py): finished with status 'done'
+Requirement already satisfied: accelerate in /usr/local/lib/python3.12/dist-packages (from vlmeval==0.1.0) (1.14.0)
+Requirement already satisfied: datasets in /usr/local/lib/python3.12/dist-packages (from vlmeval==0.1.0) (4.0.0)
+Collecting dotenv (from vlmeval==0.1.0)
+  Downloading dotenv-0.9.9-py2.py3-none-any.whl.metadata (279 bytes)
+Requirement already satisfied: einops in /usr/local/lib/python3.12/dist-packages (from vlmeval==0.1.0) (0.8.2)
+Requirement already satisfied: google-genai in /usr/local/lib/python3.12/dist-packages (from vlmeval==0.1.0) (2.11.0)
+Requirement already satisfied: gradio in /usr/local/lib/python3.12/dist-packages (from vlmeval==0.1.0) (6.20.0)
+Collecting huggingface_hub==0.36.2 (from vlmeval==0.1.0)
+  Downloading huggingface_hub-0.36.2-py3-none-any.whl.metadata (15 kB)
+Requirement already satisfied: imageio in /usr/local/lib/python3.12/dist-packages (from vlmeval==0.1.0) (2.37.3)
+Collecting ipdb (from vlmeval==0.1.0)
+  Downloading ipdb-0.13.13-py3-none-any.whl.metadata (14 kB)
+Collecting json_repair (from vlmeval==0.1.0)
+  Downloading json_repair-0.61.7-py3-none-any.whl.metadata (20 kB)
+Collecting math-verify (from vlmeval==0.1.0)
+  Downloading math_verify-0.9.0-py3-none-any.whl.metadata (1.6 kB)
+Requirement already satisfied: matplotlib in /usr/local/lib/python3.12/dist-packages (from vlmeval==0.1.0) (3.10.0)
+Requirement already satisfied: nltk in /usr/local/lib/python3.12/dist-packages (from vlmeval==0.1.0) (3.9.1)
+Requirement already satisfied: numpy in /usr/local/lib/python3.12/dist-packages (from vlmeval==0.1.0) (2.0.2)
+Requirement already satisfied: omegaconf in /usr/local/lib/python3.12/dist-packages (from vlmeval==0.1.0) (2.3.1)
+Requirement already satisfied: openai in /usr/local/lib/python3.12/dist-packages (from vlmeval==0.1.0) (2.45.0)
+Requirement already satisfied: opencv-python>=4.7.0.72 in /usr/local/lib/python3.12/dist-packages (from vlmeval==0.1.0) (5.0.0.93)
+Requirement already satisfied: openpyxl in /usr/local/lib/python3.12/dist-packages (from vlmeval==0.1.0) (3.1.5)
+Requirement already satisfied: pandas in /usr/local/lib/python3.12/dist-packages (from vlmeval==0.1.0) (2.2.2)
+Requirement already satisfied: pillow in /usr/local/lib/python3.12/dist-packages (from vlmeval==0.1.0) (11.3.0)
+Collecting portalocker (from vlmeval==0.1.0)
+  Downloading portalocker-3.2.0-py3-none-any.whl.metadata (8.7 kB)
+Requirement already satisfied: protobuf in /usr/local/lib/python3.12/dist-packages (from vlmeval==0.1.0) (5.29.6)
+Collecting pylatexenc==2.10 (from vlmeval==0.1.0)
+  Downloading pylatexenc-2.10.tar.gz (162 kB)
+     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 162.6/162.6 kB 6.7 MB/s eta 0:00:00
+  Preparing metadata (setup.py): started
+  Preparing metadata (setup.py): finished with status 'done'
+Requirement already satisfied: python-dotenv in /usr/local/lib/python3.12/dist-packages (from vlmeval==0.1.0) (1.2.2)
+Collecting qwen_vl_utils==0.0.14 (from vlmeval==0.1.0)
+  Downloading qwen_vl_utils-0.0.14-py3-none-any.whl.metadata (9.0 kB)
+Requirement already satisfied: requests in /usr/local/lib/python3.12/dist-packages (from vlmeval==0.1.0) (2.32.4)
+Requirement already satisfied: rich in /usr/local/lib/python3.12/dist-packages (from vlmeval==0.1.0) (13.9.4)
+Collecting scenedetect==0.6.7.1 (from vlmeval==0.1.0)
+  Downloading scenedetect-0.6.7.1-py3-none-any.whl.metadata (3.8 kB)
+Requirement already satisfied: scipy in /usr/local/lib/python3.12/dist-packages (from vlmeval==0.1.0) (1.16.3)
+Requirement already satisfied: scikit-learn in /usr/local/lib/python3.12/dist-packages (from vlmeval==0.1.0) (1.6.1)
+Requirement already satisfied: sentencepiece in /usr/local/lib/python3.12/dist-packages (from vlmeval==0.1.0) (0.2.2)
+Requirement already satisfied: setuptools in /usr/local/lib/python3.12/dist-packages (from vlmeval==0.1.0) (75.2.0)
+Collecting sty (from vlmeval==0.1.0)
+  Downloading sty-1.0.6-py3-none-any.whl.metadata (5.7 kB)
+Requirement already satisfied: sympy in /usr/local/lib/python3.12/dist-packages (from vlmeval==0.1.0) (1.14.0)
+Requirement already satisfied: tabulate in /usr/local/lib/python3.12/dist-packages (from vlmeval==0.1.0) (0.9.0)
+Requirement already satisfied: tiktoken in /usr/local/lib/python3.12/dist-packages (from vlmeval==0.1.0) (0.13.0)
+Collecting timeout-decorator (from vlmeval==0.1.0)
+  Downloading timeout-decorator-0.5.0.tar.gz (4.8 kB)
+  Preparing metadata (setup.py): started
+  Preparing metadata (setup.py): finished with status 'done'
+Requirement already satisfied: timm in /usr/local/lib/python3.12/dist-packages (from vlmeval==0.1.0) (1.0.28)
+Requirement already satisfied: torch in /usr/local/lib/python3.12/dist-packages (from vlmeval==0.1.0) (2.11.0+cu128)
+Requirement already satisfied: torchvision in /usr/local/lib/python3.12/dist-packages (from vlmeval==0.1.0) (0.26.0+cu128)
+Requirement already satisfied: tqdm in /usr/local/lib/python3.12/dist-packages (from vlmeval==0.1.0) (4.67.3)
+Collecting transformers==4.57.6 (from vlmeval==0.1.0)
+  Downloading transformers-4.57.6-py3-none-any.whl.metadata (43 kB)
+     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 44.0/44.0 kB 3.8 MB/s eta 0:00:00
+Requirement already satisfied: typing_extensions in /usr/local/lib/python3.12/dist-packages (from vlmeval==0.1.0) (4.16.0)
+Collecting validators (from vlmeval==0.1.0)
+  Downloading validators-0.35.0-py3-none-any.whl.metadata (3.9 kB)
+Collecting xlsxwriter (from vlmeval==0.1.0)
+  Downloading xlsxwriter-3.2.9-py3-none-any.whl.metadata (2.7 kB)
+Requirement already satisfied: filelock in /usr/local/lib/python3.12/dist-packages (from huggingface_hub==0.36.2->vlmeval==0.1.0) (3.29.7)
+Requirement already satisfied: fsspec>=2023.5.0 in /usr/local/lib/python3.12/dist-packages (from huggingface_hub==0.36.2->vlmeval==0.1.0) (2025.3.0)
+Requirement already satisfied: hf-xet<2.0.0,>=1.1.3 in /usr/local/lib/python3.12/dist-packages (from huggingface_hub==0.36.2->vlmeval==0.1.0) (1.5.1)
+Requirement already satisfied: packaging>=20.9 in /usr/local/lib/python3.12/dist-packages (from huggingface_hub==0.36.2->vlmeval==0.1.0) (26.2)
+Requirement already satisfied: pyyaml>=5.1 in /usr/local/lib/python3.12/dist-packages (from huggingface_hub==0.36.2->vlmeval==0.1.0) (6.0.3)
+Collecting av (from qwen_vl_utils==0.0.14->vlmeval==0.1.0)
+  Downloading av-18.0.0-cp311-abi3-manylinux_2_28_x86_64.whl.metadata (4.5 kB)
+Collecting click<8.3.0,~=8.0 (from scenedetect==0.6.7.1->vlmeval==0.1.0)
+  Downloading click-8.2.1-py3-none-any.whl.metadata (2.5 kB)
+Requirement already satisfied: platformdirs in /usr/local/lib/python3.12/dist-packages (from scenedetect==0.6.7.1->vlmeval==0.1.0) (4.10.0)
+Requirement already satisfied: regex!=2019.12.17 in /usr/local/lib/python3.12/dist-packages (from transformers==4.57.6->vlmeval==0.1.0) (2025.11.3)
+Requirement already satisfied: tokenizers<=0.23.0,>=0.22.0 in /usr/local/lib/python3.12/dist-packages (from transformers==4.57.6->vlmeval==0.1.0) (0.22.2)
+Requirement already satisfied: safetensors>=0.4.3 in /usr/local/lib/python3.12/dist-packages (from transformers==4.57.6->vlmeval==0.1.0) (0.8.0)
+Requirement already satisfied: psutil in /usr/local/lib/python3.12/dist-packages (from accelerate->vlmeval==0.1.0) (5.9.5)
+Requirement already satisfied: networkx>=2.5.1 in /usr/local/lib/python3.12/dist-packages (from torch->vlmeval==0.1.0) (3.6.1)
+Requirement already satisfied: jinja2 in /usr/local/lib/python3.12/dist-packages (from torch->vlmeval==0.1.0) (3.1.6)
+Requirement already satisfied: cuda-toolkit==12.8.1 in /usr/local/lib/python3.12/dist-packages (from cuda-toolkit[cublas,cudart,cufft,cufile,cupti,curand,cusolver,cusparse,nvjitlink,nvrtc,nvtx]==12.8.1; platform_system == "Linux"->torch->vlmeval==0.1.0) (12.8.1)
+Requirement already satisfied: cuda-bindings<13,>=12.9.4 in /usr/local/lib/python3.12/dist-packages (from torch->vlmeval==0.1.0) (12.9.7)
+Requirement already satisfied: nvidia-cudnn-cu12==9.19.0.56 in /usr/local/lib/python3.12/dist-packages (from torch->vlmeval==0.1.0) (9.19.0.56)
+Requirement already satisfied: nvidia-cusparselt-cu12==0.7.1 in /usr/local/lib/python3.12/dist-packages (from torch->vlmeval==0.1.0) (0.7.1)
+Requirement already satisfied: nvidia-nccl-cu12==2.28.9 in /usr/local/lib/python3.12/dist-packages (from torch->vlmeval==0.1.0) (2.28.9)
+Requirement already satisfied: nvidia-nvshmem-cu12==3.4.5 in /usr/local/lib/python3.12/dist-packages (from torch->vlmeval==0.1.0) (3.4.5)
+Requirement already satisfied: triton==3.6.0 in /usr/local/lib/python3.12/dist-packages (from torch->vlmeval==0.1.0) (3.6.0)
+Requirement already satisfied: nvidia-cublas-cu12==12.8.4.1.* in /usr/local/lib/python3.12/dist-packages (from cuda-toolkit[cublas,cudart,cufft,cufile,cupti,curand,cusolver,cusparse,nvjitlink,nvrtc,nvtx]==12.8.1; platform_system == "Linux"->torch->vlmeval==0.1.0) (12.8.4.1)
+Requirement already satisfied: nvidia-cuda-runtime-cu12==12.8.90.* in /usr/local/lib/python3.12/dist-packages (from cuda-toolkit[cublas,cudart,cufft,cufile,cupti,curand,cusolver,cusparse,nvjitlink,nvrtc,nvtx]==12.8.1; platform_system == "Linux"->torch->vlmeval==0.1.0) (12.8.90)
+Requirement already satisfied: nvidia-cufft-cu12==11.3.3.83.* in /usr/local/lib/python3.12/dist-packages (from cuda-toolkit[cublas,cudart,cufft,cufile,cupti,curand,cusolver,cusparse,nvjitlink,nvrtc,nvtx]==12.8.1; platform_system == "Linux"->torch->vlmeval==0.1.0) (11.3.3.83)
+Requirement already satisfied: nvidia-cufile-cu12==1.13.1.3.* in /usr/local/lib/python3.12/dist-packages (from cuda-toolkit[cublas,cudart,cufft,cufile,cupti,curand,cusolver,cusparse,nvjitlink,nvrtc,nvtx]==12.8.1; platform_system == "Linux"->torch->vlmeval==0.1.0) (1.13.1.3)
+Requirement already satisfied: nvidia-cuda-cupti-cu12==12.8.90.* in /usr/local/lib/python3.12/dist-packages (from cuda-toolkit[cublas,cudart,cufft,cufile,cupti,curand,cusolver,cusparse,nvjitlink,nvrtc,nvtx]==12.8.1; platform_system == "Linux"->torch->vlmeval==0.1.0) (12.8.90)
+Requirement already satisfied: nvidia-curand-cu12==10.3.9.90.* in /usr/local/lib/python3.12/dist-packages (from cuda-toolkit[cublas,cudart,cufft,cufile,cupti,curand,cusolver,cusparse,nvjitlink,nvrtc,nvtx]==12.8.1; platform_system == "Linux"->torch->vlmeval==0.1.0) (10.3.9.90)
+Requirement already satisfied: nvidia-cusolver-cu12==11.7.3.90.* in /usr/local/lib/python3.12/dist-packages (from cuda-toolkit[cublas,cudart,cufft,cufile,cupti,curand,cusolver,cusparse,nvjitlink,nvrtc,nvtx]==12.8.1; platform_system == "Linux"->torch->vlmeval==0.1.0) (11.7.3.90)
+Requirement already satisfied: nvidia-cusparse-cu12==12.5.8.93.* in /usr/local/lib/python3.12/dist-packages (from cuda-toolkit[cublas,cudart,cufft,cufile,cupti,curand,cusolver,cusparse,nvjitlink,nvrtc,nvtx]==12.8.1; platform_system == "Linux"->torch->vlmeval==0.1.0) (12.5.8.93)
+Requirement already satisfied: nvidia-nvjitlink-cu12==12.8.93.* in /usr/local/lib/python3.12/dist-packages (from cuda-toolkit[cublas,cudart,cufft,cufile,cupti,curand,cusolver,cusparse,nvjitlink,nvrtc,nvtx]==12.8.1; platform_system == "Linux"->torch->vlmeval==0.1.0) (12.8.93)
+Requirement already satisfied: nvidia-cuda-nvrtc-cu12==12.8.93.* in /usr/local/lib/python3.12/dist-packages (from cuda-toolkit[cublas,cudart,cufft,cufile,cupti,curand,cusolver,cusparse,nvjitlink,nvrtc,nvtx]==12.8.1; platform_system == "Linux"->torch->vlmeval==0.1.0) (12.8.93)
+Requirement already satisfied: nvidia-nvtx-cu12==12.8.90.* in /usr/local/lib/python3.12/dist-packages (from cuda-toolkit[cublas,cudart,cufft,cufile,cupti,curand,cusolver,cusparse,nvjitlink,nvrtc,nvtx]==12.8.1; platform_system == "Linux"->torch->vlmeval==0.1.0) (12.8.90)
+Requirement already satisfied: mpmath<1.4,>=1.1.0 in /usr/local/lib/python3.12/dist-packages (from sympy->vlmeval==0.1.0) (1.3.0)
+Requirement already satisfied: pyarrow>=15.0.0 in /usr/local/lib/python3.12/dist-packages (from datasets->vlmeval==0.1.0) (18.1.0)
+Requirement already satisfied: dill<0.3.9,>=0.3.0 in /usr/local/lib/python3.12/dist-packages (from datasets->vlmeval==0.1.0) (0.3.8)
+Requirement already satisfied: xxhash in /usr/local/lib/python3.12/dist-packages (from datasets->vlmeval==0.1.0) (3.8.1)
+Requirement already satisfied: multiprocess<0.70.17 in /usr/local/lib/python3.12/dist-packages (from datasets->vlmeval==0.1.0) (0.70.16)
+Requirement already satisfied: charset_normalizer<4,>=2 in /usr/local/lib/python3.12/dist-packages (from requests->vlmeval==0.1.0) (3.4.9)
+Requirement already satisfied: idna<4,>=2.5 in /usr/local/lib/python3.12/dist-packages (from requests->vlmeval==0.1.0) (3.18)
+Requirement already satisfied: urllib3<3,>=1.21.1 in /usr/local/lib/python3.12/dist-packages (from requests->vlmeval==0.1.0) (2.5.0)
+Requirement already satisfied: certifi>=2017.4.17 in /usr/local/lib/python3.12/dist-packages (from requests->vlmeval==0.1.0) (2026.6.17)
+Requirement already satisfied: anyio<5.0.0,>=4.8.0 in /usr/local/lib/python3.12/dist-packages (from google-genai->vlmeval==0.1.0) (4.14.2)
+Requirement already satisfied: google-auth<3.0.0,>=2.48.1 in /usr/local/lib/python3.12/dist-packages (from google-auth[requests]<3.0.0,>=2.48.1->google-genai->vlmeval==0.1.0) (2.49.0)
+Requirement already satisfied: httpx<1.0.0,>=0.28.1 in /usr/local/lib/python3.12/dist-packages (from google-genai->vlmeval==0.1.0) (0.28.1)
+Requirement already satisfied: pydantic<3.0.0,>=2.12.5 in /usr/local/lib/python3.12/dist-packages (from google-genai->vlmeval==0.1.0) (2.13.4)
+Requirement already satisfied: tenacity<9.2.0,>=8.2.3 in /usr/local/lib/python3.12/dist-packages (from google-genai->vlmeval==0.1.0) (9.1.4)
+Requirement already satisfied: websockets<17.0,>=13.0.0 in /usr/local/lib/python3.12/dist-packages (from google-genai->vlmeval==0.1.0) (15.0.1)
+Requirement already satisfied: distro<2,>=1.7.0 in /usr/local/lib/python3.12/dist-packages (from google-genai->vlmeval==0.1.0) (1.9.0)
+Requirement already satisfied: sniffio in /usr/local/lib/python3.12/dist-packages (from google-genai->vlmeval==0.1.0) (1.3.1)
+Requirement already satisfied: brotli>=1.1.0 in /usr/local/lib/python3.12/dist-packages (from gradio->vlmeval==0.1.0) (1.2.0)
+Requirement already satisfied: fastapi<1.0,>=0.115.2 in /usr/local/lib/python3.12/dist-packages (from gradio->vlmeval==0.1.0) (0.139.0)
+Requirement already satisfied: gradio-client==2.5.0 in /usr/local/lib/python3.12/dist-packages (from gradio->vlmeval==0.1.0) (2.5.0)
+Requirement already satisfied: groovy~=0.1 in /usr/local/lib/python3.12/dist-packages (from gradio->vlmeval==0.1.0) (0.1.2)
+Requirement already satisfied: hf-gradio<1.0,>=0.4.1 in /usr/local/lib/python3.12/dist-packages (from gradio->vlmeval==0.1.0) (0.4.1)
+INFO: pip is looking at multiple versions of gradio to determine which version is compatible with other requirements. This could take a while.
+Collecting gradio (from vlmeval==0.1.0)
+  Downloading gradio-6.19.0-py3-none-any.whl.metadata (17 kB)
+  Downloading gradio-6.18.0-py3-none-any.whl.metadata (17 kB)
+  Downloading gradio-6.17.3-py3-none-any.whl.metadata (17 kB)
+Requirement already satisfied: markupsafe<4.0,>=2.0 in /usr/local/lib/python3.12/dist-packages (from gradio->vlmeval==0.1.0) (3.0.3)
+Requirement already satisfied: orjson~=3.0 in /usr/local/lib/python3.12/dist-packages (from gradio->vlmeval==0.1.0) (3.11.9)
+Requirement already satisfied: pydub<1.0 in /usr/local/lib/python3.12/dist-packages (from gradio->vlmeval==0.1.0) (0.25.1)
+Requirement already satisfied: python-multipart<1.0,>=0.0.18 in /usr/local/lib/python3.12/dist-packages (from gradio->vlmeval==0.1.0) (0.0.32)
+Requirement already satisfied: pytz>=2017.2 in /usr/local/lib/python3.12/dist-packages (from gradio->vlmeval==0.1.0) (2025.2)
+Requirement already satisfied: safehttpx<0.2.0,>=0.1.7 in /usr/local/lib/python3.12/dist-packages (from gradio->vlmeval==0.1.0) (0.1.7)
+Requirement already satisfied: semantic-version~=2.0 in /usr/local/lib/python3.12/dist-packages (from gradio->vlmeval==0.1.0) (2.10.0)
+Requirement already satisfied: starlette<2.0,>=1.0.1 in /usr/local/lib/python3.12/dist-packages (from gradio->vlmeval==0.1.0) (1.3.1)
+Requirement already satisfied: tomlkit<0.15.0,>=0.12.0 in /usr/local/lib/python3.12/dist-packages (from gradio->vlmeval==0.1.0) (0.14.0)
+Requirement already satisfied: typer<1.0,>=0.12 in /usr/local/lib/python3.12/dist-packages (from gradio->vlmeval==0.1.0) (0.26.8)
+Requirement already satisfied: uvicorn>=0.14.0 in /usr/local/lib/python3.12/dist-packages (from gradio->vlmeval==0.1.0) (0.51.0)
+Requirement already satisfied: python-dateutil>=2.8.2 in /usr/local/lib/python3.12/dist-packages (from pandas->vlmeval==0.1.0) (2.9.0.post0)
+Requirement already satisfied: tzdata>=2022.7 in /usr/local/lib/python3.12/dist-packages (from pandas->vlmeval==0.1.0) (2026.3)
+Requirement already satisfied: ipython>=7.31.1 in /usr/local/lib/python3.12/dist-packages (from ipdb->vlmeval==0.1.0) (7.34.0)
+Requirement already satisfied: decorator in /usr/local/lib/python3.12/dist-packages (from ipdb->vlmeval==0.1.0) (4.4.2)
+Collecting latex2sympy2_extended==1.11.0 (from math-verify->vlmeval==0.1.0)
+  Downloading latex2sympy2_extended-1.11.0-py3-none-any.whl.metadata (5.3 kB)
+Requirement already satisfied: antlr4-python3-runtime<=4.13.2,>=4.9.3 in /usr/local/lib/python3.12/dist-packages (from latex2sympy2_extended==1.11.0->math-verify->vlmeval==0.1.0) (4.9.3)
+Requirement already satisfied: contourpy>=1.0.1 in /usr/local/lib/python3.12/dist-packages (from matplotlib->vlmeval==0.1.0) (1.3.3)
+Requirement already satisfied: cycler>=0.10 in /usr/local/lib/python3.12/dist-packages (from matplotlib->vlmeval==0.1.0) (0.12.1)
+Requirement already satisfied: fonttools>=4.22.0 in /usr/local/lib/python3.12/dist-packages (from matplotlib->vlmeval==0.1.0) (4.63.0)
+Requirement already satisfied: kiwisolver>=1.3.1 in /usr/local/lib/python3.12/dist-packages (from matplotlib->vlmeval==0.1.0) (1.5.0)
+Requirement already satisfied: pyparsing>=2.3.1 in /usr/local/lib/python3.12/dist-packages (from matplotlib->vlmeval==0.1.0) (3.3.2)
+Requirement already satisfied: joblib in /usr/local/lib/python3.12/dist-packages (from nltk->vlmeval==0.1.0) (1.5.3)
+Requirement already satisfied: jiter<1,>=0.10.0 in /usr/local/lib/python3.12/dist-packages (from openai->vlmeval==0.1.0) (0.16.0)
+Requirement already satisfied: et-xmlfile in /usr/local/lib/python3.12/dist-packages (from openpyxl->vlmeval==0.1.0) (2.0.0)
+Requirement already satisfied: markdown-it-py>=2.2.0 in /usr/local/lib/python3.12/dist-packages (from rich->vlmeval==0.1.0) (4.2.0)
+Requirement already satisfied: pygments<3.0.0,>=2.13.0 in /usr/local/lib/python3.12/dist-packages (from rich->vlmeval==0.1.0) (2.20.0)
+Requirement already satisfied: threadpoolctl>=3.1.0 in /usr/local/lib/python3.12/dist-packages (from scikit-learn->vlmeval==0.1.0) (3.6.0)
+Requirement already satisfied: cuda-pathfinder~=1.1 in /usr/local/lib/python3.12/dist-packages (from cuda-bindings<13,>=12.9.4->torch->vlmeval==0.1.0) (1.5.6)
+Requirement already satisfied: typing-inspection>=0.4.2 in /usr/local/lib/python3.12/dist-packages (from fastapi<1.0,>=0.115.2->gradio->vlmeval==0.1.0) (0.4.2)
+Requirement already satisfied: annotated-doc>=0.0.2 in /usr/local/lib/python3.12/dist-packages (from fastapi<1.0,>=0.115.2->gradio->vlmeval==0.1.0) (0.0.4)
+Requirement already satisfied: aiohttp!=4.0.0a0,!=4.0.0a1 in /usr/local/lib/python3.12/dist-packages (from fsspec[http]<=2025.3.0,>=2023.1.0->datasets->vlmeval==0.1.0) (3.14.1)
+Requirement already satisfied: pyasn1-modules>=0.2.1 in /usr/local/lib/python3.12/dist-packages (from google-auth<3.0.0,>=2.48.1->google-auth[requests]<3.0.0,>=2.48.1->google-genai->vlmeval==0.1.0) (0.4.2)
+Requirement already satisfied: cryptography>=38.0.3 in /usr/local/lib/python3.12/dist-packages (from google-auth<3.0.0,>=2.48.1->google-auth[requests]<3.0.0,>=2.48.1->google-genai->vlmeval==0.1.0) (49.0.0)
+Requirement already satisfied: rsa<5,>=3.1.4 in /usr/local/lib/python3.12/dist-packages (from google-auth<3.0.0,>=2.48.1->google-auth[requests]<3.0.0,>=2.48.1->google-genai->vlmeval==0.1.0) (4.9.1)
+Requirement already satisfied: httpcore==1.* in /usr/local/lib/python3.12/dist-packages (from httpx<1.0.0,>=0.28.1->google-genai->vlmeval==0.1.0) (1.0.9)
+Requirement already satisfied: h11>=0.16 in /usr/local/lib/python3.12/dist-packages (from httpcore==1.*->httpx<1.0.0,>=0.28.1->google-genai->vlmeval==0.1.0) (0.16.0)
+Collecting jedi>=0.16 (from ipython>=7.31.1->ipdb->vlmeval==0.1.0)
+  Downloading jedi-0.20.0-py2.py3-none-any.whl.metadata (23 kB)
+Requirement already satisfied: pickleshare in /usr/local/lib/python3.12/dist-packages (from ipython>=7.31.1->ipdb->vlmeval==0.1.0) (0.7.5)
+Requirement already satisfied: traitlets>=4.2 in /usr/local/lib/python3.12/dist-packages (from ipython>=7.31.1->ipdb->vlmeval==0.1.0) (5.7.1)
+Requirement already satisfied: prompt-toolkit!=3.0.0,!=3.0.1,<3.1.0,>=2.0.0 in /usr/local/lib/python3.12/dist-packages (from ipython>=7.31.1->ipdb->vlmeval==0.1.0) (3.0.52)
+Requirement already satisfied: backcall in /usr/local/lib/python3.12/dist-packages (from ipython>=7.31.1->ipdb->vlmeval==0.1.0) (0.2.0)
+Requirement already satisfied: matplotlib-inline in /usr/local/lib/python3.12/dist-packages (from ipython>=7.31.1->ipdb->vlmeval==0.1.0) (0.2.2)
+Requirement already satisfied: pexpect>4.3 in /usr/local/lib/python3.12/dist-packages (from ipython>=7.31.1->ipdb->vlmeval==0.1.0) (4.9.0)
+Requirement already satisfied: mdurl~=0.1 in /usr/local/lib/python3.12/dist-packages (from markdown-it-py>=2.2.0->rich->vlmeval==0.1.0) (0.1.2)
+Requirement already satisfied: annotated-types>=0.6.0 in /usr/local/lib/python3.12/dist-packages (from pydantic<3.0.0,>=2.12.5->google-genai->vlmeval==0.1.0) (0.7.0)
+Requirement already satisfied: pydantic-core==2.46.4 in /usr/local/lib/python3.12/dist-packages (from pydantic<3.0.0,>=2.12.5->google-genai->vlmeval==0.1.0) (2.46.4)
+Requirement already satisfied: six>=1.5 in /usr/local/lib/python3.12/dist-packages (from python-dateutil>=2.8.2->pandas->vlmeval==0.1.0) (1.17.0)
+Requirement already satisfied: shellingham>=1.3.0 in /usr/local/lib/python3.12/dist-packages (from typer<1.0,>=0.12->gradio->vlmeval==0.1.0) (1.5.4)
+Requirement already satisfied: aiohappyeyeballs>=2.5.0 in /usr/local/lib/python3.12/dist-packages (from aiohttp!=4.0.0a0,!=4.0.0a1->fsspec[http]<=2025.3.0,>=2023.1.0->datasets->vlmeval==0.1.0) (2.7.1)
+Requirement already satisfied: aiosignal>=1.4.0 in /usr/local/lib/python3.12/dist-packages (from aiohttp!=4.0.0a0,!=4.0.0a1->fsspec[http]<=2025.3.0,>=2023.1.0->datasets->vlmeval==0.1.0) (1.4.0)
+Requirement already satisfied: attrs>=17.3.0 in /usr/local/lib/python3.12/dist-packages (from aiohttp!=4.0.0a0,!=4.0.0a1->fsspec[http]<=2025.3.0,>=2023.1.0->datasets->vlmeval==0.1.0) (26.1.0)
+Requirement already satisfied: frozenlist>=1.1.1 in /usr/local/lib/python3.12/dist-packages (from aiohttp!=4.0.0a0,!=4.0.0a1->fsspec[http]<=2025.3.0,>=2023.1.0->datasets->vlmeval==0.1.0) (1.8.0)
+Requirement already satisfied: multidict<7.0,>=4.5 in /usr/local/lib/python3.12/dist-packages (from aiohttp!=4.0.0a0,!=4.0.0a1->fsspec[http]<=2025.3.0,>=2023.1.0->datasets->vlmeval==0.1.0) (6.7.1)
+Requirement already satisfied: propcache>=0.2.0 in /usr/local/lib/python3.12/dist-packages (from aiohttp!=4.0.0a0,!=4.0.0a1->fsspec[http]<=2025.3.0,>=2023.1.0->datasets->vlmeval==0.1.0) (0.5.2)
+Requirement already satisfied: yarl<2.0,>=1.17.0 in /usr/local/lib/python3.12/dist-packages (from aiohttp!=4.0.0a0,!=4.0.0a1->fsspec[http]<=2025.3.0,>=2023.1.0->datasets->vlmeval==0.1.0) (1.24.2)
+Requirement already satisfied: cffi>=2.0.0 in /usr/local/lib/python3.12/dist-packages (from cryptography>=38.0.3->google-auth<3.0.0,>=2.48.1->google-auth[requests]<3.0.0,>=2.48.1->google-genai->vlmeval==0.1.0) (2.1.0)
+Requirement already satisfied: parso<0.9.0,>=0.8.6 in /usr/local/lib/python3.12/dist-packages (from jedi>=0.16->ipython>=7.31.1->ipdb->vlmeval==0.1.0) (0.8.7)
+Requirement already satisfied: ptyprocess>=0.5 in /usr/local/lib/python3.12/dist-packages (from pexpect>4.3->ipython>=7.31.1->ipdb->vlmeval==0.1.0) (0.7.0)
+Requirement already satisfied: wcwidth in /usr/local/lib/python3.12/dist-packages (from prompt-toolkit!=3.0.0,!=3.0.1,<3.1.0,>=2.0.0->ipython>=7.31.1->ipdb->vlmeval==0.1.0) (0.8.2)
+Requirement already satisfied: pyasn1<0.7.0,>=0.6.1 in /usr/local/lib/python3.12/dist-packages (from pyasn1-modules>=0.2.1->google-auth<3.0.0,>=2.48.1->google-auth[requests]<3.0.0,>=2.48.1->google-genai->vlmeval==0.1.0) (0.6.4)
+Requirement already satisfied: pycparser in /usr/local/lib/python3.12/dist-packages (from cffi>=2.0.0->cryptography>=38.0.3->google-auth<3.0.0,>=2.48.1->google-auth[requests]<3.0.0,>=2.48.1->google-genai->vlmeval==0.1.0) (3.0)
+Downloading huggingface_hub-0.36.2-py3-none-any.whl (566 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 566.4/566.4 kB 28.3 MB/s eta 0:00:00
+Downloading qwen_vl_utils-0.0.14-py3-none-any.whl (8.1 kB)
+Downloading scenedetect-0.6.7.1-py3-none-any.whl (130 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 130.9/130.9 kB 15.7 MB/s eta 0:00:00
+Downloading transformers-4.57.6-py3-none-any.whl (12.0 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 12.0/12.0 MB 110.1 MB/s eta 0:00:00
+Downloading dotenv-0.9.9-py2.py3-none-any.whl (1.9 kB)
+Downloading gradio-6.17.3-py3-none-any.whl (32.3 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 32.3/32.3 MB 69.4 MB/s eta 0:00:00
+Downloading ipdb-0.13.13-py3-none-any.whl (12 kB)
+Downloading json_repair-0.61.7-py3-none-any.whl (50 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 50.1/50.1 kB 5.0 MB/s eta 0:00:00
+Downloading math_verify-0.9.0-py3-none-any.whl (29 kB)
+Downloading latex2sympy2_extended-1.11.0-py3-none-any.whl (209 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 209.1/209.1 kB 22.6 MB/s eta 0:00:00
+Downloading portalocker-3.2.0-py3-none-any.whl (22 kB)
+Downloading sty-1.0.6-py3-none-any.whl (12 kB)
+Downloading validators-0.35.0-py3-none-any.whl (44 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 44.7/44.7 kB 4.6 MB/s eta 0:00:00
+Downloading xlsxwriter-3.2.9-py3-none-any.whl (175 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 175.3/175.3 kB 19.8 MB/s eta 0:00:00
+Downloading click-8.2.1-py3-none-any.whl (102 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 102.2/102.2 kB 11.2 MB/s eta 0:00:00
+Downloading av-18.0.0-cp311-abi3-manylinux_2_28_x86_64.whl (35.5 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 35.5/35.5 MB 22.4 MB/s eta 0:00:00
+Downloading jedi-0.20.0-py2.py3-none-any.whl (4.9 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 4.9/4.9 MB 103.5 MB/s eta 0:00:00
+Building wheels for collected packages: pylatexenc, timeout-decorator
+  Building wheel for pylatexenc (setup.py): started
+  Building wheel for pylatexenc (setup.py): finished with status 'done'
+  Created wheel for pylatexenc: filename=pylatexenc-2.10-py3-none-any.whl size=136817 sha256=c6fe931e108bf6a8cea808fa90494ccde10519d7dca0f90e823e09006ce75996
+  Stored in directory: /root/.cache/pip/wheels/06/3e/78/fa1588c1ae991bbfd814af2bcac6cef7a178beee1939180d46
+  Building wheel for timeout-decorator (setup.py): started
+  Building wheel for timeout-decorator (setup.py): finished with status 'done'
+  Created wheel for timeout-decorator: filename=timeout_decorator-0.5.0-py3-none-any.whl size=5006 sha256=79a1b6a2ff3843348c31665a63de6420dc1157fb02419126acb3135eccbd9b65
+  Stored in directory: /root/.cache/pip/wheels/4d/6a/e3/c4f2cdd67648203ccf069daa31c3935a5c74ec04cccbac9411
+Successfully built pylatexenc timeout-decorator
+Installing collected packages: timeout-decorator, pylatexenc, xlsxwriter, validators, sty, portalocker, json_repair, jedi, dotenv, click, av, scenedetect, qwen_vl_utils, latex2sympy2_extended, huggingface_hub, math-verify, ipdb, transformers, gradio, vlmeval
+  Attempting uninstall: click
+    Found existing installation: click 8.4.2
+    Uninstalling click-8.4.2:
+      Successfully uninstalled click-8.4.2
+  Attempting uninstall: huggingface_hub
+    Found existing installation: huggingface_hub 1.23.0
+    Uninstalling huggingface_hub-1.23.0:
+      Successfully uninstalled huggingface_hub-1.23.0
+  Attempting uninstall: transformers
+    Found existing installation: transformers 5.13.1
+    Uninstalling transformers-5.13.1:
+      Successfully uninstalled transformers-5.13.1
+  Attempting uninstall: gradio
+    Found existing installation: gradio 6.20.0
+    Uninstalling gradio-6.20.0:
+      Successfully uninstalled gradio-6.20.0
+  Running setup.py develop for vlmeval
+ERROR: pip's dependency resolver does not currently take into account all the packages that are installed. This behaviour is the source of the following dependency conflicts.
+rasterio 1.5.0 requires click!=8.2.*,>=4.0, but you have click 8.2.1 which is incompatible.
+rasterstats 0.21.0 requires click!=8.2.1,>7.1, but you have click 8.2.1 which is incompatible.
+Successfully installed av-18.0.0 click-8.2.1 dotenv-0.9.9 gradio-6.17.3 huggingface_hub-0.36.2 ipdb-0.13.13 jedi-0.20.0 json_repair-0.61.7 latex2sympy2_extended-1.11.0 math-verify-0.9.0 portalocker-3.2.0 pylatexenc-2.10 qwen_vl_utils-0.0.14 scenedetect-0.6.7.1 sty-1.0.6 timeout-decorator-0.5.0 transformers-4.57.6 validators-0.35.0 vlmeval-0.1.0 xlsxwriter-3.2.9
+[2026-07-23T08:32:50.006494+00:00] setup exit code: 0
+[2026-07-23T08:32:50.007311+00:00] dataset: bash scripts/download_omtg_bench.sh
+Fetching 2 files:   0%|          | 0/2 [00:00<?, ?it/s]Downloading 'videos.zip' to '/content/timelens2-data/OMTGBench/.cache/huggingface/download/xUE6l7_b-8a3JymSmW2TFnhXidw=.5451a90807741e15bef79fafa4f099235be54f77be462809f8fb8e0ee95bace2.incomplete'
+Downloading 'OMTGBench.tsv' to '/content/timelens2-data/OMTGBench/.cache/huggingface/download/3o3h6FjiPDTZOCWXEmwkTGb9zSk=.86b2db68a06cd9035db44452ddc480a4dcf1f865.incomplete'
+Download complete. Moving file to /content/timelens2-data/OMTGBench/OMTGBench.tsv
+Fetching 2 files:  50%|█████     | 1/2 [00:00<00:00,  6.08it/s]Download complete. Moving file to /content/timelens2-data/OMTGBench/videos.zip
+Fetching 2 files: 100%|██████████| 2/2 [00:35<00:00, 21.11s/it]Fetching 2 files: 100%|██████████| 2/2 [00:35<00:00, 17.97s/it]
+/content/timelens2-data/OMTGBench
+OMTG Bench ready: 320 queries, 287 videos at /content/timelens2-data/OMTGBench
+[2026-07-23T08:33:47.196807+00:00] dataset exit code: 0
+[2026-07-23T08:33:47.197543+00:00] run: OMTG_RUN_NAME=full OMTG_MAX_SAMPLES=0 bash scripts/run_omtg_search.sh
+2026-07-23 08:34:12.388864: I tensorflow/core/platform/cpu_feature_guard.cc:210] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: AVX2 AVX512F FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+Loading router Qwen/Qwen3-VL-Embedding-2B for 320 records...
+/usr/local/lib/python3.12/dist-packages/moviepy/video/io/ffmpeg_reader.py:294: SyntaxWarning: invalid escape sequence '\d'
+  lines_video = [l for l in lines if ' Video: ' in l and re.search('\d+x\d+', l)]
+/usr/local/lib/python3.12/dist-packages/moviepy/video/io/ffmpeg_reader.py:367: SyntaxWarning: invalid escape sequence '\d'
+  rotation_lines = [l for l in lines if 'rotate          :' in l and re.search('\d+$', l)]
+/usr/local/lib/python3.12/dist-packages/moviepy/video/io/ffmpeg_reader.py:370: SyntaxWarning: invalid escape sequence '\d'
+  match = re.search('\d+$', rotation_line)
+/usr/local/lib/python3.12/dist-packages/moviepy/config_defaults.py:47: SyntaxWarning: invalid escape sequence '\P'
+  IMAGEMAGICK_BINARY = r"C:\Program Files\ImageMagick-6.8.8-Q16\magick.exe"
+[2026-07-23 08:35:01] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 1/320] id=0 windows=3 k=2
+[2026-07-23 08:35:08] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 2/320] id=1 windows=3 k=2
+[2026-07-23 08:35:14] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 3/320] id=2 windows=3 k=2
+[2026-07-23 08:35:19] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 4/320] id=3 windows=1 k=1
+[2026-07-23 08:35:21] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 5/320] id=4 windows=3 k=2
+[2026-07-23 08:35:25] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 6/320] id=5 windows=3 k=2
+[2026-07-23 08:35:32] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 7/320] id=6 windows=3 k=2
+[2026-07-23 08:35:38] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 8/320] id=7 windows=3 k=2
+[2026-07-23 08:35:44] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 9/320] id=8 windows=1 k=1
+[2026-07-23 08:35:45] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 10/320] id=9 windows=1 k=1
+[2026-07-23 08:35:46] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 11/320] id=10 windows=3 k=2
+[2026-07-23 08:35:51] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 12/320] id=11 windows=3 k=2
+[2026-07-23 08:35:57] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 13/320] id=12 windows=1 k=1
+[2026-07-23 08:35:59] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 14/320] id=13 windows=3 k=2
+[2026-07-23 08:36:03] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 15/320] id=14 windows=3 k=2
+[2026-07-23 08:36:08] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 16/320] id=15 windows=3 k=2
+[2026-07-23 08:36:13] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 17/320] id=16 windows=3 k=2
+[2026-07-23 08:36:17] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 18/320] id=17 windows=3 k=2
+[2026-07-23 08:36:21] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 19/320] id=18 windows=1 k=1
+[2026-07-23 08:36:23] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 20/320] id=19 windows=1 k=1
+[2026-07-23 08:36:24] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 21/320] id=20 windows=1 k=1
+[2026-07-23 08:36:25] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 22/320] id=21 windows=3 k=2
+[2026-07-23 08:36:31] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 23/320] id=22 windows=3 k=2
+[2026-07-23 08:36:37] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 24/320] id=23 windows=1 k=1
+[2026-07-23 08:36:38] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 25/320] id=24 windows=1 k=1
+[2026-07-23 08:36:39] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 26/320] id=25 windows=1 k=1
+[2026-07-23 08:36:40] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 27/320] id=26 windows=3 k=2
+[2026-07-23 08:36:45] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 28/320] id=27 windows=3 k=2
+[2026-07-23 08:36:52] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 29/320] id=28 windows=3 k=2
+[2026-07-23 08:36:56] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 30/320] id=29 windows=1 k=1
+[2026-07-23 08:36:57] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 31/320] id=30 windows=3 k=2
+[2026-07-23 08:37:03] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 32/320] id=31 windows=3 k=2
+[2026-07-23 08:37:07] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 33/320] id=32 windows=3 k=2
+[2026-07-23 08:37:11] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 34/320] id=33 windows=3 k=2
+[2026-07-23 08:37:15] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 35/320] id=34 windows=3 k=2
+[2026-07-23 08:37:20] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 36/320] id=35 windows=3 k=2
+[2026-07-23 08:37:26] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 37/320] id=36 windows=1 k=1
+[2026-07-23 08:37:27] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 38/320] id=37 windows=3 k=2
+[2026-07-23 08:37:33] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 39/320] id=38 windows=3 k=2
+[2026-07-23 08:37:40] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 40/320] id=39 windows=1 k=1
+[2026-07-23 08:37:41] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 41/320] id=40 windows=3 k=2
+[2026-07-23 08:37:46] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 42/320] id=41 windows=3 k=2
+[2026-07-23 08:37:52] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 43/320] id=42 windows=3 k=2
+[2026-07-23 08:37:56] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 44/320] id=43 windows=1 k=1
+[route 45/320] id=44 windows=1 k=1
+[2026-07-23 08:37:58] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 46/320] id=45 windows=3 k=2
+[2026-07-23 08:38:05] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 47/320] id=46 windows=3 k=2
+[2026-07-23 08:38:08] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 48/320] id=47 windows=3 k=2
+[2026-07-23 08:38:12] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 49/320] id=48 windows=1 k=1
+[2026-07-23 08:38:13] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 50/320] id=49 windows=1 k=1
+[2026-07-23 08:38:15] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 51/320] id=50 windows=3 k=2
+[2026-07-23 08:38:20] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 52/320] id=51 windows=1 k=1
+[2026-07-23 08:38:22] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 53/320] id=52 windows=1 k=1
+[2026-07-23 08:38:23] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 54/320] id=53 windows=3 k=2
+[2026-07-23 08:38:30] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 55/320] id=54 windows=3 k=2
+[2026-07-23 08:38:34] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 56/320] id=55 windows=1 k=1
+[2026-07-23 08:38:35] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 57/320] id=56 windows=1 k=1
+[2026-07-23 08:38:35] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 58/320] id=57 windows=1 k=1
+[2026-07-23 08:38:37] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 59/320] id=58 windows=3 k=2
+[2026-07-23 08:38:41] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 60/320] id=59 windows=1 k=1
+[2026-07-23 08:38:42] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 61/320] id=60 windows=1 k=1
+[2026-07-23 08:38:44] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 62/320] id=61 windows=3 k=2
+[2026-07-23 08:38:47] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 63/320] id=62 windows=3 k=2
+[2026-07-23 08:38:52] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 64/320] id=63 windows=1 k=1
+[2026-07-23 08:38:53] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 65/320] id=64 windows=4 k=2
+[2026-07-23 08:38:58] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 66/320] id=65 windows=1 k=1
+[2026-07-23 08:38:59] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 67/320] id=66 windows=3 k=2
+[2026-07-23 08:39:04] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 68/320] id=67 windows=3 k=2
+[2026-07-23 08:39:11] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 69/320] id=68 windows=1 k=1
+[2026-07-23 08:39:12] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 70/320] id=69 windows=3 k=2
+[2026-07-23 08:39:16] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 71/320] id=70 windows=1 k=1
+[2026-07-23 08:39:18] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 72/320] id=71 windows=3 k=2
+[2026-07-23 08:39:23] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 73/320] id=72 windows=3 k=2
+[2026-07-23 08:39:29] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 74/320] id=73 windows=3 k=2
+[2026-07-23 08:39:35] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 75/320] id=74 windows=3 k=2
+[2026-07-23 08:39:40] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 76/320] id=75 windows=3 k=2
+[2026-07-23 08:39:45] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 77/320] id=76 windows=4 k=2
+[2026-07-23 08:39:50] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 78/320] id=77 windows=3 k=2
+[2026-07-23 08:39:54] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 79/320] id=78 windows=3 k=2
+[2026-07-23 08:40:02] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 80/320] id=79 windows=3 k=2
+[2026-07-23 08:40:05] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 81/320] id=80 windows=3 k=2
+[2026-07-23 08:40:11] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 82/320] id=81 windows=3 k=2
+[2026-07-23 08:40:16] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 83/320] id=82 windows=3 k=2
+[2026-07-23 08:40:24] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 84/320] id=83 windows=3 k=2
+[2026-07-23 08:40:28] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 85/320] id=84 windows=3 k=2
+[2026-07-23 08:40:31] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 86/320] id=85 windows=3 k=2
+[2026-07-23 08:40:37] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 87/320] id=86 windows=3 k=2
+[2026-07-23 08:40:42] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 88/320] id=87 windows=3 k=2
+[2026-07-23 08:40:46] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 89/320] id=88 windows=3 k=2
+[2026-07-23 08:40:52] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 90/320] id=89 windows=4 k=2
+[2026-07-23 08:40:56] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 91/320] id=90 windows=4 k=2
+[2026-07-23 08:40:59] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 92/320] id=91 windows=2 k=2
+[2026-07-23 08:41:02] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 93/320] id=92 windows=2 k=2
+[2026-07-23 08:41:04] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 94/320] id=93 windows=3 k=2
+[2026-07-23 08:41:06] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 95/320] id=94 windows=4 k=2
+[2026-07-23 08:41:09] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 96/320] id=95 windows=2 k=2
+[2026-07-23 08:41:11] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 97/320] id=96 windows=4 k=2
+[2026-07-23 08:41:15] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 98/320] id=97 windows=2 k=2
+[2026-07-23 08:41:16] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 99/320] id=98 windows=3 k=2
+[2026-07-23 08:41:19] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 100/320] id=99 windows=3 k=2
+[2026-07-23 08:41:22] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 101/320] id=100 windows=1 k=1
+[route 102/320] id=101 windows=1 k=1
+[2026-07-23 08:41:23] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 103/320] id=102 windows=4 k=2
+[2026-07-23 08:41:27] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 104/320] id=103 windows=3 k=2
+[2026-07-23 08:41:30] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 105/320] id=104 windows=4 k=2
+[2026-07-23 08:41:32] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 106/320] id=105 windows=3 k=2
+[2026-07-23 08:41:35] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 107/320] id=106 windows=1 k=1
+[2026-07-23 08:41:36] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 108/320] id=107 windows=4 k=2
+[2026-07-23 08:41:40] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 109/320] id=108 windows=1 k=1
+[2026-07-23 08:41:41] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 110/320] id=109 windows=4 k=2
+[2026-07-23 08:41:45] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 111/320] id=110 windows=3 k=2
+[2026-07-23 08:41:47] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 112/320] id=111 windows=3 k=2
+[2026-07-23 08:41:50] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 113/320] id=112 windows=3 k=2
+[2026-07-23 08:41:53] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 114/320] id=113 windows=2 k=2
+[2026-07-23 08:41:54] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 115/320] id=114 windows=2 k=2
+[2026-07-23 08:41:56] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 116/320] id=115 windows=4 k=2
+[2026-07-23 08:42:00] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 117/320] id=116 windows=2 k=2
+[2026-07-23 08:42:02] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 118/320] id=117 windows=2 k=2
+[2026-07-23 08:42:05] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 119/320] id=118 windows=4 k=2
+[2026-07-23 08:42:07] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 120/320] id=119 windows=2 k=2
+[2026-07-23 08:42:09] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 121/320] id=120 windows=4 k=2
+[2026-07-23 08:42:13] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 122/320] id=121 windows=3 k=2
+[2026-07-23 08:42:16] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 123/320] id=122 windows=3 k=2
+[2026-07-23 08:42:20] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 124/320] id=123 windows=2 k=2
+[2026-07-23 08:42:21] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 125/320] id=124 windows=2 k=2
+[2026-07-23 08:42:22] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 126/320] id=125 windows=2 k=2
+[2026-07-23 08:42:23] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 127/320] id=126 windows=3 k=2
+[2026-07-23 08:42:27] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 128/320] id=127 windows=3 k=2
+[2026-07-23 08:42:31] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 129/320] id=128 windows=2 k=2
+[2026-07-23 08:42:33] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 130/320] id=129 windows=3 k=2
+[2026-07-23 08:42:35] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 131/320] id=130 windows=4 k=2
+[2026-07-23 08:42:39] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 132/320] id=131 windows=3 k=2
+[2026-07-23 08:42:43] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 133/320] id=132 windows=1 k=1
+[2026-07-23 08:42:44] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 134/320] id=133 windows=1 k=1
+[2026-07-23 08:42:45] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 135/320] id=134 windows=1 k=1
+[2026-07-23 08:42:46] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 136/320] id=135 windows=3 k=2
+[2026-07-23 08:42:47] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 137/320] id=136 windows=1 k=1
+[2026-07-23 08:42:48] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 138/320] id=137 windows=2 k=2
+[2026-07-23 08:42:49] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 139/320] id=138 windows=3 k=2
+[2026-07-23 08:42:54] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 140/320] id=139 windows=1 k=1
+[2026-07-23 08:42:55] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 141/320] id=140 windows=5 k=3
+[2026-07-23 08:42:58] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 142/320] id=141 windows=1 k=1
+[2026-07-23 08:42:59] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 143/320] id=142 windows=4 k=2
+[route 144/320] id=143 windows=4 k=2
+[2026-07-23 08:43:04] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 145/320] id=144 windows=1 k=1
+[2026-07-23 08:43:05] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 146/320] id=145 windows=4 k=2
+[2026-07-23 08:43:09] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 147/320] id=146 windows=5 k=3
+[2026-07-23 08:43:12] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 148/320] id=147 windows=1 k=1
+[2026-07-23 08:43:13] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 149/320] id=148 windows=3 k=2
+[2026-07-23 08:43:16] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 150/320] id=149 windows=2 k=2
+[2026-07-23 08:43:17] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 151/320] id=150 windows=1 k=1
+[2026-07-23 08:43:18] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 152/320] id=151 windows=1 k=1
+[2026-07-23 08:43:20] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 153/320] id=152 windows=5 k=3
+[2026-07-23 08:43:23] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 154/320] id=153 windows=1 k=1
+[2026-07-23 08:43:24] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 155/320] id=154 windows=1 k=1
+[2026-07-23 08:43:25] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 156/320] id=155 windows=3 k=2
+[2026-07-23 08:43:27] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 157/320] id=156 windows=2 k=2
+[2026-07-23 08:43:29] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 158/320] id=157 windows=4 k=2
+[2026-07-23 08:43:34] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 159/320] id=158 windows=4 k=2
+[2026-07-23 08:43:38] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 160/320] id=159 windows=4 k=2
+[2026-07-23 08:43:42] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 161/320] id=160 windows=3 k=2
+[2026-07-23 08:43:44] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 162/320] id=161 windows=3 k=2
+[2026-07-23 08:43:47] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 163/320] id=162 windows=2 k=2
+[2026-07-23 08:43:50] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 164/320] id=163 windows=3 k=2
+[2026-07-23 08:43:52] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 165/320] id=164 windows=3 k=2
+[2026-07-23 08:43:56] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 166/320] id=165 windows=3 k=2
+[2026-07-23 08:44:01] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 167/320] id=166 windows=3 k=2
+[2026-07-23 08:44:07] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 168/320] id=167 windows=3 k=2
+[2026-07-23 08:44:14] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 169/320] id=168 windows=3 k=2
+[2026-07-23 08:44:18] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 170/320] id=169 windows=3 k=2
+[2026-07-23 08:44:24] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 171/320] id=170 windows=2 k=2
+[route 172/320] id=171 windows=2 k=2
+[2026-07-23 08:44:28] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[h264 @ 0x328fdac0] mmco: unref short failure
+[h264 @ 0x328fdac0] mmco: unref short failure
+[route 173/320] id=172 windows=6 k=3
+[2026-07-23 08:44:38] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 174/320] id=173 windows=2 k=2
+[2026-07-23 08:44:41] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 175/320] id=174 windows=5 k=3
+[2026-07-23 08:44:46] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 176/320] id=175 windows=5 k=3
+[route 177/320] id=176 windows=5 k=3
+[route 178/320] id=177 windows=5 k=3
+[2026-07-23 08:44:57] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 179/320] id=178 windows=3 k=2
+[route 180/320] id=179 windows=3 k=2
+[2026-07-23 08:45:04] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 181/320] id=180 windows=6 k=3
+[2026-07-23 08:45:12] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 182/320] id=181 windows=4 k=2
+[route 183/320] id=182 windows=4 k=2
+[2026-07-23 08:45:18] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 184/320] id=183 windows=8 k=3
+[2026-07-23 08:45:35] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 185/320] id=184 windows=1 k=1
+[2026-07-23 08:45:37] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 186/320] id=185 windows=3 k=2
+[2026-07-23 08:45:43] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 187/320] id=186 windows=3 k=2
+[2026-07-23 08:45:47] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 188/320] id=187 windows=14 k=4
+[2026-07-23 08:46:01] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 189/320] id=188 windows=4 k=2
+[2026-07-23 08:46:06] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 190/320] id=189 windows=3 k=2
+[route 191/320] id=190 windows=3 k=2
+[2026-07-23 08:46:12] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 192/320] id=191 windows=3 k=2
+[route 193/320] id=192 windows=3 k=2
+[2026-07-23 08:46:17] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 194/320] id=193 windows=2 k=2
+[2026-07-23 08:46:20] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 195/320] id=194 windows=4 k=2
+[2026-07-23 08:46:24] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 196/320] id=195 windows=1 k=1
+[2026-07-23 08:46:25] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 197/320] id=196 windows=3 k=2
+[route 198/320] id=197 windows=3 k=2
+[2026-07-23 08:46:32] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[h264 @ 0x5d715e00] mmco: unref short failure
+[route 199/320] id=198 windows=1 k=1
+[2026-07-23 08:46:33] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 200/320] id=199 windows=4 k=2
+[2026-07-23 08:46:42] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 201/320] id=200 windows=1 k=1
+[2026-07-23 08:46:44] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 202/320] id=201 windows=2 k=2
+[2026-07-23 08:46:48] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 203/320] id=202 windows=1 k=1
+[2026-07-23 08:46:49] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 204/320] id=203 windows=16 k=4
+[2026-07-23 08:47:18] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 205/320] id=204 windows=8 k=3
+[2026-07-23 08:47:28] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 206/320] id=205 windows=9 k=3
+[route 207/320] id=206 windows=9 k=3
+[2026-07-23 08:47:46] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 208/320] id=207 windows=6 k=3
+[2026-07-23 08:47:56] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 209/320] id=208 windows=12 k=4
+[route 210/320] id=209 windows=12 k=4
+[2026-07-23 08:48:20] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 211/320] id=210 windows=6 k=3
+[2026-07-23 08:48:28] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 212/320] id=211 windows=15 k=4
+[2026-07-23 08:48:52] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 213/320] id=212 windows=11 k=4
+[2026-07-23 08:49:08] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 214/320] id=213 windows=6 k=3
+[route 215/320] id=214 windows=6 k=3
+[2026-07-23 08:49:21] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 216/320] id=215 windows=18 k=5
+[2026-07-23 08:49:39] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 217/320] id=216 windows=6 k=3
+[route 218/320] id=217 windows=6 k=3
+[2026-07-23 08:49:50] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 219/320] id=218 windows=16 k=4
+[2026-07-23 08:50:16] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 220/320] id=219 windows=15 k=4
+[route 221/320] id=220 windows=15 k=4
+[2026-07-23 08:50:42] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 222/320] id=221 windows=11 k=4
+[2026-07-23 08:50:58] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 223/320] id=222 windows=11 k=4
+[2026-07-23 08:51:24] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[h264 @ 0x5d719a40] mmco: unref short failure
+[route 224/320] id=223 windows=14 k=4
+[route 225/320] id=224 windows=14 k=4
+[2026-07-23 08:51:50] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 226/320] id=225 windows=5 k=3
+[2026-07-23 08:51:59] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 227/320] id=226 windows=15 k=4
+[route 228/320] id=227 windows=15 k=4
+[route 229/320] id=228 windows=15 k=4
+[2026-07-23 08:52:27] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 230/320] id=229 windows=9 k=3
+[2026-07-23 08:52:37] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 231/320] id=230 windows=15 k=4
+[2026-07-23 08:53:08] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 232/320] id=231 windows=10 k=4
+[2026-07-23 08:53:25] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 233/320] id=232 windows=17 k=5
+[2026-07-23 08:53:57] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[h264 @ 0x5d5ef240] mmco: unref short failure
+[route 234/320] id=233 windows=11 k=4
+[2026-07-23 08:54:18] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 235/320] id=234 windows=12 k=4
+[2026-07-23 08:54:35] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 236/320] id=235 windows=4 k=2
+[route 237/320] id=236 windows=4 k=2
+[2026-07-23 08:54:43] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 238/320] id=237 windows=8 k=3
+[route 239/320] id=238 windows=8 k=3
+[2026-07-23 08:54:57] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 240/320] id=239 windows=13 k=4
+[route 241/320] id=240 windows=13 k=4
+[2026-07-23 08:55:27] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 242/320] id=241 windows=6 k=3
+[route 243/320] id=242 windows=6 k=3
+[2026-07-23 08:55:40] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 244/320] id=243 windows=15 k=4
+[2026-07-23 08:56:12] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 245/320] id=244 windows=4 k=2
+[2026-07-23 08:56:18] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 246/320] id=245 windows=2 k=2
+[2026-07-23 08:56:21] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 247/320] id=246 windows=3 k=2
+[2026-07-23 08:56:27] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 248/320] id=247 windows=16 k=4
+[2026-07-23 08:56:51] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 249/320] id=248 windows=8 k=3
+[2026-07-23 08:57:04] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 250/320] id=249 windows=4 k=2
+[2026-07-23 08:57:11] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 251/320] id=250 windows=4 k=2
+[2026-07-23 08:57:19] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 252/320] id=251 windows=4 k=2
+[2026-07-23 08:57:25] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[h264 @ 0x5d5e0ac0] mmco: unref short failure
+[route 253/320] id=252 windows=12 k=4
+[2026-07-23 08:57:50] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 254/320] id=253 windows=3 k=2
+[2026-07-23 08:57:55] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 255/320] id=254 windows=7 k=3
+[2026-07-23 08:58:06] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 256/320] id=255 windows=5 k=3
+[2026-07-23 08:58:16] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 257/320] id=256 windows=11 k=4
+[2026-07-23 08:58:40] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 258/320] id=257 windows=9 k=3
+[2026-07-23 08:59:01] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 259/320] id=258 windows=5 k=3
+[2026-07-23 08:59:10] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 260/320] id=259 windows=13 k=4
+[2026-07-23 08:59:32] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 261/320] id=260 windows=8 k=3
+[route 262/320] id=261 windows=8 k=3
+[2026-07-23 08:59:46] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 263/320] id=262 windows=6 k=3
+[2026-07-23 08:59:54] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 264/320] id=263 windows=6 k=3
+[2026-07-23 09:00:02] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 265/320] id=264 windows=8 k=3
+[2026-07-23 09:00:15] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 266/320] id=265 windows=3 k=2
+[2026-07-23 09:00:20] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 267/320] id=266 windows=12 k=4
+[2026-07-23 09:00:41] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 268/320] id=267 windows=2 k=2
+[2026-07-23 09:00:43] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 269/320] id=268 windows=3 k=2
+[2026-07-23 09:00:49] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 270/320] id=269 windows=2 k=2
+[2026-07-23 09:00:52] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 271/320] id=270 windows=2 k=2
+[2026-07-23 09:00:54] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 272/320] id=271 windows=6 k=3
+[2026-07-23 09:01:05] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 273/320] id=272 windows=9 k=3
+[2026-07-23 09:01:20] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 274/320] id=273 windows=2 k=2
+[2026-07-23 09:01:23] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 275/320] id=274 windows=21 k=5
+[2026-07-23 09:01:53] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 276/320] id=275 windows=18 k=5
+[2026-07-23 09:02:27] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 277/320] id=276 windows=1 k=1
+[2026-07-23 09:02:30] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 278/320] id=277 windows=8 k=3
+[2026-07-23 09:02:40] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 279/320] id=278 windows=11 k=4
+[2026-07-23 09:03:03] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 280/320] id=279 windows=10 k=4
+[2026-07-23 09:03:20] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 281/320] id=280 windows=3 k=2
+[2026-07-23 09:03:24] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 282/320] id=281 windows=12 k=4
+[2026-07-23 09:03:52] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 283/320] id=282 windows=2 k=2
+[2026-07-23 09:03:55] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 284/320] id=283 windows=5 k=3
+[2026-07-23 09:04:04] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 285/320] id=284 windows=4 k=2
+[2026-07-23 09:04:11] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 286/320] id=285 windows=15 k=4
+[2026-07-23 09:04:43] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 287/320] id=286 windows=7 k=3
+[2026-07-23 09:04:54] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 288/320] id=287 windows=2 k=2
+[2026-07-23 09:04:57] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 289/320] id=288 windows=7 k=3
+[2026-07-23 09:05:08] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 290/320] id=289 windows=13 k=4
+[2026-07-23 09:05:21] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 291/320] id=290 windows=16 k=4
+[2026-07-23 09:05:55] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 292/320] id=291 windows=9 k=3
+[2026-07-23 09:06:09] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 293/320] id=292 windows=5 k=3
+[2026-07-23 09:06:18] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 294/320] id=293 windows=14 k=4
+[2026-07-23 09:06:43] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 295/320] id=294 windows=14 k=4
+[2026-07-23 09:07:07] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 296/320] id=295 windows=1 k=1
+[2026-07-23 09:07:10] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 297/320] id=296 windows=3 k=2
+[2026-07-23 09:07:14] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 298/320] id=297 windows=1 k=1
+[route 299/320] id=298 windows=1 k=1
+[2026-07-23 09:07:16] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 300/320] id=299 windows=1 k=1
+[2026-07-23 09:07:17] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 301/320] id=300 windows=2 k=2
+[2026-07-23 09:07:22] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 302/320] id=301 windows=1 k=1
+[2026-07-23 09:07:23] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 303/320] id=302 windows=1 k=1
+[2026-07-23 09:07:24] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 304/320] id=303 windows=1 k=1
+[route 305/320] id=304 windows=1 k=1
+[2026-07-23 09:07:26] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 306/320] id=305 windows=1 k=1
+[2026-07-23 09:07:28] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 307/320] id=306 windows=2 k=2
+[2026-07-23 09:07:30] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 308/320] id=307 windows=1 k=1
+[route 309/320] id=308 windows=1 k=1
+[route 310/320] id=309 windows=1 k=1
+[2026-07-23 09:07:32] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 311/320] id=310 windows=1 k=1
+[2026-07-23 09:07:34] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 312/320] id=311 windows=2 k=2
+[route 313/320] id=312 windows=2 k=2
+[route 314/320] id=313 windows=2 k=2
+[route 315/320] id=314 windows=2 k=2
+[2026-07-23 09:07:38] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 316/320] id=315 windows=1 k=1
+[route 317/320] id=316 windows=1 k=1
+[2026-07-23 09:07:40] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 318/320] id=317 windows=2 k=2
+[route 319/320] id=318 windows=2 k=2
+[2026-07-23 09:07:42] INFO - scene_manager.py: detect_scenes - 1335: Detecting scenes...
+[route 320/320] id=319 windows=1 k=1
+Loading frozen grounder MCG-NJU/TimeLens2-4B...
+Fetching 2 files:   0%|          | 0/2 [00:00<?, ?it/s]Fetching 2 files:  50%|█████     | 1/2 [04:59<04:59, 299.80s/it]Fetching 2 files: 100%|██████████| 2/2 [04:59<00:00, 149.90s/it]
+Loading checkpoint shards:   0%|          | 0/2 [00:00<?, ?it/s]Loading checkpoint shards:  50%|█████     | 1/2 [00:20<00:20, 20.38s/it]Loading checkpoint shards: 100%|██████████| 2/2 [00:39<00:00, 19.55s/it]Loading checkpoint shards: 100%|██████████| 2/2 [00:39<00:00, 19.68s/it]
+[ground 1] id=0 schedule=uniform-one-shot budget=32 predicted=1
+[ground 2] id=0 schedule=full-video-multipass budget=32 predicted=1
+[ground 3] id=0 schedule=uniform-window-local budget=32 predicted=2
+[ground 4] id=0 schedule=embedding-window-local budget=32 predicted=2
+[ground 5] id=0 schedule=uniform-one-shot budget=64 predicted=1
+[ground 6] id=0 schedule=full-video-multipass budget=64 predicted=1
+[ground 7] id=0 schedule=uniform-window-local budget=64 predicted=2
+[ground 8] id=0 schedule=embedding-window-local budget=64 predicted=2
+[ground 9] id=1 schedule=uniform-one-shot budget=32 predicted=2
+[ground 10] id=1 schedule=full-video-multipass budget=32 predicted=1
+[ground 11] id=1 schedule=uniform-window-local budget=32 predicted=1
+[ground 12] id=1 schedule=embedding-window-local budget=32 predicted=2
+[ground 13] id=1 schedule=uniform-one-shot budget=64 predicted=2
+[ground 14] id=1 schedule=full-video-multipass budget=64 predicted=2
+[ground 15] id=1 schedule=uniform-window-local budget=64 predicted=1
+[ground 16] id=1 schedule=embedding-window-local budget=64 predicted=2
+[ground 17] id=2 schedule=uniform-one-shot budget=32 predicted=1
+[ground 18] id=2 schedule=full-video-multipass budget=32 predicted=1
+[ground 19] id=2 schedule=uniform-window-local budget=32 predicted=2
+[ground 20] id=2 schedule=embedding-window-local budget=32 predicted=2
+[ground 21] id=2 schedule=uniform-one-shot budget=64 predicted=1
+[ground 22] id=2 schedule=full-video-multipass budget=64 predicted=1
+[ground 23] id=2 schedule=uniform-window-local budget=64 predicted=2
+[ground 24] id=2 schedule=embedding-window-local budget=64 predicted=2
+[ground 25] id=3 schedule=uniform-one-shot budget=32 predicted=1
+[ground 26] id=3 schedule=full-video-multipass budget=32 predicted=1
+[ground 27] id=3 schedule=uniform-window-local budget=32 predicted=1
+[ground 28] id=3 schedule=embedding-window-local budget=32 predicted=1
+[ground 29] id=3 schedule=uniform-one-shot budget=64 predicted=2
+[ground 30] id=3 schedule=full-video-multipass budget=64 predicted=1
+[ground 31] id=3 schedule=uniform-window-local budget=64 predicted=2
+[ground 32] id=3 schedule=embedding-window-local budget=64 predicted=2
+[ground 33] id=4 schedule=uniform-one-shot budget=32 predicted=1
+[ground 34] id=4 schedule=full-video-multipass budget=32 predicted=1
+[ground 35] id=4 schedule=uniform-window-local budget=32 predicted=2
+[ground 36] id=4 schedule=embedding-window-local budget=32 predicted=2
+[ground 37] id=4 schedule=uniform-one-shot budget=64 predicted=1
+[ground 38] id=4 schedule=full-video-multipass budget=64 predicted=1
+[ground 39] id=4 schedule=uniform-window-local budget=64 predicted=2
+[ground 40] id=4 schedule=embedding-window-local budget=64 predicted=2
+[ground 41] id=5 schedule=uniform-one-shot budget=32 predicted=1
+[ground 42] id=5 schedule=full-video-multipass budget=32 predicted=1
+[ground 43] id=5 schedule=uniform-window-local budget=32 predicted=1
+[ground 44] id=5 schedule=embedding-window-local budget=32 predicted=1
+[ground 45] id=5 schedule=uniform-one-shot budget=64 predicted=1
+[ground 46] id=5 schedule=full-video-multipass budget=64 predicted=1
+[ground 47] id=5 schedule=uniform-window-local budget=64 predicted=1
+[ground 48] id=5 schedule=embedding-window-local budget=64 predicted=1
+[ground 49] id=6 schedule=uniform-one-shot budget=32 predicted=1
+[ground 50] id=6 schedule=full-video-multipass budget=32 predicted=1
+[ground 51] id=6 schedule=uniform-window-local budget=32 predicted=2
+[ground 52] id=6 schedule=embedding-window-local budget=32 predicted=2
+[ground 53] id=6 schedule=uniform-one-shot budget=64 predicted=1
+[ground 54] id=6 schedule=full-video-multipass budget=64 predicted=2
+[ground 55] id=6 schedule=uniform-window-local budget=64 predicted=2
+[ground 56] id=6 schedule=embedding-window-local budget=64 predicted=2
+[ground 57] id=7 schedule=uniform-one-shot budget=32 predicted=1
+[ground 58] id=7 schedule=full-video-multipass budget=32 predicted=1
+[ground 59] id=7 schedule=uniform-window-local budget=32 predicted=2
+[ground 60] id=7 schedule=embedding-window-local budget=32 predicted=2
+[ground 61] id=7 schedule=uniform-one-shot budget=64 predicted=1
+[ground 62] id=7 schedule=full-video-multipass budget=64 predicted=1
+[ground 63] id=7 schedule=uniform-window-local budget=64 predicted=2
+[ground 64] id=7 schedule=embedding-window-local budget=64 predicted=2
+[ground 65] id=8 schedule=uniform-one-shot budget=32 predicted=2
+[ground 66] id=8 schedule=full-video-multipass budget=32 predicted=1
+[ground 67] id=8 schedule=uniform-window-local budget=32 predicted=2
+[ground 68] id=8 schedule=embedding-window-local budget=32 predicted=2
+[ground 69] id=8 schedule=uniform-one-shot budget=64 predicted=2
+[ground 70] id=8 schedule=full-video-multipass budget=64 predicted=1
+[ground 71] id=8 schedule=uniform-window-local budget=64 predicted=2
+[ground 72] id=8 schedule=embedding-window-local budget=64 predicted=2
+[ground 73] id=9 schedule=uniform-one-shot budget=32 predicted=2
+[ground 74] id=9 schedule=full-video-multipass budget=32 predicted=1
+[ground 75] id=9 schedule=uniform-window-local budget=32 predicted=2
+[ground 76] id=9 schedule=embedding-window-local budget=32 predicted=2
+[ground 77] id=9 schedule=uniform-one-shot budget=64 predicted=2
+[ground 78] id=9 schedule=full-video-multipass budget=64 predicted=2
+[ground 79] id=9 schedule=uniform-window-local budget=64 predicted=2
+[ground 80] id=9 schedule=embedding-window-local budget=64 predicted=2
+[ground 81] id=10 schedule=uniform-one-shot budget=32 predicted=1
+[ground 82] id=10 schedule=full-video-multipass budget=32 predicted=2
+[ground 83] id=10 schedule=uniform-window-local budget=32 predicted=2
+[ground 84] id=10 schedule=embedding-window-local budget=32 predicted=2
+[ground 85] id=10 schedule=uniform-one-shot budget=64 predicted=1
+[ground 86] id=10 schedule=full-video-multipass budget=64 predicted=1
+[ground 87] id=10 schedule=uniform-window-local budget=64 predicted=1
+[ground 88] id=10 schedule=embedding-window-local budget=64 predicted=1
+[ground 89] id=11 schedule=uniform-one-shot budget=32 predicted=1
+[ground 90] id=11 schedule=full-video-multipass budget=32 predicted=1
+[ground 91] id=11 schedule=uniform-window-local budget=32 predicted=1
+[ground 92] id=11 schedule=embedding-window-local budget=32 predicted=2
+[ground 93] id=11 schedule=uniform-one-shot budget=64 predicted=1
+[ground 94] id=11 schedule=full-video-multipass budget=64 predicted=1
+[ground 95] id=11 schedule=uniform-window-local budget=64 predicted=2
+[ground 96] id=11 schedule=embedding-window-local budget=64 predicted=2
+[ground 97] id=12 schedule=uniform-one-shot budget=32 predicted=1
+[ground 98] id=12 schedule=full-video-multipass budget=32 predicted=1
+[ground 99] id=12 schedule=uniform-window-local budget=32 predicted=1
+[ground 100] id=12 schedule=embedding-window-local budget=32 predicted=1
+[ground 101] id=12 schedule=uniform-one-shot budget=64 predicted=1
+[ground 102] id=12 schedule=full-video-multipass budget=64 predicted=1
+[ground 103] id=12 schedule=uniform-window-local budget=64 predicted=1
+[ground 104] id=12 schedule=embedding-window-local budget=64 predicted=1
+[ground 105] id=13 schedule=uniform-one-shot budget=32 predicted=1
+[ground 106] id=13 schedule=full-video-multipass budget=32 predicted=1
+[ground 107] id=13 schedule=uniform-window-local budget=32 predicted=2
+[ground 108] id=13 schedule=embedding-window-local budget=32 predicted=2
+[ground 109] id=13 schedule=uniform-one-shot budget=64 predicted=1
+[ground 110] id=13 schedule=full-video-multipass budget=64 predicted=1
+[ground 111] id=13 schedule=uniform-window-local budget=64 predicted=2
+[ground 112] id=13 schedule=embedding-window-local budget=64 predicted=2
+[ground 113] id=14 schedule=uniform-one-shot budget=32 predicted=1
+[ground 114] id=14 schedule=full-video-multipass budget=32 predicted=1
+[ground 115] id=14 schedule=uniform-window-local budget=32 predicted=2
+[ground 116] id=14 schedule=embedding-window-local budget=32 predicted=2
+[ground 117] id=14 schedule=uniform-one-shot budget=64 predicted=1
+[ground 118] id=14 schedule=full-video-multipass budget=64 predicted=1
+[ground 119] id=14 schedule=uniform-window-local budget=64 predicted=2
+[ground 120] id=14 schedule=embedding-window-local budget=64 predicted=1
+[ground 121] id=15 schedule=uniform-one-shot budget=32 predicted=2
+[ground 122] id=15 schedule=full-video-multipass budget=32 predicted=1
+[ground 123] id=15 schedule=uniform-window-local budget=32 predicted=2
+[ground 124] id=15 schedule=embedding-window-local budget=32 predicted=2
+[ground 125] id=15 schedule=uniform-one-shot budget=64 predicted=2
+[ground 126] id=15 schedule=full-video-multipass budget=64 predicted=2
+[ground 127] id=15 schedule=uniform-window-local budget=64 predicted=2
+[ground 128] id=15 schedule=embedding-window-local budget=64 predicted=2
+[ground 129] id=16 schedule=uniform-one-shot budget=32 predicted=1
+[ground 130] id=16 schedule=full-video-multipass budget=32 predicted=1
+[ground 131] id=16 schedule=uniform-window-local budget=32 predicted=2
+[ground 132] id=16 schedule=embedding-window-local budget=32 predicted=2
+[ground 133] id=16 schedule=uniform-one-shot budget=64 predicted=1
+[ground 134] id=16 schedule=full-video-multipass budget=64 predicted=1
+[ground 135] id=16 schedule=uniform-window-local budget=64 predicted=2
+[ground 136] id=16 schedule=embedding-window-local budget=64 predicted=2
+[ground 137] id=17 schedule=uniform-one-shot budget=32 predicted=1
+[ground 138] id=17 schedule=full-video-multipass budget=32 predicted=2
+[ground 139] id=17 schedule=uniform-window-local budget=32 predicted=2
+[ground 140] id=17 schedule=embedding-window-local budget=32 predicted=2
+[ground 141] id=17 schedule=uniform-one-shot budget=64 predicted=1
+[ground 142] id=17 schedule=full-video-multipass budget=64 predicted=1
+[ground 143] id=17 schedule=uniform-window-local budget=64 predicted=2
+[ground 144] id=17 schedule=embedding-window-local budget=64 predicted=2
+[ground 145] id=18 schedule=uniform-one-shot budget=32 predicted=1
+[ground 146] id=18 schedule=full-video-multipass budget=32 predicted=1
+[ground 147] id=18 schedule=uniform-window-local budget=32 predicted=1
+[ground 148] id=18 schedule=embedding-window-local budget=32 predicted=1
+[ground 149] id=18 schedule=uniform-one-shot budget=64 predicted=1
+[ground 150] id=18 schedule=full-video-multipass budget=64 predicted=1

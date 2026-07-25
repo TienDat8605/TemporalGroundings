@@ -1,5 +1,6 @@
 # Large data files
 *.jsonl
+!results/**/*.jsonl
 
 # Python
 __pycache__/
@@ -23,6 +24,7 @@ logs/
 tensorboard/
 wandb/
 *.log
+!results/**/*.log
 *.out
 
 # Secrets

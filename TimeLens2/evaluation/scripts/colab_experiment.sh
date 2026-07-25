@@ -3,9 +3,10 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+WORKSPACE_ROOT="$(cd "$REPO_ROOT/.." && pwd)"
 REMOTE_CONTROLLER="$SCRIPT_DIR/colab_remote_job.py"
 REMOTE_SPEC_PATH="/content/timelens2_colab_job_spec.json"
-STATE_ROOT="${COLAB_STATE_ROOT:-$REPO_ROOT/.colab-runs}"
+STATE_ROOT="${COLAB_STATE_ROOT:-$WORKSPACE_ROOT/results/colab_runs}"
 
 DEFAULT_SESSION="${COLAB_SESSION:-timelens2}"
 DEFAULT_WORKDIR="${COLAB_WORKDIR:-evaluation}"

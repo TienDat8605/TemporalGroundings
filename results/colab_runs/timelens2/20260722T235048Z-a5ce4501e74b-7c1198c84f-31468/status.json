@@ -1,0 +1,15 @@
+{
+  "archive_sha256": "7c1198c84f0b5d5dcd2a26bb3615688a96247a91ef039e3ae1ce6eb92dee62cc",
+  "created_at": "2026-07-22T23:51:35.012966+00:00",
+  "exit_code": 1,
+  "finished_at": "2026-07-22T23:56:27.318222+00:00",
+  "job_id": "20260722T235048Z-a5ce4501e74b-7c1198c84f-31468",
+  "log_path": "/content/timelens2-runs/20260722T235048Z-a5ce4501e74b-7c1198c84f-31468/job.log",
+  "repo_dir": "/content/timelens2-runs/20260722T235048Z-a5ce4501e74b-7c1198c84f-31468/repo",
+  "run_dir": "/content/timelens2-runs/20260722T235048Z-a5ce4501e74b-7c1198c84f-31468",
+  "source_dirty": true,
+  "source_revision": "a5ce4501e74b",
+  "state": "FAILED",
+  "updated_at": "2026-07-22T23:56:27.318347+00:00",
+  "worker_pid": 4239
+}

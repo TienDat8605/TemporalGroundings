@@ -1,0 +1,20 @@
+{
+  "attention": "sdpa",
+  "backend": "transformers",
+  "data_root": "/workspace/TemporalGroundings/TimeLens2/data/OMTGBench",
+  "max_samples": 0,
+  "model": "Qwen/Qwen3-VL-4B-Instruct",
+  "output_root": "/workspace/TemporalGroundings/TimeLens2/evaluation/outputs/omtg_2fps_baseline",
+  "prompt_modes": [
+    "official",
+    "controlled"
+  ],
+  "run_name": "qwen3-vl-4b-paper-2fps-full",
+  "visual_policy": {
+    "audio": false,
+    "fps": 2.0,
+    "max_pixels": null,
+    "min_pixels": 2048,
+    "total_pixels": 8388608
+  }
+}

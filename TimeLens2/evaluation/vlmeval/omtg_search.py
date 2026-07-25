@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -12,6 +13,30 @@ from typing import Any, Iterable
 
 import cv2
 import numpy as np
+
+
+def query_text(question: str) -> str:
+    """Extract the event text from the official OMTG question when possible."""
+    match = re.search(r"given textual query ['\"](.+?)['\"]", question, re.IGNORECASE)
+    return match.group(1) if match else question
+
+
+def grounding_prompt(query: str, duration: float, local: bool = False) -> str:
+    """Build the JSON-only prompt shared by all controlled OMTG experiments."""
+    coordinate = 'relative to the start of this clip' if local else 'relative to the full video'
+    return (
+        f'Find every disjoint time interval where this event occurs: {query!r}. '
+        f'Timestamps must be in seconds {coordinate}, between 0 and {duration:.3f}. '
+        'Return only a JSON array of [start, end] pairs, ordered by start time. '
+        'Return [] when the event does not occur. Do not omit repeated occurrences.'
+    )
+
+
+def estimated_sampled_frames(duration: float, fps: float, factor: int = 2) -> int:
+    """Estimate Qwen's factor-aligned requested frame count for telemetry."""
+    if duration <= 0 or fps <= 0 or factor <= 0:
+        raise ValueError('duration, fps, and factor must be positive')
+    return max(factor, round(duration * fps / factor) * factor)
 
 
 @dataclass(frozen=True)
@@ -124,6 +149,127 @@ def distribute_frames(total: int, count: int, minimum: int = 2, factor: int = 2)
     total_units = max(math.ceil(total / factor), minimum_units * count)
     base, remainder = divmod(total_units, count)
     return [(base + int(index < remainder)) * factor for index in range(count)]
+
+
+MIN_RESIDUAL_LOCAL_FRAMES = 8
+RESIDUAL_PATIENCE = 2
+RESIDUAL_MASS_THRESHOLD = 0.25
+NOVEL_SUPPORT_SECONDS = 1.0
+
+
+def residual_frame_policy(budget: int, number_of_windows: int) -> dict[str, int]:
+    """Return a strict-budget router/local allocation for residual search."""
+    if budget <= 0 or number_of_windows <= 0:
+        raise ValueError('budget and number_of_windows must be positive')
+    router_frames_per_window = min(
+        4, (budget - MIN_RESIDUAL_LOCAL_FRAMES) // number_of_windows
+    )
+    if router_frames_per_window < 1:
+        raise ValueError(
+            f'Budget {budget} cannot route {number_of_windows} windows and reserve '
+            f'{MIN_RESIDUAL_LOCAL_FRAMES} local frames'
+        )
+    router_frames = router_frames_per_window * number_of_windows
+    local_budget = budget - router_frames
+    even_share = 2 * (local_budget // (2 * number_of_windows))
+    local_frames_per_action = max(MIN_RESIDUAL_LOCAL_FRAMES, even_share)
+    if local_frames_per_action > local_budget:
+        raise ValueError(f'Budget {budget} leaves only {local_budget} local frames')
+    return {
+        'router_frames_per_window': router_frames_per_window,
+        'router_frames': router_frames,
+        'local_budget': local_budget,
+        'local_frames_per_action': local_frames_per_action,
+        'maximum_actions': min(number_of_windows, local_budget // local_frames_per_action),
+    }
+
+
+def interval_union_length(intervals: list[list[float]]) -> float:
+    """Measure temporal support without double-counting overlaps."""
+    if not intervals:
+        return 0.0
+    merged: list[list[float]] = []
+    for start, end in sorted((float(a), float(b)) for a, b in intervals if b > a):
+        if merged and start <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], end)
+        else:
+            merged.append([start, end])
+    return sum(end - start for start, end in merged)
+
+
+def added_support_seconds(current: list[list[float]], previous: list[list[float]]) -> float:
+    """Measure support in current that was not covered by previous."""
+    remaining = 0.0
+    for start, end in current:
+        pieces = [[float(start), float(end)]]
+        for old_start, old_end in previous:
+            next_pieces = []
+            for piece_start, piece_end in pieces:
+                if old_end <= piece_start or old_start >= piece_end:
+                    next_pieces.append([piece_start, piece_end])
+                    continue
+                if old_start > piece_start:
+                    next_pieces.append([piece_start, min(piece_end, old_start)])
+                if old_end < piece_end:
+                    next_pieces.append([max(piece_start, old_end), piece_end])
+            pieces = next_pieces
+        remaining += interval_union_length(pieces)
+    return remaining
+
+
+def _covered_fraction(window: Window, predictions: list[list[float]], expansion: float = 1.0) -> float:
+    intersections = [
+        [max(window.start, start - expansion), min(window.end, end + expansion)]
+        for start, end in predictions
+        if min(window.end, end + expansion) > max(window.start, start - expansion)
+    ]
+    return min(1.0, interval_union_length(intersections) / max(window.duration, 1e-9))
+
+
+def residual_priorities(
+    windows: list[Window],
+    scores: list[float],
+    visited: list[int],
+    predictions: list[list[float]],
+) -> dict[int, dict[str, float]]:
+    """Compute deterministic, label-free residual utilities."""
+    if len(windows) != len(scores):
+        raise ValueError('windows and scores must have equal length')
+    count = len(windows)
+    score_order = sorted(range(count), key=lambda index: (-scores[index], index))
+    score_rank = {index: rank for rank, index in enumerate(score_order, 1)}
+    visited_centers = [(windows[index].start + windows[index].end) / 2 for index in visited]
+    output = {}
+    for index, window in enumerate(windows):
+        if index in visited:
+            continue
+        relevance = (count - score_rank[index] + 1) / count
+        center = (window.start + window.end) / 2
+        novelty = (
+            1.0 if not visited_centers
+            else min(abs(center - prior) for prior in visited_centers)
+            / max(windows[-1].end, 1e-9)
+        )
+        unexplained = 1.0 - _covered_fraction(window, predictions)
+        output[index] = {
+            'relevance': relevance,
+            'temporal_novelty': min(1.0, novelty),
+            'unexplained': unexplained,
+            'utility': (relevance + min(1.0, novelty) + unexplained) / 3,
+        }
+    return output
+
+
+def residual_mass(
+    priorities: dict[int, dict[str, float]],
+    number_of_windows: int,
+) -> float:
+    denominator = (number_of_windows + 1) / 2
+    if denominator <= 0:
+        return 0.0
+    return sum(
+        value['relevance'] * value['unexplained'] for value in priorities.values()
+    ) / denominator
 
 
 def probe_video(video_path: str) -> dict[str, float | int]:
