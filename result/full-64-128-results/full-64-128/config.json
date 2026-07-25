@@ -1,0 +1,22 @@
+{
+  "attention": "sdpa",
+  "budgets": [
+    64,
+    128
+  ],
+  "cache_root": "/workspace/TemporalGroundings/TimeLens2/evaluation/.cache/omtg-search",
+  "data_root": "/workspace/TemporalGroundings/TimeLens2/data/OMTGBench",
+  "embedding_max_pixels": 112896,
+  "embedding_model": "Qwen/Qwen3-VL-Embedding-2B",
+  "frame_width": 336,
+  "max_samples": 0,
+  "model": "MCG-NJU/TimeLens2-4B",
+  "output_root": "/workspace/TemporalGroundings/TimeLens2/evaluation/outputs/omtg_search",
+  "run_name": "full-64-128",
+  "schedules": [
+    "uniform-one-shot",
+    "full-video-multipass",
+    "uniform-window-local",
+    "embedding-window-local"
+  ]
+}

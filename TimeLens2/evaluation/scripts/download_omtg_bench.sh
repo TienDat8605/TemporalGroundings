@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-DATA_ROOT="${TIMELENS2_DATA_ROOT:-/content/timelens2-data}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPOSITORY_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+DATA_ROOT="${TIMELENS2_DATA_ROOT:-$REPOSITORY_ROOT/data}"
 OMTG_ROOT="${OMTG_BENCH_ROOT:-$DATA_ROOT/OMTGBench}"
 MARKER="$OMTG_ROOT/.complete"
 

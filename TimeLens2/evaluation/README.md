@@ -188,6 +188,57 @@ budget overflow, router recall, and offline oracle router recall. A comparison
 is marked compute-matched only when aggregate GPU time is within 5%; otherwise
 the result is a Pareto comparison.
 
+### Run locally
+
+The local launcher supports any NVIDIA GPU with enough memory for the 2B router
+and 4B grounder (they are loaded sequentially). It is single-GPU, but does not
+require a T4 or require the machine to have exactly one GPU.
+
+Install the evaluation environment and download OMTG Bench once:
+
+```bash
+cd evaluation
+pip install -e .
+cd ..
+bash evaluation/scripts/download_omtg_bench.sh
+```
+
+Then run the deterministic 25-query smoke test:
+
+```bash
+bash evaluation/scripts/run_omtg_search_local.sh
+```
+
+By default, data is stored under `TimeLens2/data`, frame caches under
+`evaluation/.cache`, and resumable results under
+`evaluation/outputs/omtg_search/smoke`. Re-running the same command resumes
+from the append-only route and prediction files.
+
+Select a GPU or override the run configuration with environment variables:
+
+```bash
+CUDA_VISIBLE_DEVICES=1 \
+OMTG_RUN_NAME=full \
+OMTG_MAX_SAMPLES=0 \
+OMTG_BUDGETS=32,64 \
+bash evaluation/scripts/run_omtg_search_local.sh
+```
+
+Local model directories are supported:
+
+```bash
+OMTG_MODEL=/models/TimeLens2-4B \
+OMTG_EMBEDDING_MODEL=/models/Qwen3-VL-Embedding-2B \
+bash evaluation/scripts/run_omtg_search_local.sh
+```
+
+Use a new `OMTG_RUN_NAME` after changing models, budgets, schedules, sample
+count, or paths. To retain decoded frame caches after an `all` run, append
+`--keep-frame-cache`. Individual phases can be run with
+`OMTG_PHASE=route`, `ground`, or `evaluate`.
+
+### Run on Colab
+
 Run the required deterministic 25-query smoke test on Colab:
 
 ```bash
