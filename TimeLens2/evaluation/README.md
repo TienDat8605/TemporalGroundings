@@ -169,6 +169,103 @@ for six consecutive checks, the monitor records `LOST` and exits instead of
 polling forever. Colab storage is ephemeral, so fetch results before stopping
 the session.
 
+## Cross-benchmark hierarchical search
+
+`run_vtg_search.py` evaluates the frozen embedding-window-local policy beyond
+OMTG on:
+
+- VUE-TR-V2 and the MomentSeeker text-query subset (multi-span);
+- Ego4D-NLQ-v2 and QVHighlights-TimeLens (single-span).
+
+The confirmatory controls are uniform one-shot inference at the same strict
+64/128-frame budgets. Both schedules run with controlled and native-style
+prompts. A separate hardware-capped reference uses each benchmark's native FPS
+with at most 512 frames, a 336-pixel edge, and 8k visual tokens; it is not
+reported as the official full-context configuration.
+
+### Prepare data
+
+TimeLens-Bench is public on Hugging Face:
+
+```bash
+TIMELENS2_DATA_ROOT=/path/to/data \
+  bash scripts/download_timelens_bench.sh
+```
+
+MomentSeeker is a roughly 94 GB research-only download under
+CC-BY-NC-SA-4.0. Read its dataset card before explicitly accepting the terms:
+
+```bash
+MOMENTSEEKER_ACCEPT_LICENSE=true \
+TIMELENS2_DATA_ROOT=/path/to/data \
+  bash scripts/download_momentseeker.sh
+```
+
+VUE-TR-V2 uses the existing YouTube downloader:
+
+```bash
+TIMELENS2_DATA_ROOT=/path/to/data \
+  bash scripts/download_vue_tr_v2.sh
+```
+
+Ego4D requires prior license approval and AWS credentials. Use the official
+CLI to download NLQ annotations and benchmark clips, then point the runner at
+the directory containing `nlq_val.json` and the downloaded clip MP4 files:
+
+```bash
+export EGO4D_NLQ_V2_ROOT=/path/to/ego4d/annotations
+export EGO4D_NLQ_V2_VIDEOS_DIR=/path/to/ego4d/clips
+```
+
+The runner also accepts the existing flattened
+`ego4d_nlq_val_v2.jsonl`/`Ego4D-NLQ-v2_val.tsv` layout. It freezes the exact
+query/video manifest per run. VUE-TR-V2 requires at least 90% query coverage
+by default; lower-coverage studies must explicitly lower
+`--minimum-vue-coverage` and be labeled exploratory.
+
+### Validate and run
+
+Run validation without loading either model:
+
+```bash
+TIMELENS2_DATA_ROOT=/path/to/data \
+VTG_PHASE=validate VTG_RUN_NAME=transfer-v1 VTG_MAX_SAMPLES=0 \
+  bash scripts/run_vtg_search_local.sh
+```
+
+Run one-query GPU smoke tests before the full suite:
+
+```bash
+TIMELENS2_DATA_ROOT=/path/to/data \
+VTG_RUN_NAME=transfer-smoke VTG_MAX_SAMPLES=1 \
+  bash scripts/run_vtg_search_local.sh
+
+TIMELENS2_DATA_ROOT=/path/to/data \
+VTG_RUN_NAME=transfer-v1 VTG_MAX_SAMPLES=0 \
+  bash scripts/run_vtg_search_local.sh
+```
+
+Limit `VTG_DATASETS` to a comma-separated subset when datasets become
+available at different times. The default is all four. Runs are phase-oriented
+and append-only, so repeating the same command resumes incomplete routes or
+predictions. Use a new run name whenever data, prompts, budgets, models, or
+hardware caps change.
+
+Each benchmark writes its manifest, immutable config, routes, predictions,
+summaries, paired bootstrap comparisons, and report under
+`../results/vtg_search/<run-name>/<dataset>/`. After all four summaries exist,
+`compare_vtg_search.py` writes combined CSV/JSON/Markdown results and
+quality-versus-latency plots:
+
+```bash
+python compare_vtg_search.py ../results/vtg_search/transfer-v1
+```
+
+The two fixed budgets are co-primary. Confidence intervals use 10,000 paired
+bootstrap samples clustered by video, and p-values are Holm-corrected across
+64/128 frames within each benchmark. No heterogeneous benchmark metrics are
+averaged into a single score.
+
 ## OMTG hierarchical search experiment
 
 `run_omtg_search.py` implements the frozen-model experiment in two GPU phases:

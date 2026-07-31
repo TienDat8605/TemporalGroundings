@@ -10,6 +10,8 @@ The reference revision is `3291c9e19490db19c7aae593791f80aaca6f53a8`.
 - `omtg_2fps/`: paper-style 2 FPS runs for TimeLens2-4B and Qwen3-VL-4B.
 - `omtg_fixed_frame/`: fixed-budget hierarchical and uniform runs.
 - `omtg_residual_search/`: destination for strictly budgeted residual-search runs.
+- `vtg_search/`: resumable cross-benchmark uniform and embedding-window-local
+  runs for VUE-TR-V2, MomentSeeker, Ego4D-NLQ-v2, and QVHighlights-TimeLens.
 - `colab_runs/`: preserved remote job specifications, logs, status, and checkpoints.
 - `comparison.md`: research assessment of all 14 complete TimeLens2 and
   Qwen3-VL settings, including video-clustered paired bootstrap intervals.

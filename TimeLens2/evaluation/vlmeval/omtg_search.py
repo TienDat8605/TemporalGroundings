@@ -7,7 +7,7 @@ import math
 import os
 import re
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -124,6 +124,79 @@ def retained_window_count(number_of_windows: int) -> int:
     if number_of_windows <= 0:
         return 0
     return min(number_of_windows, min(8, max(2, math.ceil(math.sqrt(number_of_windows)))))
+
+
+def coalesce_windows(windows: list[Window], maximum_count: int) -> list[Window]:
+    """Deterministically merge adjacent windows into at most ``maximum_count`` groups."""
+    if maximum_count <= 0:
+        raise ValueError('maximum_count must be positive')
+    if len(windows) <= maximum_count:
+        return list(windows)
+    groups = np.array_split(np.arange(len(windows)), maximum_count)
+    return [
+        Window(
+            start=windows[int(group[0])].start,
+            end=windows[int(group[-1])].end,
+        )
+        for group in groups
+        if len(group)
+    ]
+
+
+def strict_embedding_policy(
+    windows: list[Window],
+    budget: int,
+    *,
+    minimum_local_frames: int = 2,
+    maximum_router_frames: int = 4,
+    factor: int = 2,
+) -> tuple[list[Window], dict[str, int]]:
+    """Make static top-K embedding routing feasible under a hard frame budget.
+
+    Every routed window receives the same number of router frames. Adjacent
+    content windows are coalesced only when one router frame per window plus
+    the local feasibility floor would otherwise exceed the budget.
+    """
+    if not windows:
+        raise ValueError('at least one window is required')
+    if budget <= 0 or minimum_local_frames <= 0 or maximum_router_frames <= 0:
+        raise ValueError('budget and frame limits must be positive')
+    if factor <= 0:
+        raise ValueError('factor must be positive')
+    minimum_local_frames = math.ceil(minimum_local_frames / factor) * factor
+
+    feasible_count = len(windows)
+    while feasible_count > 1:
+        selected = retained_window_count(feasible_count)
+        if feasible_count + selected * minimum_local_frames <= budget:
+            break
+        feasible_count -= 1
+    routed_windows = coalesce_windows(windows, feasible_count)
+    count = len(routed_windows)
+    selected = retained_window_count(count)
+    if count + selected * minimum_local_frames > budget:
+        raise ValueError(
+            f'Budget {budget} cannot reserve one router frame for {count} window(s) '
+            f'and {minimum_local_frames} local frames for {selected} selection(s)'
+        )
+
+    router_frames_per_window = max(
+        value
+        for value in range(1, maximum_router_frames + 1)
+        if value * count + selected * minimum_local_frames <= budget
+    )
+    router_frames = router_frames_per_window * count
+    local_budget = factor * ((budget - router_frames) // factor)
+    return routed_windows, {
+        'original_window_count': len(windows),
+        'window_count': count,
+        'coalesced_window_count': len(windows) - count,
+        'selected_window_count': selected,
+        'router_frames_per_window': router_frames_per_window,
+        'router_frames': router_frames,
+        'local_budget': local_budget,
+        'unused_frames_before_grounding': budget - router_frames - local_budget,
+    }
 
 
 def uniform_window_indices(number_of_windows: int, count: int) -> list[int]:
