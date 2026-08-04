@@ -28,6 +28,13 @@ class Qwen3VLForEmbeddingOutput(ModelOutput):
     attention_mask: Optional[torch.Tensor] = None
 
 
+@dataclass
+class Qwen3VLVisualTokenOutput:
+    tokens: torch.FloatTensor
+    grid_thw: torch.LongTensor
+    spatial_merge_size: int
+
+
 class Qwen3VLForEmbedding(Qwen3VLPreTrainedModel):
     _checkpoint_conversion_mapping = {}
     accepts_loss_kwargs = False
@@ -124,6 +131,7 @@ class Qwen3VLEmbedder:
             model_name_or_path, padding_side='right'
         )
         self.model.eval()
+        self.model.requires_grad_(False)
 
     @property
     def device(self):
@@ -158,8 +166,7 @@ class Qwen3VLEmbedder:
         row = torch.arange(hidden_state.shape[0], device=hidden_state.device)
         return hidden_state[row, last]
 
-    @torch.inference_mode()
-    def process(self, items: list[dict[str, Any]]) -> torch.Tensor:
+    def _prepare_inputs(self, items: list[dict[str, Any]]) -> dict[str, torch.Tensor]:
         conversations = [self._conversation(item) for item in items]
         text = self.processor.apply_chat_template(
             conversations, add_generation_prompt=True, tokenize=False
@@ -187,7 +194,97 @@ class Qwen3VLEmbedder:
             return_tensors='pt',
             **(video_kwargs or {}),
         )
-        inputs = {key: value.to(self.device) for key, value in inputs.items()}
+        return {key: value.to(self.device) for key, value in inputs.items()}
+
+    @torch.inference_mode()
+    def process(self, items: list[dict[str, Any]]) -> torch.Tensor:
+        inputs = self._prepare_inputs(items)
         outputs = self.model(**inputs)
         pooled = self._pool_last(outputs.last_hidden_state, inputs['attention_mask'])
         return F.normalize(pooled, p=2, dim=-1)
+
+    @torch.inference_mode()
+    def process_frames(
+        self,
+        frames: list[str],
+        *,
+        instruction: str = 'Represent this video frame for temporal retrieval.',
+        batch_size: int = 8,
+    ) -> torch.Tensor:
+        """Return one normalized embedding per frame for a reusable coarse index."""
+        if batch_size <= 0:
+            raise ValueError('batch_size must be positive')
+        output = []
+        for start in range(0, len(frames), batch_size):
+            items = [
+                {'video': [frame], 'sample_fps': 1.0, 'instruction': instruction}
+                for frame in frames[start:start + batch_size]
+            ]
+            output.append(self.process(items))
+        if not output:
+            hidden = int(getattr(self.model.config, 'hidden_size', 0))
+            return torch.empty((0, hidden), device=self.device)
+        return torch.cat(output, dim=0)
+
+    @staticmethod
+    def _flatten_visual_features(value) -> torch.Tensor:
+        if isinstance(value, torch.Tensor):
+            return value.reshape(-1, value.shape[-1])
+        if isinstance(value, (list, tuple)):
+            tensors = []
+            for item in value:
+                if isinstance(item, torch.Tensor):
+                    tensors.append(item)
+                elif isinstance(item, (list, tuple)):
+                    tensors.extend(tensor for tensor in item if isinstance(tensor, torch.Tensor))
+            if not tensors:
+                raise TypeError('visual encoder returned no tensor features')
+            # Some Transformers versions return (features, deepstack_features).
+            # The first tensor/list is the post-projector visual sequence used by
+            # the language model; deep-stack tensors are intentionally excluded.
+            first = value[0]
+            if isinstance(first, torch.Tensor):
+                return first.reshape(-1, first.shape[-1])
+            if isinstance(first, (list, tuple)) and all(isinstance(item, torch.Tensor) for item in first):
+                flattened = [item.reshape(-1, item.shape[-1]) for item in first]
+                return torch.cat(flattened, dim=0)
+            return tensors[0].reshape(-1, tensors[0].shape[-1])
+        raise TypeError(f'unsupported visual feature type: {type(value)!r}')
+
+    @torch.inference_mode()
+    def process_visual_tokens(
+        self,
+        frames: list[str],
+        *,
+        sample_fps: float,
+        instruction: str = 'Represent this video for query-conditioned patch retrieval.',
+    ) -> Qwen3VLVisualTokenOutput:
+        """Expose frozen post-projector visual tokens and their merged grid."""
+        if not frames:
+            raise ValueError('at least one frame is required')
+        inputs = self._prepare_inputs([{
+            'video': frames,
+            'sample_fps': sample_fps,
+            'instruction': instruction,
+        }])
+        pixel_values = inputs.get('pixel_values_videos')
+        grid = inputs.get('video_grid_thw')
+        if pixel_values is None or grid is None:
+            raise RuntimeError('processor did not produce video pixels and grid metadata')
+        features = self.model.get_video_features(pixel_values, grid)
+        tokens = self._flatten_visual_features(features)
+        visual = getattr(self.model, 'visual', None)
+        merge_size = int(getattr(visual, 'spatial_merge_size', 2))
+        expected = int(sum(
+            int(t) * (int(h) // merge_size) * (int(w) // merge_size)
+            for t, h, w in grid.detach().cpu().tolist()
+        ))
+        if len(tokens) != expected:
+            raise RuntimeError(
+                f'visual-token/grid mismatch: tokens={len(tokens)} expected={expected}'
+            )
+        return Qwen3VLVisualTokenOutput(
+            tokens=F.normalize(tokens.float(), p=2, dim=-1),
+            grid_thw=grid.detach().clone(),
+            spatial_merge_size=merge_size,
+        )

@@ -1,6 +1,7 @@
 # Large data files
 *.jsonl
 !results/**/*.jsonl
+/papers/
 
 # Python
 __pycache__/
