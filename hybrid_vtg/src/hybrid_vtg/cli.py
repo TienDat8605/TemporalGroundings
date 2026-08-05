@@ -32,6 +32,7 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--limit", type=int, default=0)
     run.add_argument("--coarse-model", default=CoarseConfig.checkpoint)
     run.add_argument("--coarse-fps", type=float, default=CoarseConfig.fps)
+    run.add_argument("--coarse-batch-size", type=int, default=CoarseConfig.batch_size)
     run.add_argument("--coarse-max-frames", type=int, default=CoarseConfig.max_frames)
     run.add_argument("--temporal-budget", type=float, default=CoarseConfig.union_budget_seconds)
     run.add_argument("--no-temporal-prune", action="store_true", help="ablation: send the whole video to Qwen")
@@ -59,7 +60,7 @@ def _parser() -> argparse.ArgumentParser:
 def _config(args: argparse.Namespace) -> PipelineConfig:
     coarse = replace(
         CoarseConfig(), enabled=not args.no_temporal_prune,
-        checkpoint=args.coarse_model, fps=args.coarse_fps,
+        checkpoint=args.coarse_model, fps=args.coarse_fps, batch_size=args.coarse_batch_size,
         max_frames=args.coarse_max_frames, union_budget_seconds=args.temporal_budget,
     )
     semvid = replace(
