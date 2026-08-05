@@ -27,9 +27,9 @@ class FrozenSiglipEncoder:
         self.batch_size = batch_size
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         dtype = torch.float16 if self.device.startswith("cuda") else torch.float32
-        # Keep the checkpoint's current image preprocessing behavior explicit. This avoids
-        # Transformers silently switching to the fast processor in a future release.
-        self.processor = AutoProcessor.from_pretrained(checkpoint, use_fast=False)
+        # Select the fast implementation explicitly so Transformers cannot change behavior
+        # across releases and the slow tokenizer does not require SentencePiece at runtime.
+        self.processor = AutoProcessor.from_pretrained(checkpoint, use_fast=True)
         self.model = AutoModel.from_pretrained(checkpoint, dtype=dtype).to(self.device).eval()
         self.model.requires_grad_(False)
         self.last_encode_stats: dict[str, float | int] = {}
