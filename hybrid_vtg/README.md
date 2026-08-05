@@ -3,7 +3,7 @@
 This package is the primary implementation of the proposed hierarchical VTG method. It replaces TimeLens2 as the research backbone and composes two frozen systems:
 
 1. a cheap SigLIP2 whole-video scan finds high-recall temporal components;
-2. the official SemVID Qwen3-VL implementation performs real object/motion/context token pruning and grounding only inside the best component;
+2. the official SemVID Qwen3-VL implementation performs real object/motion/context token pruning and grounding inside every retained component;
 3. SigLIP2 resamples a small neighborhood at high FPS and adjusts the predicted boundaries from semantic change and visual continuity.
 
 No training code, optimizer, loss, adapter, checkpoint update, or benchmark-label access exists in the inference path. All models run in evaluation and inference mode.
@@ -53,6 +53,18 @@ Charades/
 ├── sta_annotation/charades_sta_test.txt
 └── rgb_videos_30fps_480/*.mp4
 ```
+
+On a headless server, the preparation script downloads the public test-only mirror (1,334 videos, approximately 6.2 GiB compressed), resumes interrupted transfers, verifies checksums, checks ZIP paths before extraction, and validates every annotated video:
+
+```bash
+bash hybrid_vtg/scripts/prepare_charades_sta.sh \
+  --accept-license \
+  --data-root /root/datasets/Charades
+
+source /root/datasets/Charades/activate_charades.sh
+```
+
+Review the [official Charades terms](https://prior.allenai.org/projects/charades) and the [public test mirror](https://huggingface.co/datasets/jwnt4/charades-sta-test) before passing `--accept-license`. The script removes the downloaded ZIP after successful validation to recover disk space; add `--keep-archive` to retain it. Set `CHARADES_VIDEOS_URL` or `CHARADES_ANNOTATION_URL` when using an authorized mirror.
 
 ActivityNet-Grounding accepts:
 
