@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hybrid-vtg"
+version = "0.1.0"
+description = "Training-free coarse-to-fine temporal routing with SemVID sparse grounding"
+requires-python = ">=3.10"
+dependencies = [
+  "numpy>=2.0,<3",
+  "Pillow>=10",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+
+[project.scripts]
+hybrid-vtg = "hybrid_vtg.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
