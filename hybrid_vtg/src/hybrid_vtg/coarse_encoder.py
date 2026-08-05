@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from time import perf_counter
 
 import numpy as np
 from PIL import Image
@@ -31,6 +32,7 @@ class FrozenSiglipEncoder:
         self.processor = AutoProcessor.from_pretrained(checkpoint, use_fast=False)
         self.model = AutoModel.from_pretrained(checkpoint, dtype=dtype).to(self.device).eval()
         self.model.requires_grad_(False)
+        self.last_encode_stats: dict[str, float | int] = {}
 
     def _move(self, values: dict) -> dict:
         return {key: value.to(self.device) if hasattr(value, "to") else value for key, value in values.items()}
@@ -45,9 +47,29 @@ class FrozenSiglipEncoder:
         if not images:
             raise ValueError("at least one image is required")
         chunks = []
+        processor_seconds = 0.0
+        vision_seconds = 0.0
+        input_pixels = 0
         for start in range(0, len(images), self.batch_size):
+            processor_started = perf_counter()
             values = self.processor(images=list(images[start:start + self.batch_size]), return_tensors="pt")
+            processor_seconds += perf_counter() - processor_started
+            pixel_values = values.get("pixel_values")
+            if pixel_values is not None and getattr(pixel_values, "ndim", 0) >= 4:
+                input_pixels += int(pixel_values.shape[0] * pixel_values.shape[-2] * pixel_values.shape[-1])
+            if self.device.startswith("cuda"):
+                self._torch.cuda.synchronize()
+            vision_started = perf_counter()
             with self._torch.inference_mode():
                 output = self.model.get_image_features(**self._move(values))
+            if self.device.startswith("cuda"):
+                self._torch.cuda.synchronize()
+            vision_seconds += perf_counter() - vision_started
             chunks.append(output.float().cpu().numpy())
+        self.last_encode_stats = {
+            "frames": len(images),
+            "input_pixels": input_pixels,
+            "processor_seconds": processor_seconds,
+            "vision_encoder_seconds": vision_seconds,
+        }
         return normalize_rows(np.concatenate(chunks, axis=0))

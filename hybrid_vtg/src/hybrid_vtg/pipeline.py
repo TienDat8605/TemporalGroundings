@@ -12,7 +12,7 @@ from .config import PipelineConfig
 from .index import build_index, cache_path, load_index, save_index, video_fingerprint
 from .refinement import refine_prediction
 from .semvid_bridge import SemVIDGrounder
-from .temporal import interval_evidence_score, route
+from .temporal import interval_boundary_quality, route
 from .types import Component, Sample, TemporalRoute
 
 
@@ -71,19 +71,22 @@ class HybridVTGPipeline:
         proposals = []
         proposal_errors = []
         for component in ordered_components:
+            component_started = perf_counter()
             try:
                 component_prediction = self.grounder.ground(sample, component)
             except ValueError as error:
                 proposal_errors.append({"component": asdict(component), "error": str(error)})
                 continue
-            selection_score = component.score
+            component_seconds = perf_counter() - component_started
+            quality = {
+                "score": 0.0, "boundary_contrast": 0.0,
+                "start_contrast": 0.0, "end_contrast": 0.0, "tightness": 0.0,
+            }
             if index is not None and query_embedding is not None:
-                selection_score = interval_evidence_score(
-                    index, query_embedding, component_prediction.interval, self.config.coarse.mean_weight,
+                quality = interval_boundary_quality(
+                    index, query_embedding, component_prediction.interval, component, self.config.proposal,
                 )
-                if selection_score <= -1.0:
-                    selection_score = component.score
-            proposals.append((selection_score, component_prediction))
+            proposals.append((quality["score"], component_prediction, quality, component_seconds))
         if not proposals:
             raise RuntimeError(f"all routed component predictions failed: {proposal_errors}")
         proposals.sort(key=lambda value: (-value[0], value[1].interval[0]))
@@ -112,7 +115,11 @@ class HybridVTGPipeline:
             "targets": [list(value) for value in sample.targets],
             "prediction": prediction_value,
             "component_predictions": [
-                {**value.to_dict(), "selection_score": score} for score, value in proposals
+                {
+                    **value.to_dict(), "rerank_score": score,
+                    "rerank_signals": quality, "latency_seconds": latency,
+                }
+                for score, value, quality, latency in proposals
             ],
             "component_errors": proposal_errors,
             "route": {
@@ -124,13 +131,53 @@ class HybridVTGPipeline:
             "cache_hit": cache_hit,
             "efficiency": {
                 "coarse_frames": len(index.timestamps) if index is not None else 0,
+                "coarse_decoded_frames": len(index.timestamps) if index is not None and not cache_hit else 0,
+                "coarse_decoded_pixels": index.decoded_pixels if index is not None and not cache_hit else 0,
+                "coarse_processor_seconds": index.processor_seconds if index is not None and not cache_hit else 0.0,
+                "coarse_vision_encoder_seconds": (
+                    index.vision_encoder_seconds if index is not None and not cache_hit else 0.0
+                ),
                 "effective_coarse_fps": index.fps if index is not None else 0.0,
                 "expert_seconds": sum(component.duration for component in ordered_components),
                 "semvid_original_tokens": sum(
-                    int(value.semvid_stats.get("orig_video_tokens", 0)) for _, value in proposals
+                    int(value.semvid_stats.get("orig_video_tokens", 0)) for _, value, _, _ in proposals
                 ),
                 "semvid_retained_tokens": sum(
-                    int(value.semvid_stats.get("kept_video_tokens", 0)) for _, value in proposals
+                    int(value.semvid_stats.get("kept_video_tokens", 0)) for _, value, _, _ in proposals
+                ),
+                "expert_decoded_frames": sum(
+                    int(value.telemetry.get("decoded_frames", 0)) for _, value, _, _ in proposals
+                ),
+                "expert_decoded_pixels": sum(
+                    int(value.telemetry.get("decoded_pixels", 0)) for _, value, _, _ in proposals
+                ),
+                "expert_vision_encoder_seconds": sum(
+                    float(value.telemetry.get("vision_encoder_seconds", 0.0)) for _, value, _, _ in proposals
+                ),
+                "llm_prefill_tokens_before_pruning": sum(
+                    int(value.telemetry.get("prefill_tokens_before_pruning", 0)) for _, value, _, _ in proposals
+                ),
+                "llm_prefill_tokens_after_pruning": sum(
+                    int(value.telemetry.get("prefill_tokens_after_pruning", 0)) for _, value, _, _ in proposals
+                ),
+                "component_latency_seconds": [latency for _, _, _, latency in proposals],
+                "refinement_decoded_frames": refinement.decoded_frames if refinement else 0,
+                "refinement_decoded_pixels": refinement.decoded_pixels if refinement else 0,
+                "refinement_vision_encoder_seconds": refinement.vision_encoder_seconds if refinement else 0.0,
+                "total_decoded_frames": (
+                    (len(index.timestamps) if index is not None and not cache_hit else 0)
+                    + sum(int(value.telemetry.get("decoded_frames", 0)) for _, value, _, _ in proposals)
+                    + (refinement.decoded_frames if refinement else 0)
+                ),
+                "total_decoded_pixels": (
+                    (index.decoded_pixels if index is not None and not cache_hit else 0)
+                    + sum(int(value.telemetry.get("decoded_pixels", 0)) for _, value, _, _ in proposals)
+                    + (refinement.decoded_pixels if refinement else 0)
+                ),
+                "total_vision_encoder_seconds": (
+                    (index.vision_encoder_seconds if index is not None and not cache_hit else 0.0)
+                    + sum(float(value.telemetry.get("vision_encoder_seconds", 0.0)) for _, value, _, _ in proposals)
+                    + (refinement.vision_encoder_seconds if refinement else 0.0)
                 ),
                 "timing_seconds": {
                     "index": index_seconds,

@@ -11,12 +11,47 @@ def temporal_iou(prediction: Sequence[float], target: Sequence[float]) -> float:
     return overlap / union if union > 0 else 0.0
 
 
+def target_coverage(components: Sequence[dict], target: Sequence[float]) -> float:
+    """Fraction of target duration available anywhere in the routed component union."""
+    start, end = map(float, target)
+    clipped = sorted(
+        (max(start, float(item["start"])), min(end, float(item["end"])))
+        for item in components
+        if min(end, float(item["end"])) > max(start, float(item["start"]))
+    )
+    merged: list[list[float]] = []
+    for lower, upper in clipped:
+        if merged and lower <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], upper)
+        else:
+            merged.append([lower, upper])
+    covered = sum(upper - lower for lower, upper in merged)
+    return covered / (end - start) if end > start else 0.0
+
+
+def endpoint_availability(components: Sequence[dict], target: Sequence[float]) -> tuple[bool, bool, bool]:
+    start, end = map(float, target)
+    start_available = any(float(item["start"]) <= start <= float(item["end"]) for item in components)
+    end_available = any(float(item["start"]) <= end <= float(item["end"]) for item in components)
+    contained = any(float(item["start"]) <= start and float(item["end"]) >= end for item in components)
+    return start_available, end_available, contained
+
+
 def evaluate(records: Iterable[dict], thresholds: tuple[float, ...] = (0.3, 0.5, 0.7)) -> dict:
     ious = []
-    route_ious = []
+    route_coverages = []
+    route_start_available = []
+    route_end_available = []
+    route_containment = []
     boundary_errors = []
     retained_fractions = []
     token_ratios = []
+    decoded_frames = []
+    decoded_pixels = []
+    vision_seconds = []
+    prefill_before = []
+    prefill_after = []
+    total_seconds = []
     for record in records:
         targets = record.get("targets") or []
         if not targets or not record.get("prediction"):
@@ -28,13 +63,35 @@ def evaluate(records: Iterable[dict], thresholds: tuple[float, ...] = (0.3, 0.5,
         ))
         route = record.get("route") or {}
         components = route.get("components") or []
-        route_ious.append(max(
-            (temporal_iou((component["start"], component["end"]), target)
-             for component in components for target in targets), default=0.0,
-        ))
+        target_route_values = []
+        for target in targets:
+            coverage = target_coverage(components, target)
+            start_available, end_available, contained = endpoint_availability(components, target)
+            target_route_values.append((coverage, start_available, end_available, contained))
+        coverage, start_available, end_available, contained = max(
+            target_route_values, key=lambda value: (value[0], value[3], value[1] and value[2]),
+            default=(0.0, False, False, False),
+        )
+        route_coverages.append(coverage)
+        route_start_available.append(start_available)
+        route_end_available.append(end_available)
+        route_containment.append(contained)
         if "retained_fraction" in route:
             retained_fractions.append(float(route["retained_fraction"]))
         efficiency = record.get("efficiency") or {}
+        if "total_decoded_frames" in efficiency:
+            decoded_frames.append(float(efficiency["total_decoded_frames"]))
+        if "total_decoded_pixels" in efficiency:
+            decoded_pixels.append(float(efficiency["total_decoded_pixels"]))
+        if "total_vision_encoder_seconds" in efficiency:
+            vision_seconds.append(float(efficiency["total_vision_encoder_seconds"]))
+        if "llm_prefill_tokens_before_pruning" in efficiency:
+            prefill_before.append(float(efficiency["llm_prefill_tokens_before_pruning"]))
+        if "llm_prefill_tokens_after_pruning" in efficiency:
+            prefill_after.append(float(efficiency["llm_prefill_tokens_after_pruning"]))
+        timing = efficiency.get("timing_seconds") or {}
+        if "total" in timing:
+            total_seconds.append(float(timing["total"]))
         original_tokens = efficiency.get("semvid_original_tokens")
         retained_tokens = efficiency.get("semvid_retained_tokens")
         if original_tokens:
@@ -51,8 +108,21 @@ def evaluate(records: Iterable[dict], thresholds: tuple[float, ...] = (0.3, 0.5,
         "boundary_MAE_seconds": sum(boundary_errors) / len(boundary_errors),
         "mean_retained_duration_fraction": sum(retained_fractions) / len(retained_fractions) if retained_fractions else None,
         "mean_semvid_token_ratio": sum(token_ratios) / len(token_ratios) if token_ratios else None,
+        "mean_total_decoded_frames": sum(decoded_frames) / len(decoded_frames) if decoded_frames else None,
+        "mean_total_decoded_pixels": sum(decoded_pixels) / len(decoded_pixels) if decoded_pixels else None,
+        "mean_vision_encoder_seconds": sum(vision_seconds) / len(vision_seconds) if vision_seconds else None,
+        "mean_llm_prefill_tokens_before_pruning": sum(prefill_before) / len(prefill_before) if prefill_before else None,
+        "mean_llm_prefill_tokens_after_pruning": sum(prefill_after) / len(prefill_after) if prefill_after else None,
+        "mean_end_to_end_seconds": sum(total_seconds) / len(total_seconds) if total_seconds else None,
         **{f"R@1,IoU={threshold:g}": sum(iou >= threshold for iou in ious) / len(ious)
            for threshold in thresholds},
-        **{f"RouterRecall@IoU={threshold:g}": sum(iou >= threshold for iou in route_ious) / len(route_ious)
+        "RouterTargetCoverageMean": sum(route_coverages) / len(route_coverages),
+        "RouterStartEndpointAvailable": sum(route_start_available) / len(route_start_available),
+        "RouterEndEndpointAvailable": sum(route_end_available) / len(route_end_available),
+        "RouterBothEndpointsAvailable": sum(
+            start and end for start, end in zip(route_start_available, route_end_available)
+        ) / len(route_start_available),
+        "RouterFullContainment": sum(route_containment) / len(route_containment),
+        **{f"RouterTargetCoverage@{threshold:g}": sum(value >= threshold for value in route_coverages) / len(route_coverages)
            for threshold in thresholds},
     }

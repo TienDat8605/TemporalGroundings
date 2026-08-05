@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
+from time import perf_counter
 from typing import Any
 
 from .config import SemVIDConfig
@@ -124,7 +125,7 @@ class SemVIDGrounder:
             }, {"type": "text", "text": instruction}],
         }]
 
-    def _prepare(self, prompt: list[dict[str, Any]], query: str) -> tuple[dict[str, Any], int]:
+    def _prepare(self, prompt: list[dict[str, Any]], query: str) -> tuple[dict[str, Any], int, dict[str, int]]:
         try:
             import qwen_vl_utils
         except ImportError as error:
@@ -136,6 +137,13 @@ class SemVIDGrounder:
         if video_inputs is not None:
             video_inputs, metadata = zip(*video_inputs)
             video_inputs, metadata = list(video_inputs), list(metadata)
+        decoded_frames = 0
+        decoded_pixels = 0
+        for video in video_inputs or []:
+            shape = tuple(int(value) for value in getattr(video, "shape", ()))
+            if len(shape) >= 4:
+                decoded_frames += shape[0]
+                decoded_pixels += shape[0] * shape[-2] * shape[-1]
         text = _render_generation_prompt(self.processor, prompt, self.config.force_stop_thinking)
         processor_kwargs = {"do_sample_frames": video_kwargs.get("do_sample_frames", False)}
         inputs = self.processor(
@@ -153,14 +161,38 @@ class SemVIDGrounder:
         }
         inputs["query_ids"] = query_tokens["input_ids"]
         inputs["query_attention_mask"] = query_tokens.get("attention_mask")
-        return inputs, int(inputs["input_ids"].shape[-1])
+        return inputs, int(inputs["input_ids"].shape[-1]), {
+            "decoded_frames": decoded_frames,
+            "decoded_pixels": decoded_pixels,
+        }
 
     def ground(self, sample: Sample, component: Component) -> GroundingPrediction:
-        inputs, prompt_length = self._prepare(self._prompt(sample, component), sample.query)
-        with self.torch.inference_mode():
-            generated = self.model.generate(
-                **inputs, generation_config=self.generation_config, use_model_defaults=False,
-            )
+        started = perf_counter()
+        inputs, prompt_length, input_stats = self._prepare(self._prompt(sample, component), sample.query)
+        prepared_at = perf_counter()
+        vision_started = [0.0]
+        vision_seconds = [0.0]
+
+        def before_vision(*_args: Any) -> None:
+            self.torch.cuda.synchronize()
+            vision_started[0] = perf_counter()
+
+        def after_vision(*_args: Any) -> None:
+            self.torch.cuda.synchronize()
+            vision_seconds[0] += perf_counter() - vision_started[0]
+
+        pre_hook = self.model.visual.register_forward_pre_hook(before_vision)
+        post_hook = self.model.visual.register_forward_hook(after_vision)
+        generation_started = perf_counter()
+        try:
+            with self.torch.inference_mode():
+                generated = self.model.generate(
+                    **inputs, generation_config=self.generation_config, use_model_defaults=False,
+                )
+        finally:
+            pre_hook.remove()
+            post_hook.remove()
+        generation_seconds = perf_counter() - generation_started
         prediction_ids = generated[:, prompt_length:] if generated.shape[-1] > prompt_length else generated
         text = self.processor.batch_decode(
             prediction_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False,
@@ -168,8 +200,19 @@ class SemVIDGrounder:
         interval = normalize_timestamp(
             parse_timestamp(text), component, sample.duration, self.config.timestamp_mode,
         )
+        semvid_stats = dict(getattr(self.model, "fastvid_last_stats", {}) or {})
         return GroundingPrediction(
             interval=interval, component=component, raw_text=text,
-            semvid_stats=dict(getattr(self.model, "fastvid_last_stats", {}) or {}),
+            semvid_stats=semvid_stats,
             token_roles=_token_role_counts(self.model),
+            telemetry={
+                **input_stats,
+                "input_preparation_seconds": prepared_at - started,
+                "vision_encoder_seconds": vision_seconds[0],
+                "generation_seconds": generation_seconds,
+                "component_seconds": perf_counter() - started,
+                "prefill_tokens_before_pruning": prompt_length,
+                "prefill_tokens_after_pruning": int(semvid_stats.get("new_seq_len", prompt_length)),
+                "generated_tokens": int(prediction_ids.shape[-1]),
+            },
         )

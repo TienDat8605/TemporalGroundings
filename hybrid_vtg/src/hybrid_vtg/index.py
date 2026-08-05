@@ -23,6 +23,9 @@ class CoarseIndex:
     duration: float
     timestamps: np.ndarray
     features: np.ndarray
+    decoded_pixels: int = 0
+    processor_seconds: float = 0.0
+    vision_encoder_seconds: float = 0.0
 
     def validate(self) -> None:
         if self.timestamps.ndim != 1 or self.features.ndim != 2:
@@ -59,6 +62,9 @@ def save_index(path: Path, index: CoarseIndex) -> None:
         "checkpoint": index.checkpoint,
         "fps": index.fps,
         "duration": index.duration,
+        "decoded_pixels": index.decoded_pixels,
+        "processor_seconds": index.processor_seconds,
+        "vision_encoder_seconds": index.vision_encoder_seconds,
     }, sort_keys=True)
     temporary = path.with_suffix(".tmp.npz")
     np.savez_compressed(temporary, metadata=metadata, timestamps=index.timestamps, features=index.features)
@@ -83,7 +89,10 @@ def build_index(
     encoder: FrozenSiglipEncoder,
 ) -> CoarseIndex:
     timestamps = sample_timestamps(duration, config.fps, max_frames=config.max_frames)
-    features = encoder.encode_images(decode_frames(video_path, timestamps))
+    frames = decode_frames(video_path, timestamps)
+    decoded_pixels = sum(image.width * image.height for image in frames)
+    features = encoder.encode_images(frames)
+    stats = encoder.last_encode_stats
     return CoarseIndex(
         video_path=video_path,
         fingerprint=video_fingerprint(video_path),
@@ -92,4 +101,7 @@ def build_index(
         duration=duration,
         timestamps=timestamps,
         features=features,
+        decoded_pixels=decoded_pixels,
+        processor_seconds=float(stats.get("processor_seconds", 0.0)),
+        vision_encoder_seconds=float(stats.get("vision_encoder_seconds", 0.0)),
     )

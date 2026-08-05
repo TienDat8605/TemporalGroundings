@@ -17,10 +17,11 @@ class CoarseConfig:
     stride_ratio: float = 0.5
     mean_weight: float = 0.5
     union_budget_seconds: float = 120.0
-    maximum_candidates: int = 8
-    nms_iou: float = 0.7
+    maximum_components: int = 8
     minimum_uncovered_seconds: float = 1.0
-    halo_seconds: float = 2.0
+    minimum_halo_seconds: float = 0.5
+    halo_scale_ratio: float = 0.05
+    maximum_halo_seconds: float = 4.0
     low_confidence_margin: float = 0.05
 
     def __post_init__(self) -> None:
@@ -28,10 +29,14 @@ class CoarseConfig:
             raise ValueError("coarse FPS, batch size, and frame cap must be positive")
         if not self.scales or any(value <= 0 for value in self.scales):
             raise ValueError("at least one positive temporal scale is required")
-        if self.union_budget_seconds <= 0 or self.maximum_candidates <= 0:
+        if self.union_budget_seconds <= 0 or self.maximum_components <= 0:
             raise ValueError("temporal budgets must be positive")
-        if not 0 <= self.mean_weight <= 1 or not 0 <= self.nms_iou <= 1:
-            raise ValueError("coarse score and NMS weights must be in [0, 1]")
+        if not 0 <= self.mean_weight <= 1:
+            raise ValueError("coarse score weights must be in [0, 1]")
+        if self.minimum_halo_seconds < 0 or self.halo_scale_ratio < 0:
+            raise ValueError("adaptive halo terms must be non-negative")
+        if self.maximum_halo_seconds < self.minimum_halo_seconds:
+            raise ValueError("maximum halo must not be smaller than minimum halo")
 
 
 @dataclass(frozen=True)
@@ -68,23 +73,43 @@ class SemVIDConfig:
 
 
 @dataclass(frozen=True)
+class ProposalConfig:
+    boundary_contrast_weight: float = 0.7
+    tightness_weight: float = 0.3
+    context_seconds: float = 2.0
+
+    def __post_init__(self) -> None:
+        if self.context_seconds <= 0:
+            raise ValueError("proposal context must be positive")
+        if self.boundary_contrast_weight < 0 or self.tightness_weight < 0:
+            raise ValueError("proposal reranking weights must be non-negative")
+        if self.boundary_contrast_weight + self.tightness_weight <= 0:
+            raise ValueError("at least one proposal reranking weight must be positive")
+
+
+@dataclass(frozen=True)
 class RefinementConfig:
     enabled: bool = True
     fps: float = 8.0
     radius_seconds: float = 2.0
     evidence_window_seconds: float = 0.5
     continuity_weight: float = 0.25
+    inside_contrast_weight: float = 0.5
+    duration_prior_weight: float = 0.25
     minimum_gain: float = 0.01
 
     def __post_init__(self) -> None:
         if self.fps <= 0 or self.radius_seconds <= 0 or self.evidence_window_seconds <= 0:
             raise ValueError("refinement FPS, radius, and evidence window must be positive")
+        if self.continuity_weight < 0 or self.inside_contrast_weight < 0 or self.duration_prior_weight < 0:
+            raise ValueError("refinement weights must be non-negative")
 
 
 @dataclass(frozen=True)
 class PipelineConfig:
     coarse: CoarseConfig = field(default_factory=CoarseConfig)
     semvid: SemVIDConfig = field(default_factory=SemVIDConfig)
+    proposal: ProposalConfig = field(default_factory=ProposalConfig)
     refinement: RefinementConfig = field(default_factory=RefinementConfig)
 
     def to_dict(self) -> dict[str, Any]:

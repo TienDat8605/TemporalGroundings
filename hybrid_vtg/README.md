@@ -127,15 +127,16 @@ For another benchmark or a single video, use `--benchmark jsonl` with rows of th
 | MAD | generic JSONL | very long movie grounding stress test |
 | DiDeMo, YouCook2, TVR | generic JSONL | secondary transfer evaluation |
 
-The primary report should include dense Qwen3-VL, SemVID alone, temporal routing alone, and the full hybrid at matched frame/token budgets. Report candidate recall before grounding, expert-encoded duration, retained visual tokens, wall time, peak VRAM, mIoU, and recall. Do not infer end-to-end speedup from token ratio alone.
+The primary report should include dense Qwen3-VL, SemVID alone, temporal routing alone, and the full hybrid at matched frame/token budgets. Report routed target coverage and endpoint availability before grounding, expert-encoded duration, decoded frames/pixels, retained visual tokens, vision/prefill latency, wall time, peak VRAM, mIoU, and recall. Do not infer end-to-end speedup from token ratio alone.
 
 ## Important behavior
 
 - Coarse features are query-independent and cached by video fingerprint, model, FPS, and frame cap.
-- Window ranking uses fixed mean/peak cosine similarity, temporal NMS, a union-duration budget, halos, and a uniform low-confidence fallback.
-- SemVID processes every retained connected component and produces true sparse Qwen prefill tokens. Proposed spans are selected with the same frozen coarse evidence; refinement is applied only to the selected span.
+- Window ranking uses mean/peak cosine similarity, asymmetric uncertainty-aware halos, post-halo marginal coverage, a merged-component cap, a union-duration budget, and a uniform low-confidence fallback.
+- SemVID processes every retained connected component and produces true sparse Qwen prefill tokens. Proposed spans are reranked by boundary contrast and interval evidence concentration rather than the retrieval score.
 - Qwen is explicitly prompted for original-video timestamps. `--timestamp-mode relative` is available for model/checkpoint variants that emit clip-relative time.
-- Refinement never reads annotations and never leaves the routed component.
+- Refinement jointly selects valid endpoint pairs using query-gated visual change, inside/outside evidence contrast, and a duration prior. It never reads annotations or leaves the routed component.
 - The default coarse cap is 2,048 frames. On extremely long videos this lowers the effective scan FPS instead of exceeding the fixed memory budget.
+- Efficiency telemetry reports decoded frames/pixels, vision-encoder time, sparse/dense prefill lengths, per-component latency, end-to-end time, and peak VRAM.
 
-The main failure mode is cascaded recall: if temporal routing removes the target, SemVID cannot recover it. Candidate recall and retained-duration fraction must therefore be reported before final grounding accuracy.
+The main failure mode is cascaded recall: if temporal routing removes the target, SemVID cannot recover it. Target coverage, endpoint availability, full containment, and retained-duration fraction must therefore be reported before final grounding accuracy.

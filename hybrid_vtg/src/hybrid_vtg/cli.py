@@ -77,12 +77,14 @@ def _run(args: argparse.Namespace) -> int:
     split = args.split or ("test" if args.benchmark == "charades-sta" else "val_2")
     samples = load_benchmark(args.benchmark, args.data, split, args.limit)
     config = _config(args)
+    repository_root = Path(__file__).resolve().parents[3]
     manifest = {
-        "schema": 1,
+        "schema": 2,
         "benchmark": args.benchmark,
         "data": str(args.data.resolve()),
         "split": split,
         "config": config.to_dict(),
+        "hybrid_vtg_revision": git_revision(repository_root),
         "semvid_root": str(args.semvid_root.resolve()),
         "semvid_revision": git_revision(args.semvid_root),
     }

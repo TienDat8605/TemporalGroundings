@@ -8,7 +8,7 @@ from typing import Sequence
 import numpy as np
 
 from .coarse_encoder import normalize_rows
-from .config import CoarseConfig
+from .config import CoarseConfig, ProposalConfig
 from .index import CoarseIndex
 from .types import Component, TemporalRoute
 
@@ -22,6 +22,8 @@ class Candidate:
     mean_score: float = 0.0
     peak_score: float = 0.0
     score: float = 0.0
+    left_uncertainty: float = 0.0
+    right_uncertainty: float = 0.0
 
     @property
     def duration(self) -> float:
@@ -61,6 +63,25 @@ def score_candidates(
         raise ValueError("query and visual feature dimensions differ")
     frame_scores = features @ query
     output = []
+    score_floor = float(np.median(frame_scores))
+    score_scale = max(float(np.percentile(frame_scores, 90) - score_floor), 1e-6)
+    boundary_samples = max(1, int(round(index.fps)))
+
+    def endpoint_uncertainty(indices: np.ndarray, *, left: bool) -> float:
+        boundary = int(indices[0] if left else indices[-1])
+        if (left and boundary == 0) or (not left and boundary == len(frame_scores) - 1):
+            return 0.0
+        inside_indices = indices[:boundary_samples] if left else indices[-boundary_samples:]
+        if left:
+            outside = frame_scores[max(0, boundary - boundary_samples):boundary]
+        else:
+            outside = frame_scores[boundary + 1:min(len(frame_scores), boundary + 1 + boundary_samples)]
+        inside_score = float(frame_scores[inside_indices].mean())
+        outside_score = float(outside.mean()) if len(outside) else score_floor
+        boundary_relevance = np.clip((inside_score - score_floor) / score_scale, 0.0, 1.0)
+        outward_drop = np.clip((inside_score - outside_score) / score_scale, 0.0, 1.0)
+        return float(boundary_relevance * (1.0 - outward_drop))
+
     for item in candidates:
         mask = (index.timestamps >= item.start) & (index.timestamps < item.end)
         if item.end >= index.duration - 1e-6:
@@ -72,32 +93,61 @@ def score_candidates(
         else:
             mean_score = peak_score = -1.0
         score = mean_weight * mean_score + (1.0 - mean_weight) * peak_score
-        output.append(Candidate(item.index, item.start, item.end, item.scale, mean_score, peak_score, score))
+        indices = np.flatnonzero(mask)
+        left_uncertainty = endpoint_uncertainty(indices, left=True) if len(indices) else 0.0
+        right_uncertainty = endpoint_uncertainty(indices, left=False) if len(indices) else 0.0
+        output.append(Candidate(
+            item.index, item.start, item.end, item.scale, mean_score, peak_score, score,
+            left_uncertainty, right_uncertainty,
+        ))
     return output
 
 
-def interval_evidence_score(
+def interval_boundary_quality(
     index: CoarseIndex,
     query_embedding: np.ndarray,
     interval: tuple[float, float],
-    mean_weight: float,
-) -> float:
-    """Score a grounded sub-interval using the same frozen evidence as routing."""
+    component: Component,
+    config: ProposalConfig,
+) -> dict[str, float]:
+    """Rerank a grounded interval by transitions and evidence concentration."""
     features = normalize_rows(index.features)
     query = normalize_rows(np.asarray(query_embedding, dtype=np.float32).reshape(1, -1))[0]
-    mask = (index.timestamps >= interval[0]) & (index.timestamps <= interval[1])
-    if not mask.any():
-        return -1.0
-    pooled = normalize_rows(features[mask].mean(axis=0, keepdims=True))[0]
-    mean_score = float(pooled @ query)
-    peak_score = float((features[mask] @ query).max())
-    return mean_weight * mean_score + (1.0 - mean_weight) * peak_score
+    values = features @ query
+    times = index.timestamps
+    start, end = interval
+    context = config.context_seconds
 
+    def mean_between(lower: float, upper: float, fallback: float) -> float:
+        selected = values[(times >= lower) & (times < upper)]
+        return float(selected.mean()) if len(selected) else fallback
 
-def interval_iou(first: tuple[float, float], second: tuple[float, float]) -> float:
-    overlap = max(0.0, min(first[1], second[1]) - max(first[0], second[0]))
-    union = first[1] - first[0] + second[1] - second[0] - overlap
-    return overlap / union if union > 0 else 0.0
+    inside = values[(times >= start) & (times <= end)]
+    component_values = values[(times >= component.start) & (times <= component.end)]
+    if not len(inside):
+        return {"score": -1.0, "boundary_contrast": -1.0, "tightness": -1.0}
+    inside_mean = float(inside.mean())
+    component_mean = float(component_values.mean()) if len(component_values) else inside_mean
+    left_inside = mean_between(start, min(end, start + context), inside_mean)
+    right_inside = mean_between(max(start, end - context), end + 1e-9, inside_mean)
+    left_outside = mean_between(max(component.start, start - context), start, component_mean)
+    right_outside = mean_between(end, min(component.end, end + context) + 1e-9, component_mean)
+    start_contrast = left_inside - left_outside
+    end_contrast = right_inside - right_outside
+    boundary_contrast = (start_contrast + end_contrast) / 2.0
+    tightness = inside_mean - component_mean
+    weight_sum = config.boundary_contrast_weight + config.tightness_weight
+    score = (
+        config.boundary_contrast_weight * boundary_contrast
+        + config.tightness_weight * tightness
+    ) / weight_sum
+    return {
+        "score": float(score),
+        "boundary_contrast": float(boundary_contrast),
+        "start_contrast": float(start_contrast),
+        "end_contrast": float(end_contrast),
+        "tightness": float(tightness),
+    }
 
 
 def union_seconds(intervals: Sequence[tuple[float, float]]) -> float:
@@ -110,14 +160,27 @@ def union_seconds(intervals: Sequence[tuple[float, float]]) -> float:
     return sum(end - start for start, end in merged)
 
 
-def _expanded(item: Candidate, duration: float, halo: float) -> tuple[float, float]:
-    return max(0.0, item.start - halo), min(duration, item.end + halo)
+def _expanded(item: Candidate, duration: float, config: CoarseConfig) -> tuple[float, float]:
+    base = max(config.minimum_halo_seconds, 1.0 / config.fps, item.scale * config.halo_scale_ratio)
+    left = min(config.maximum_halo_seconds, base * (1.0 + item.left_uncertainty))
+    right = min(config.maximum_halo_seconds, base * (1.0 + item.right_uncertainty))
+    return max(0.0, item.start - left), min(duration, item.end + right)
+
+
+def _merged_intervals(intervals: Sequence[tuple[float, float]]) -> list[tuple[float, float]]:
+    merged: list[list[float]] = []
+    for start, end in sorted(intervals):
+        if merged and start <= merged[-1][1] + 1e-9:
+            merged[-1][1] = max(merged[-1][1], end)
+        elif end > start:
+            merged.append([start, end])
+    return [(start, end) for start, end in merged]
 
 
 def _components(
-    candidates: Sequence[Candidate], selected: Sequence[int], duration: float, halo: float,
+    candidates: Sequence[Candidate], selected: Sequence[int], duration: float, config: CoarseConfig,
 ) -> tuple[Component, ...]:
-    expanded = sorted((*_expanded(candidates[index], duration, halo), index) for index in selected)
+    expanded = sorted((*_expanded(candidates[index], duration, config), index) for index in selected)
     merged: list[dict] = []
     for start, end, index in expanded:
         if merged and start <= merged[-1]["end"] + 1e-9:
@@ -142,23 +205,24 @@ def select_candidates(candidates: Sequence[Candidate], duration: float, config: 
     selected: list[int] = []
     intervals: list[tuple[float, float]] = []
 
-    def try_add(index: int) -> None:
-        if index in selected or len(selected) >= config.maximum_candidates:
-            return
+    def try_add(index: int) -> bool:
+        if index in selected:
+            return False
         item = candidates[index]
-        expanded = _expanded(item, duration, config.halo_seconds)
-        overlap = max((interval_iou((item.start, item.end), (candidates[p].start, candidates[p].end))
-                       for p in selected), default=0.0)
+        expanded = _expanded(item, duration, config)
         before, after = union_seconds(intervals), union_seconds([*intervals, expanded])
-        if overlap >= config.nms_iou and after - before < config.minimum_uncovered_seconds:
-            return
-        if after <= config.union_budget_seconds + 1e-9:
-            selected.append(index)
-            intervals.append(expanded)
+        proposed = _merged_intervals([*intervals, expanded])
+        if selected and after - before < config.minimum_uncovered_seconds:
+            return False
+        if len(proposed) > config.maximum_components or after > config.union_budget_seconds + 1e-9:
+            return False
+        selected.append(index)
+        intervals.append(expanded)
+        return True
 
     if fallback:
         try_add(order[0])
-        centers = np.linspace(0.0, duration, config.maximum_candidates + 2)[1:-1]
+        centers = np.linspace(0.0, duration, config.maximum_components + 2)[1:-1]
         shortest = min(item.scale for item in candidates)
         uniform_pool = [index for index, item in enumerate(candidates) if item.scale == shortest]
         for center in centers:
@@ -172,7 +236,7 @@ def select_candidates(candidates: Sequence[Candidate], duration: float, config: 
             try_add(index)
     if not selected:
         raise ValueError("temporal budget cannot fit any halo-expanded candidate")
-    components = _components(candidates, selected, duration, config.halo_seconds)
+    components = _components(candidates, selected, duration, config)
     return TemporalRoute(
         components=components,
         selected_candidates=tuple(selected),
