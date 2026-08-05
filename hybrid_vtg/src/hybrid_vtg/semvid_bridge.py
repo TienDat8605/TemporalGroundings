@@ -55,6 +55,14 @@ def _token_role_counts(model: Any) -> dict[str, int]:
     return output
 
 
+def _render_generation_prompt(processor: Any, prompt: list[dict[str, Any]], force_stop_thinking: bool) -> str:
+    """Render a Qwen prompt using the same thinking control as SemVID evaluation."""
+    text = processor.apply_chat_template(prompt, tokenize=False, add_generation_prompt=True)
+    if force_stop_thinking:
+        text += "</think>"
+    return text
+
+
 class SemVIDGrounder:
     """One-model, batch-size-one inference adapter for routed video components."""
 
@@ -92,7 +100,7 @@ class SemVIDGrounder:
         self.config = config
         self.torch = torch
         self.generation_config = GenerationConfig(
-            max_new_tokens=config.max_new_tokens, do_sample=False, temperature=0.0, top_p=1.0,
+            max_new_tokens=config.max_new_tokens, do_sample=False,
         )
 
     def _prompt(self, sample: Sample, component: Component) -> list[dict[str, Any]]:
@@ -128,7 +136,7 @@ class SemVIDGrounder:
         if video_inputs is not None:
             video_inputs, metadata = zip(*video_inputs)
             video_inputs, metadata = list(video_inputs), list(metadata)
-        text = self.processor.apply_chat_template(prompt, tokenize=False, add_generation_prompt=True)
+        text = _render_generation_prompt(self.processor, prompt, self.config.force_stop_thinking)
         processor_kwargs = {"do_sample_frames": video_kwargs.get("do_sample_frames", False)}
         inputs = self.processor(
             text=[text], images=image_inputs, videos=video_inputs, video_metadata=metadata,

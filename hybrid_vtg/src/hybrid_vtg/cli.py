@@ -39,6 +39,11 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--expert-fps", type=float, default=SemVIDConfig.fps)
     run.add_argument("--retention-ratio", type=float, default=SemVIDConfig.retention_ratio)
     run.add_argument("--no-spatial-prune", action="store_true", help="ablation: disable SemVID token pruning")
+    run.add_argument("--max-new-tokens", type=int, default=SemVIDConfig.max_new_tokens)
+    run.add_argument(
+        "--allow-thinking", action="store_true",
+        help="allow Qwen3-VL-Thinking to reason before answering (slower and less format-stable)",
+    )
     run.add_argument("--dtype", choices=("auto", "bf16", "fp16", "fp32"), default=SemVIDConfig.dtype)
     run.add_argument("--attention", choices=("sdpa", "flash_attention_2", "eager"), default=SemVIDConfig.attention)
     run.add_argument("--timestamp-mode", choices=("absolute", "relative", "auto"), default=SemVIDConfig.timestamp_mode)
@@ -61,6 +66,7 @@ def _config(args: argparse.Namespace) -> PipelineConfig:
         SemVIDConfig(), enabled=not args.no_spatial_prune,
         model=args.semvid_model, fps=args.expert_fps,
         retention_ratio=args.retention_ratio,
+        max_new_tokens=args.max_new_tokens, force_stop_thinking=not args.allow_thinking,
         dtype=args.dtype, attention=args.attention, timestamp_mode=args.timestamp_mode,
     )
     refinement = replace(RefinementConfig(), enabled=not args.no_refine, fps=args.refine_fps)

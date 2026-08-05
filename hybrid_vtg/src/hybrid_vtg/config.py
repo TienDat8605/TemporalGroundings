@@ -45,7 +45,8 @@ class SemVIDConfig:
     frame_weight_alpha: float = 0.7
     motion_query_beta: float = 0.5
     max_frames: int = 768
-    max_new_tokens: int = 96
+    max_new_tokens: int = 200
+    force_stop_thinking: bool = True
     total_pixel_tokens: int = 16384
     minimum_pixel_tokens: int = 16
     dtype: str = "auto"
