@@ -11,11 +11,39 @@ from time import perf_counter
 from typing import Any, Sequence
 
 from .config import SemVIDConfig
-from .timestamps import normalize_timestamp, parse_timestamp
+from .timestamps import normalize_timestamp, parse_grounding_response
 from .types import Component, GroundingPrediction, Sample
 
 
 HANDLER = "modeling_qwen3_vl_semvid.Qwen3VLForConditionalGenerationSemVID"
+
+
+class GroundingOutputError(ValueError):
+    """Failed model output with the compute telemetry needed for accounting."""
+
+    def __init__(
+        self, message: str, raw_text: str, semvid_stats: dict[str, Any],
+        token_roles: dict[str, int], telemetry: dict[str, Any],
+    ) -> None:
+        super().__init__(message)
+        self.raw_text = raw_text
+        self.semvid_stats = semvid_stats
+        self.token_roles = token_roles
+        self.telemetry = telemetry
+
+
+class EventAbsentError(GroundingOutputError):
+    """Structured negative decision from the frozen component verifier."""
+
+    def __init__(
+        self, confidence: float, raw_text: str, semvid_stats: dict[str, Any],
+        token_roles: dict[str, int], telemetry: dict[str, Any],
+    ) -> None:
+        super().__init__(
+            f"model reports event absent (confidence={confidence:.3f})",
+            raw_text, semvid_stats, token_roles, telemetry,
+        )
+        self.confidence = confidence
 
 
 def default_semvid_root() -> Path:
@@ -155,9 +183,15 @@ class SemVIDGrounder:
         instruction = (
             f"The visible clip is from {component.start:.3f} to {component.end:.3f} seconds of the original video. "
             f"Query: {sample.query}\n"
-            "When does the described event occur? Return original-video timestamps, not clip-relative time. "
-            f"The answer must lie inside [{component.start:.3f}, {component.end:.3f}]. "
-            'Return only JSON: {"start": number, "end": number}.'
+            "First decide whether the described event is visibly present in this clip. "
+            "Do not infer that it happened from objects or surrounding actions alone. "
+            "Confidence must be a number from 0 to 1 indicating how likely the event is visibly present. "
+            "If absent, return only JSON: "
+            '{"present": false, "confidence": 0.0}. '
+            "If present, return original-video timestamps, not clip-relative time, inside "
+            f"[{component.start:.3f}, {component.end:.3f}]. Return only JSON: "
+            '{"present": true, "confidence": 1.0, '
+            '"start": number, "end": number}.'
         )
         return [{
             "role": "user",
@@ -313,42 +347,62 @@ class SemVIDGrounder:
         outputs: list[GroundingPrediction | Exception] = []
         for batch_index, (request, text) in enumerate(zip(prepared.requests, texts)):
             semvid_stats = dict(stats_batch[batch_index]) if batch_index < len(stats_batch) else {}
+            row_valid_tokens = (
+                int(valid_tokens[batch_index].sum().item())
+                if self.torch.is_tensor(valid_tokens) else prompt_length
+            )
+            token_roles = _token_role_counts(self.model, batch_index)
+            telemetry = {
+                **prepared.input_stats[batch_index],
+                "input_preparation_seconds": prepared.preparation_seconds / len(prepared.requests),
+                "batch_input_preparation_seconds": prepared.preparation_seconds,
+                "queue_wait_seconds": max(0.0, started - prepared.ready_at) / len(prepared.requests),
+                "batch_queue_wait_seconds": max(0.0, started - prepared.ready_at),
+                "host_to_device_seconds": transfer_seconds / len(prepared.requests),
+                "batch_host_to_device_seconds": transfer_seconds,
+                "vision_encoder_seconds": vision_seconds[0] / len(prepared.requests),
+                "generation_seconds": generation_seconds / len(prepared.requests),
+                "batch_generation_seconds": generation_seconds,
+                "component_seconds": batch_wall / len(prepared.requests),
+                "qwen_batch_size": len(prepared.requests),
+                "batch_padding_tokens": prompt_length - row_valid_tokens,
+                "pinned_memory_bytes": prepared.pinned_memory_bytes,
+                "prefill_tokens_before_pruning": row_valid_tokens,
+                "prefill_tokens_after_pruning": int(semvid_stats.get("new_seq_len", row_valid_tokens)),
+                "generated_tokens": int(prediction_ids.shape[-1]),
+                "first_token_topk": (
+                    first_token_topk[batch_index] if batch_index < len(first_token_topk) else None
+                ),
+            }
             try:
+                response = parse_grounding_response(text)
+            except (TypeError, ValueError) as error:
+                outputs.append(GroundingOutputError(
+                    str(error), text, semvid_stats, token_roles, telemetry,
+                ))
+                continue
+            if not response.present:
+                outputs.append(EventAbsentError(
+                    response.confidence, text, semvid_stats, token_roles, telemetry,
+                ))
+                continue
+            try:
+                assert response.interval is not None
                 interval = normalize_timestamp(
-                    parse_timestamp(text), request.component, request.sample.duration, self.config.timestamp_mode,
+                    response.interval, request.component, request.sample.duration,
+                    self.config.timestamp_mode,
                 )
             except (TypeError, ValueError) as error:
-                outputs.append(error)
+                outputs.append(GroundingOutputError(
+                    str(error), text, semvid_stats, token_roles, telemetry,
+                ))
                 continue
-            row_valid_tokens = (
-                int(valid_tokens[batch_index].sum().item()) if self.torch.is_tensor(valid_tokens) else prompt_length
-            )
             outputs.append(GroundingPrediction(
                 interval=interval, component=request.component, raw_text=text,
                 semvid_stats=semvid_stats,
-                token_roles=_token_role_counts(self.model, batch_index),
-                telemetry={
-                    **prepared.input_stats[batch_index],
-                    "input_preparation_seconds": prepared.preparation_seconds / len(prepared.requests),
-                    "batch_input_preparation_seconds": prepared.preparation_seconds,
-                    "queue_wait_seconds": max(0.0, started - prepared.ready_at) / len(prepared.requests),
-                    "batch_queue_wait_seconds": max(0.0, started - prepared.ready_at),
-                    "host_to_device_seconds": transfer_seconds / len(prepared.requests),
-                    "batch_host_to_device_seconds": transfer_seconds,
-                    "vision_encoder_seconds": vision_seconds[0] / len(prepared.requests),
-                    "generation_seconds": generation_seconds / len(prepared.requests),
-                    "batch_generation_seconds": generation_seconds,
-                    "component_seconds": batch_wall / len(prepared.requests),
-                    "qwen_batch_size": len(prepared.requests),
-                    "batch_padding_tokens": prompt_length - row_valid_tokens,
-                    "pinned_memory_bytes": prepared.pinned_memory_bytes,
-                    "prefill_tokens_before_pruning": row_valid_tokens,
-                    "prefill_tokens_after_pruning": int(semvid_stats.get("new_seq_len", row_valid_tokens)),
-                    "generated_tokens": int(prediction_ids.shape[-1]),
-                    "first_token_topk": (
-                        first_token_topk[batch_index] if batch_index < len(first_token_topk) else None
-                    ),
-                },
+                token_roles=token_roles,
+                telemetry=telemetry,
+                presence_score=response.confidence,
             ))
         return outputs
 

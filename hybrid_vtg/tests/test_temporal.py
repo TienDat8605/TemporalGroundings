@@ -29,7 +29,7 @@ def test_route_selects_query_relevant_region_with_halo():
     assert result.retained_union_seconds <= 12.0
 
 
-def test_low_confidence_route_adds_uniform_coverage():
+def test_low_confidence_route_fails_open_to_one_continuous_component():
     candidates = [
         Candidate(index, float(index * 10), float(index * 10 + 8), 8.0, score=0.5)
         for index in range(6)
@@ -41,7 +41,9 @@ def test_low_confidence_route_adds_uniform_coverage():
     )
     result = select_candidates(candidates, 60.0, config)
     assert result.low_confidence_fallback
-    assert len(result.selected_candidates) == 4
+    assert result.selected_candidates == (0,)
+    assert result.components == (Component(0.0, 60.0, 0.5, (0,)),)
+    assert result.retained_union_seconds == 60.0
 
 
 def test_multiscale_candidates_include_video_tail():

@@ -14,10 +14,13 @@ TimeLens2 is no longer the primary implementation because its public wrapper acc
 Raw long video
   -> frozen SigLIP2 scan at low FPS
   -> multi-scale query/window retrieval
-  -> budgeted temporal NMS + halos + merged components
-  -> high-detail decode of the best component only
+  -> confidence gate
+       -> reliable: budgeted temporal selection + adaptive halos
+       -> uncertain: one continuous full-video fallback component
+  -> high-detail decode of retained continuous component(s)
   -> official SemVID query/object/motion/context token sparsification
-  -> frozen Qwen3-VL temporal grounding in global video seconds
+  -> frozen Qwen3-VL event-presence verification and grounding in global video seconds
+  -> presence-first component selection
   -> high-FPS frozen-feature boundary refinement
   -> final [start, end]
 ```
@@ -95,7 +98,9 @@ Token retention is not an end-to-end speed claim. Router, decoding, vision, toke
 ## Safety and ablation rules
 
 - The coarse cache cannot include query or annotation data.
-- Low score concentration triggers fixed uniform coverage within the same temporal budget.
+- Low score concentration triggers one continuous full-video SemVID pass. It does not trigger disconnected uniform windows that can lose short events and multiply generation overhead.
+- Routed-component prompts permit an explicit `present=false` response; the frozen model is never forced to invent a timestamp for an irrelevant component.
+- Positive proposals are ranked first by frozen-Qwen presence confidence, then boundary quality, then coarse retrieval score.
 - Halos are charged on their deduplicated union.
 - SemVID receives the raw query separately because its pruning model uses query tokens.
 - Predicted timestamps are clamped to the routed component and original video duration.

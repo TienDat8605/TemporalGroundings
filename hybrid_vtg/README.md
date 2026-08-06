@@ -211,8 +211,8 @@ The primary report should include dense Qwen3-VL, SemVID alone, temporal routing
 ## Important behavior
 
 - Coarse features are query-independent and cached by video fingerprint, model, FPS, and frame cap.
-- Window ranking uses mean/peak cosine similarity, asymmetric uncertainty-aware halos, post-halo marginal coverage, a merged-component cap, a union-duration budget, and a uniform low-confidence fallback.
-- SemVID processes every retained connected component and produces true sparse Qwen prefill tokens. Proposed spans are reranked by boundary contrast and interval evidence concentration rather than the retrieval score.
+- Window ranking uses mean/peak cosine similarity, asymmetric uncertainty-aware halos, post-halo marginal coverage, a merged-component cap, and a union-duration budget. Low-confidence retrieval fails open to one continuous full-video component instead of disconnected uniform windows.
+- SemVID processes every retained connected component and produces true sparse Qwen prefill tokens. Qwen may explicitly reject a component where the event is absent; positive spans are selected by frozen-Qwen presence confidence, boundary quality, and then coarse retrieval score.
 - Qwen is explicitly prompted for original-video timestamps. `--timestamp-mode relative` is available for model/checkpoint variants that emit clip-relative time.
 - Refinement jointly selects valid endpoint pairs using query-gated visual change, inside/outside evidence contrast, and a duration prior. It never reads annotations or leaves the routed component.
 - The default coarse cap is 2,048 frames. On extremely long videos this lowers the effective scan FPS instead of exceeding the fixed memory budget.

@@ -1,5 +1,5 @@
 from hybrid_vtg.config import CoarseConfig, PipelineConfig, RefinementConfig, SemVIDConfig
-from hybrid_vtg.pipeline import HybridVTGPipeline, _SampleContext
+from hybrid_vtg.pipeline import HybridVTGPipeline, _SampleContext, _proposal_sort_key
 from hybrid_vtg.types import Component, GroundingPrediction, Sample, TemporalRoute
 
 
@@ -52,3 +52,20 @@ def test_prefetched_pipeline_restores_dataset_order():
     outcomes = list(pipeline.iter_results(samples))
     assert [sample.id for sample, _, _ in outcomes] == ["0", "1", "2"]
     assert all(error is None and record is not None for _, record, error in outcomes)
+
+
+def test_proposal_selection_prioritizes_qwen_presence_before_boundary_score():
+    weak_component = Component(10.0, 20.0, 0.9)
+    strong_component = Component(30.0, 40.0, 0.1)
+    boundary_favorite = GroundingPrediction(
+        (12.0, 16.0), weak_component, "{}", {}, {}, {}, presence_score=0.2,
+    )
+    presence_favorite = GroundingPrediction(
+        (32.0, 36.0), strong_component, "{}", {}, {}, {}, presence_score=0.9,
+    )
+    proposals = [
+        (0.8, boundary_favorite, {}, 0.1),
+        (0.1, presence_favorite, {}, 0.1),
+    ]
+    proposals.sort(key=_proposal_sort_key)
+    assert proposals[0][1] is presence_favorite

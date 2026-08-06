@@ -251,16 +251,21 @@ def select_candidates(candidates: Sequence[Candidate], duration: float, config: 
         return True
 
     if fallback:
-        try_add(order[0])
-        centers = np.linspace(0.0, duration, config.maximum_components + 2)[1:-1]
-        shortest = min(item.scale for item in candidates)
-        uniform_pool = [index for index, item in enumerate(candidates) if item.scale == shortest]
-        for center in centers:
-            index = min(
-                uniform_pool,
-                key=lambda i: (abs((candidates[i].start + candidates[i].end) / 2 - center), i),
-            )
-            try_add(index)
+        # Failing open is safer and cheaper than sending several disconnected
+        # uniform clips to the expert model. Sparse uniform windows cannot
+        # guarantee endpoint containment for short events, while every window
+        # incurs another Qwen generation. SemVID still sparsifies the resulting
+        # full-video component spatially.
+        best = candidates[order[0]]
+        component = Component(
+            start=0.0, end=duration, score=float(best.score),
+            source_candidates=(best.index,),
+        )
+        return TemporalRoute(
+            components=(component,), selected_candidates=(order[0],),
+            confidence_margin=confidence, low_confidence_fallback=True,
+            retained_union_seconds=duration,
+        )
     else:
         for index in order:
             try_add(index)

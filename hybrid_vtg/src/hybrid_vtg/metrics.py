@@ -52,6 +52,10 @@ def evaluate(records: Iterable[dict], thresholds: tuple[float, ...] = (0.3, 0.5,
     prefill_before = []
     prefill_after = []
     total_seconds = []
+    fallback_flags = []
+    routed_component_counts = []
+    component_rejection_fractions = []
+    selected_presence_scores = []
     for record in records:
         targets = record.get("targets") or []
         if not targets or not record.get("prediction"):
@@ -63,6 +67,16 @@ def evaluate(records: Iterable[dict], thresholds: tuple[float, ...] = (0.3, 0.5,
         ))
         route = record.get("route") or {}
         components = route.get("components") or []
+        fallback_flags.append(bool(route.get("low_confidence_fallback", False)))
+        routed_component_counts.append(len(components))
+        component_predictions = record.get("component_predictions") or []
+        component_errors = record.get("component_errors") or []
+        attempted_components = len(component_predictions) + len(component_errors)
+        if attempted_components:
+            rejections = sum(error.get("event_present") is False for error in component_errors)
+            component_rejection_fractions.append(rejections / attempted_components)
+        if "presence_score" in record["prediction"]:
+            selected_presence_scores.append(float(record["prediction"]["presence_score"]))
         target_route_values = []
         for target in targets:
             coverage = target_coverage(components, target)
@@ -114,6 +128,16 @@ def evaluate(records: Iterable[dict], thresholds: tuple[float, ...] = (0.3, 0.5,
         "mean_llm_prefill_tokens_before_pruning": sum(prefill_before) / len(prefill_before) if prefill_before else None,
         "mean_llm_prefill_tokens_after_pruning": sum(prefill_after) / len(prefill_after) if prefill_after else None,
         "mean_end_to_end_seconds": sum(total_seconds) / len(total_seconds) if total_seconds else None,
+        "TemporalFallbackRate": sum(fallback_flags) / len(fallback_flags),
+        "mean_routed_component_count": sum(routed_component_counts) / len(routed_component_counts),
+        "mean_component_rejection_fraction": (
+            sum(component_rejection_fractions) / len(component_rejection_fractions)
+            if component_rejection_fractions else None
+        ),
+        "mean_selected_presence_score": (
+            sum(selected_presence_scores) / len(selected_presence_scores)
+            if selected_presence_scores else None
+        ),
         **{f"R@1,IoU={threshold:g}": sum(iou >= threshold for iou in ious) / len(ious)
            for threshold in thresholds},
         "RouterTargetCoverageMean": sum(route_coverages) / len(route_coverages),

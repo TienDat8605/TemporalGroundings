@@ -25,3 +25,21 @@ def test_router_metrics_measure_evidence_availability_not_proposal_iou():
     assert result["RouterTargetCoverage@0.5"] == 1.0
     assert result["RouterFullContainment"] == 1.0
     assert result["RouterBothEndpointsAvailable"] == 1.0
+
+
+def test_summary_reports_fallback_and_component_rejections():
+    result = evaluate([{
+        "targets": [[2.0, 4.0]],
+        "prediction": {"interval": [2.0, 4.0], "presence_score": 0.8},
+        "route": {
+            "components": [{"start": 0.0, "end": 10.0}],
+            "retained_fraction": 1.0,
+            "low_confidence_fallback": True,
+        },
+        "component_predictions": [{"interval": [2.0, 4.0]}],
+        "component_errors": [{"event_present": False}],
+    }])
+    assert result["TemporalFallbackRate"] == 1.0
+    assert result["mean_routed_component_count"] == 1.0
+    assert result["mean_component_rejection_fraction"] == 0.5
+    assert result["mean_selected_presence_score"] == 0.8

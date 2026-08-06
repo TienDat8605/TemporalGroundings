@@ -55,6 +55,7 @@ class GroundingPrediction:
     semvid_stats: dict[str, Any]
     token_roles: dict[str, int]
     telemetry: dict[str, Any]
+    presence_score: float = 1.0
 
     def to_dict(self) -> dict[str, Any]:
         value = asdict(self)

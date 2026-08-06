@@ -12,7 +12,10 @@ from .coarse_encoder import FrozenSiglipEncoder
 from .config import PipelineConfig
 from .index import build_index, cache_path, load_index, save_index, video_fingerprint
 from .refinement import decide_refinement, refine_prediction
-from .semvid_bridge import GroundingRequest, PreparedGroundingBatch, SemVIDGrounder
+from .semvid_bridge import (
+    EventAbsentError, GroundingOutputError, GroundingRequest, PreparedGroundingBatch,
+    SemVIDGrounder,
+)
 from .temporal import interval_boundary_quality, route
 from .types import Component, GroundingPrediction, Sample, TemporalRoute
 
@@ -37,6 +40,19 @@ class _SampleContext:
 class _ComponentTask:
     context: _SampleContext
     request: GroundingRequest
+
+
+def _proposal_sort_key(
+    value: tuple[float, GroundingPrediction, dict[str, float], float],
+) -> tuple[float, float, float, float]:
+    """Presence dominates boundary quality and the coarse retrieval prior."""
+    quality_score, prediction, _, _ = value
+    return (
+        -prediction.presence_score,
+        -quality_score,
+        -prediction.component.score,
+        prediction.interval[0],
+    )
 
 
 class HybridVTGPipeline:
@@ -143,9 +159,22 @@ class HybridVTGPipeline:
     ) -> None:
         context = task.context
         if isinstance(result, Exception):
-            context.proposal_errors.append({
+            error_record: dict[str, Any] = {
                 "component": asdict(task.request.component), "error": str(result),
-            })
+            }
+            if isinstance(result, GroundingOutputError):
+                error_record.update({
+                    "raw_text": result.raw_text,
+                    "semvid_stats": result.semvid_stats,
+                    "token_roles": result.token_roles,
+                    "telemetry": result.telemetry,
+                })
+            if isinstance(result, EventAbsentError):
+                error_record.update({
+                    "event_present": False,
+                    "presence_score": result.confidence,
+                })
+            context.proposal_errors.append(error_record)
             return
         quality: dict[str, float] = {
             "score": 0.0, "boundary_contrast": 0.0,
@@ -213,7 +242,7 @@ class HybridVTGPipeline:
     def _finalize(self, context: _SampleContext, peak_memory: dict[str, int]) -> dict[str, Any]:
         if not context.proposals:
             raise RuntimeError(f"all routed component predictions failed: {context.proposal_errors}")
-        context.proposals.sort(key=lambda value: (-value[0], value[1].interval[0]))
+        context.proposals.sort(key=_proposal_sort_key)
         _, prediction, selected_quality, _ = context.proposals[0]
         sample = context.sample
         temporal_route = context.temporal_route
@@ -242,12 +271,19 @@ class HybridVTGPipeline:
         prediction_value["coarse_interval"] = list(prediction.interval)
         prediction_value["interval"] = list(final_interval)
         proposals = context.proposals
+        expert_attempts = [
+            (value.semvid_stats, value.telemetry) for _, value, _, _ in proposals
+        ] + [
+            (error.get("semvid_stats") or {}, error.get("telemetry") or {})
+            for error in context.proposal_errors
+            if error.get("telemetry")
+        ]
         index = context.index
-        expert_frames = sum(int(value.telemetry.get("decoded_frames", 0)) for _, value, _, _ in proposals)
-        expert_pixels = sum(int(value.telemetry.get("decoded_pixels", 0)) for _, value, _, _ in proposals)
-        expert_vision = sum(
-            float(value.telemetry.get("vision_encoder_seconds", 0.0)) for _, value, _, _ in proposals
-        )
+        expert_frames = sum(int(telemetry.get("decoded_frames", 0)) for _, telemetry in expert_attempts)
+        expert_pixels = sum(int(telemetry.get("decoded_pixels", 0)) for _, telemetry in expert_attempts)
+        expert_vision = sum(float(
+            telemetry.get("vision_encoder_seconds", 0.0)
+        ) for _, telemetry in expert_attempts)
         coarse_frames = len(index.timestamps) if index is not None else 0
         coarse_decoded_frames = coarse_frames if index is not None and not context.cache_hit else 0
         coarse_decoded_pixels = index.decoded_pixels if index is not None and not context.cache_hit else 0
@@ -255,7 +291,10 @@ class HybridVTGPipeline:
         refinement_frames = refinement.decoded_frames if refinement else 0
         refinement_pixels = refinement.decoded_pixels if refinement else 0
         refinement_vision = refinement.vision_encoder_seconds if refinement else 0.0
-        ground_seconds = sum(latency for _, _, _, latency in proposals)
+        component_latencies = [
+            float(telemetry.get("component_seconds", 0.0)) for _, telemetry in expert_attempts
+        ]
+        ground_seconds = sum(component_latencies)
 
         return {
             "id": sample.id,
@@ -293,40 +332,45 @@ class HybridVTGPipeline:
                 "effective_coarse_fps": index.fps if index is not None else 0.0,
                 "expert_seconds": sum(component.duration for component in context.ordered_components),
                 "semvid_original_tokens": sum(
-                    int(value.semvid_stats.get("orig_video_tokens", 0)) for _, value, _, _ in proposals
+                    int(stats.get("orig_video_tokens", 0)) for stats, _ in expert_attempts
                 ),
                 "semvid_retained_tokens": sum(
-                    int(value.semvid_stats.get("kept_video_tokens", 0)) for _, value, _, _ in proposals
+                    int(stats.get("kept_video_tokens", 0)) for stats, _ in expert_attempts
                 ),
                 "expert_decoded_frames": expert_frames,
                 "expert_decoded_pixels": expert_pixels,
                 "expert_vision_encoder_seconds": expert_vision,
                 "llm_prefill_tokens_before_pruning": sum(
-                    int(value.telemetry.get("prefill_tokens_before_pruning", 0)) for _, value, _, _ in proposals
+                    int(telemetry.get("prefill_tokens_before_pruning", 0))
+                    for _, telemetry in expert_attempts
                 ),
                 "llm_prefill_tokens_after_pruning": sum(
-                    int(value.telemetry.get("prefill_tokens_after_pruning", 0)) for _, value, _, _ in proposals
+                    int(telemetry.get("prefill_tokens_after_pruning", 0))
+                    for _, telemetry in expert_attempts
                 ),
                 "llm_batch_padding_tokens": sum(
-                    int(value.telemetry.get("batch_padding_tokens", 0)) for _, value, _, _ in proposals
+                    int(telemetry.get("batch_padding_tokens", 0)) for _, telemetry in expert_attempts
                 ),
                 "qwen_batch_sizes": [
-                    int(value.telemetry.get("qwen_batch_size", 1)) for _, value, _, _ in proposals
+                    int(telemetry.get("qwen_batch_size", 1)) for _, telemetry in expert_attempts
                 ],
                 "qwen_oom_fallbacks": sum(
-                    bool(value.telemetry.get("qwen_oom_fallback", False)) for _, value, _, _ in proposals
+                    bool(telemetry.get("qwen_oom_fallback", False))
+                    for _, telemetry in expert_attempts
                 ),
                 "qwen_queue_wait_seconds": sum(
-                    float(value.telemetry.get("queue_wait_seconds", 0.0)) for _, value, _, _ in proposals
+                    float(telemetry.get("queue_wait_seconds", 0.0))
+                    for _, telemetry in expert_attempts
                 ),
                 "qwen_host_to_device_seconds": sum(
-                    float(value.telemetry.get("host_to_device_seconds", 0.0)) for _, value, _, _ in proposals
+                    float(telemetry.get("host_to_device_seconds", 0.0))
+                    for _, telemetry in expert_attempts
                 ),
                 "qwen_pinned_memory_bytes": max(
-                    (int(value.telemetry.get("pinned_memory_bytes", 0)) for _, value, _, _ in proposals),
+                    (int(telemetry.get("pinned_memory_bytes", 0)) for _, telemetry in expert_attempts),
                     default=0,
                 ),
-                "component_latency_seconds": [latency for _, _, _, latency in proposals],
+                "component_latency_seconds": component_latencies,
                 "refinement_decoded_frames": refinement_frames,
                 "refinement_decoded_pixels": refinement_pixels,
                 "refinement_vision_encoder_seconds": refinement_vision,
