@@ -102,6 +102,25 @@ source /root/datasets/ActivityNet/activate_activitynet.sh
 bash hybrid_vtg/scripts/run_activitynet_local.sh --limit 10 --fail-fast
 ```
 
+TACoS is the compact long-video benchmark: 127 original high-frame-rate videos
+(10.5 GiB compressed), with 4,001 queries in the standard test split. Prepare it
+directly on the GPU server:
+
+```bash
+bash hybrid_vtg/scripts/prepare_tacos.sh \
+  --accept-license \
+  --data-root /root/datasets/TACoS
+
+source /root/datasets/TACoS/activate_tacos.sh
+bash hybrid_vtg/scripts/run_tacos_local.sh --limit 10 --fail-fast
+```
+
+The preparation script uses the original videos rather than a 3-FPS derivative,
+because the latter cannot support the default 8-FPS boundary-refinement stage.
+It resumes interrupted downloads, validates the ZIP and all 127 annotated video
+IDs, and removes the archive after extraction. Allow at least 25 GiB of temporary
+free space.
+
 Remove `--limit 10` for a complete run. Results are append-only JSONL and resume by sample ID. Each run also writes an immutable manifest containing every method setting and the exact SemVID Git revision, plus a metrics JSON with mIoU and R@1 at IoU 0.3/0.5/0.7.
 
 ## Optimized local inference
@@ -183,7 +202,7 @@ For another benchmark or a single video, use `--benchmark jsonl` with rows of th
 | ActivityNet-Grounding/Captions | native | diverse, longer untrimmed activities |
 | QVHighlights | generic JSONL | longer videos and highlight-style query evidence |
 | Ego4D-NLQ | generic JSONL | egocentric long-video search |
-| TACoS | generic JSONL | fine-grained cooking actions |
+| TACoS | native | long, fine-grained cooking actions; compact development benchmark |
 | MAD | generic JSONL | very long movie grounding stress test |
 | DiDeMo, YouCook2, TVR | generic JSONL | secondary transfer evaluation |
 

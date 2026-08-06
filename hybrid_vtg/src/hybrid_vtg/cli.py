@@ -25,7 +25,11 @@ def _parser() -> argparse.ArgumentParser:
     doctor.add_argument("--semvid-root", type=Path, default=default_semvid_root())
 
     run = commands.add_parser("run", help="run hierarchical grounding")
-    run.add_argument("--benchmark", choices=("charades-sta", "activitynet-grounding", "activitynet-captions", "jsonl"), required=True)
+    run.add_argument(
+        "--benchmark",
+        choices=("charades-sta", "activitynet-grounding", "activitynet-captions", "tacos", "jsonl"),
+        required=True,
+    )
     run.add_argument("--data", type=Path, required=True, help="dataset root, or a canonical JSONL for --benchmark jsonl")
     run.add_argument("--split", default=None)
     run.add_argument("--output", type=Path, required=True)
@@ -117,7 +121,7 @@ def _config(args: argparse.Namespace) -> PipelineConfig:
 
 
 def _run(args: argparse.Namespace) -> int:
-    split = args.split or ("test" if args.benchmark == "charades-sta" else "val_2")
+    split = args.split or ("test" if args.benchmark in {"charades-sta", "tacos"} else "val_2")
     samples = load_benchmark(args.benchmark, args.data, split, args.limit)
     config = _config(args)
     repository_root = Path(__file__).resolve().parents[3]

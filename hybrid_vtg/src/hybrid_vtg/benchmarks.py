@@ -106,6 +106,39 @@ def load_activitynet_grounding(root: Path, split: str = "val_2", maximum: int = 
     return rows
 
 
+def load_tacos(root: Path, split: str = "test", maximum: int = 0) -> list[Sample]:
+    annotation = _first_file(root, (
+        f"{split}.jsonl", f"annotations/{split}.jsonl", f"captions/{split}.jsonl",
+    ))
+    videos = _video_index(root)
+    rows = []
+    with annotation.open(encoding="utf-8") as handle:
+        for line_number, raw in enumerate(handle, 1):
+            if not raw.strip():
+                continue
+            record: dict[str, Any] = json.loads(raw)
+            video_id = str(record["vid"])
+            path = videos.get(video_id)
+            if path is None:
+                raise FileNotFoundError(f"missing TACoS video {video_id}")
+            duration = float(record.get("duration") or probe_video(path).duration)
+            targets = tuple(
+                (max(0.0, float(interval[0])), min(duration, float(interval[1])))
+                for interval in record.get("relevant_windows", [])
+                if len(interval) == 2 and float(interval[1]) > float(interval[0])
+            )
+            sample = Sample(
+                id=str(record.get("qid", f"{split}:{line_number}")), video=video_id,
+                video_path=str(path), duration=duration, query=str(record["query"]).strip(),
+                targets=targets, group="tacos",
+            )
+            sample.validate()
+            rows.append(sample)
+            if maximum > 0 and len(rows) >= maximum:
+                break
+    return rows
+
+
 def load_jsonl(path: Path, maximum: int = 0) -> list[Sample]:
     rows = []
     with path.open(encoding="utf-8") as handle:
@@ -132,6 +165,8 @@ def load_benchmark(name: str, source: Path, split: str, maximum: int = 0) -> lis
         return load_charades_sta(source, split, maximum)
     if name in {"activitynet-grounding", "activitynet-captions"}:
         return load_activitynet_grounding(source, split, maximum)
+    if name == "tacos":
+        return load_tacos(source, split, maximum)
     if name == "jsonl":
         return load_jsonl(source, maximum)
     raise ValueError(f"unknown benchmark {name!r}")
