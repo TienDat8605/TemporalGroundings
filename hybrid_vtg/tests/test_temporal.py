@@ -95,3 +95,14 @@ def test_interval_reranking_rewards_clean_boundaries():
         index, np.asarray([1.0, 0.0]), (2.0, 15.0), component, ProposalConfig(),
     )
     assert clean["score"] > loose["score"]
+    assert 0.0 <= clean["boundary_confidence"] <= 1.0
+
+
+def test_flat_evidence_is_never_a_high_confidence_boundary():
+    timestamps = np.arange(0.5, 12.0, 1.0)
+    features = np.tile(np.asarray([[1.0, 0.0]], dtype=np.float32), (len(timestamps), 1))
+    index = CoarseIndex("video.mp4", "fingerprint", "encoder", 1.0, 12.0, timestamps, features)
+    quality = interval_boundary_quality(
+        index, np.asarray([1.0, 0.0]), (3.0, 8.0), Component(0.0, 12.0, 1.0), ProposalConfig(),
+    )
+    assert quality["boundary_confidence"] == 0.0

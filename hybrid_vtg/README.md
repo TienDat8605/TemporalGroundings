@@ -18,7 +18,7 @@ retained component --SemVID expert encoding + token pruning--> coarse interval
 boundary neighborhoods --dense cheap scan--> refined global timestamps
 ```
 
-SemVID remains an unmodified Git submodule pinned at `432a76928817cdfba7d04c460ac475482cd7c3a4`. TimeLens2 remains in the repository only as a legacy comparison baseline.
+SemVID remains pinned at `432a76928817cdfba7d04c460ac475482cd7c3a4`. Hybrid-VTG carries one reproducible patch that fixes compact-prefill attention masks, left padding, per-sample RoPE deltas, and telemetry for verified Qwen microbatching. The local run scripts apply it idempotently. TimeLens2 remains in the repository only as a legacy comparison baseline.
 
 ## Local GPU setup
 
@@ -74,17 +74,77 @@ ActivityNet/
 └── rgb_videos_15fps_short256/*.mp4
 ```
 
-Run either benchmark locally:
+Prepare the complete `val_2` split directly on the rented GPU server. The downloader
+resumes its checksummed 39.1 GiB source archive, extracts only the 4,885 evaluation
+videos, records missing IDs, and removes the archive after successful extraction:
+
+```bash
+bash hybrid_vtg/scripts/prepare_activitynet_grounding.sh \
+  --accept-license \
+  --data-root /root/datasets/ActivityNet
+
+source /root/datasets/ActivityNet/activate_activitynet.sh
+```
+
+Review the [official ActivityNet terms](https://activity-net.org/download.html)
+and the [public ActivityNet Captions mirror](https://huggingface.co/datasets/friedrichor/ActivityNet_Captions)
+before passing `--accept-license`. At least 60 GB of temporary free space is
+recommended. Add `--keep-archive` only if the 39.1 GiB source archive is needed
+after preparation.
+
+Run either benchmark on the GPU server:
 
 ```bash
 export CHARADES_STA_ROOT=/datasets/Charades
 bash hybrid_vtg/scripts/run_charades_local.sh --limit 10 --fail-fast
 
-export ACTIVITYNET_ROOT=/datasets/ActivityNet
+source /root/datasets/ActivityNet/activate_activitynet.sh
 bash hybrid_vtg/scripts/run_activitynet_local.sh --limit 10 --fail-fast
 ```
 
 Remove `--limit 10` for a complete run. Results are append-only JSONL and resume by sample ID. Each run also writes an immutable manifest containing every method setting and the exact SemVID Git revision, plus a metrics JSON with mIoU and R@1 at IoU 0.3/0.5/0.7.
+
+## Optimized local inference
+
+The default `safe` profile keeps batch-one execution, serial preprocessing, and fixed 8 FPS refinement. After validating equivalence on the rented GPU, enable the complete training-free optimization path with a fresh output name:
+
+```bash
+bash hybrid_vtg/scripts/run_charades_local.sh \
+  --optimization-profile optimized \
+  --output outputs/hybrid-vtg/charades-sta-optimized.jsonl
+```
+
+The optimized profile uses Qwen batch size two, pairs similar-duration components within a 16-sample look-ahead, prepares two microbatches in one CPU worker, and selects no/4/8 FPS boundary refinement from fixed endpoint-contrast percentiles. It does not read annotations when making any inference decision. Override individual stages for ablations:
+
+```bash
+# Microbatching only
+bash hybrid_vtg/scripts/run_charades_local.sh \
+  --qwen-batch-size 2 \
+  --output outputs/ablations/qwen-batch-2.jsonl
+
+# Microbatching plus CPU prefetch
+bash hybrid_vtg/scripts/run_charades_local.sh \
+  --qwen-batch-size 2 --preprocess-workers 1 --prefetch-depth 2 \
+  --output outputs/ablations/qwen-batch-2-prefetch.jsonl
+
+# Complete path with explicit settings
+bash hybrid_vtg/scripts/run_charades_local.sh \
+  --qwen-batch-size 2 --preprocess-workers 1 --prefetch-depth 2 --adaptive-refine \
+  --output outputs/ablations/qwen-batch-2-prefetch-adaptive.jsonl
+```
+
+Use a different output path for every stage because optimization settings are part of the immutable run manifest. A batch-two CUDA OOM is retried as batch one and exposed as `qwen_oom_fallbacks`; any such fallback invalidates a strict speed benchmark.
+
+For the 32–64 sample batching gate, add `--capture-validation-logits` to both batch-one and batch-two runs, then compare them:
+
+```bash
+hybrid-vtg validate-optimization \
+  --baseline outputs/validation/batch-1.jsonl \
+  --candidate outputs/validation/batch-2.jsonl \
+  --mode equivalence --minimum-samples 32 --minimum-speedup 0.15
+```
+
+The equivalence gate requires identical parsed intervals, identical first-token argmax values, top-eight logit differences no greater than 0.05, no OOM fallback, and the requested speedup. Use `--mode refinement --minimum-samples 256 --minimum-speedup 0.08` for the adaptive-refinement gate; it enforces the predeclared 0.005 mIoU and one-percentage-point recall budgets without changing thresholds.
 
 The main ablations use the same runner:
 

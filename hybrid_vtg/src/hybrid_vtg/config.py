@@ -57,10 +57,28 @@ class SemVIDConfig:
     dtype: str = "auto"
     attention: str = "sdpa"
     timestamp_mode: str = "absolute"
+    batch_size: int = 1
+    pairing_lookahead: int = 16
+    preprocess_workers: int = 0
+    prefetch_depth: int = 0
+    pinned_memory_limit_bytes: int = 4 * 1024**3
+    capture_validation_logits: bool = False
 
     def __post_init__(self) -> None:
         if self.fps <= 0 or self.max_frames <= 0 or self.max_new_tokens <= 0:
             raise ValueError("expert FPS and frame/token limits must be positive")
+        if self.batch_size not in {1, 2}:
+            raise ValueError("verified Qwen batch size must be 1 or 2")
+        if self.pairing_lookahead <= 0:
+            raise ValueError("Qwen pairing lookahead must be positive")
+        if self.preprocess_workers not in {0, 1}:
+            raise ValueError("Qwen preprocessing supports zero or one worker")
+        if self.prefetch_depth < 0:
+            raise ValueError("Qwen prefetch depth must be non-negative")
+        if self.preprocess_workers == 0 and self.prefetch_depth:
+            raise ValueError("Qwen prefetch requires one preprocessing worker")
+        if self.pinned_memory_limit_bytes <= 0:
+            raise ValueError("pinned-memory limit must be positive")
         for name, value in (
             ("retention_ratio", self.retention_ratio), ("object_ratio", self.object_ratio),
             ("mmr_lambda", self.mmr_lambda), ("frame_weight_alpha", self.frame_weight_alpha),
@@ -97,12 +115,21 @@ class RefinementConfig:
     inside_contrast_weight: float = 0.5
     duration_prior_weight: float = 0.25
     minimum_gain: float = 0.01
+    adaptive: bool = False
+    high_confidence: float = 0.90
+    medium_confidence: float = 0.75
+    medium_fps: float = 4.0
+    low_fps: float = 8.0
 
     def __post_init__(self) -> None:
         if self.fps <= 0 or self.radius_seconds <= 0 or self.evidence_window_seconds <= 0:
             raise ValueError("refinement FPS, radius, and evidence window must be positive")
         if self.continuity_weight < 0 or self.inside_contrast_weight < 0 or self.duration_prior_weight < 0:
             raise ValueError("refinement weights must be non-negative")
+        if not 0 <= self.medium_confidence <= self.high_confidence <= 1:
+            raise ValueError("refinement confidence thresholds must satisfy 0 <= medium <= high <= 1")
+        if self.medium_fps <= 0 or self.low_fps <= 0:
+            raise ValueError("adaptive refinement FPS values must be positive")
 
 
 @dataclass(frozen=True)

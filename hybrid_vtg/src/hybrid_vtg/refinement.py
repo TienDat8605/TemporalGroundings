@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from typing import Sequence
+from typing import Mapping, Sequence
 
 import numpy as np
 
@@ -27,6 +27,47 @@ class RefinedBoundary:
     decoded_pixels: int = 0
     processor_seconds: float = 0.0
     vision_encoder_seconds: float = 0.0
+
+
+@dataclass(frozen=True)
+class RefinementDecision:
+    refine: bool
+    tier: str
+    confidence: float
+    fps: float
+    reason: str
+
+
+def decide_refinement(
+    prediction: GroundingPrediction,
+    quality: Mapping[str, float],
+    config: RefinementConfig,
+    *,
+    expert_fps: float,
+    low_confidence_route: bool,
+) -> RefinementDecision:
+    """Choose a fixed, label-free refinement budget from endpoint evidence."""
+    if not config.enabled:
+        return RefinementDecision(False, "disabled", 0.0, 0.0, "refinement_disabled")
+    if not config.adaptive:
+        return RefinementDecision(True, "fixed", 0.0, config.fps, "fixed_fps")
+
+    confidence = float(quality.get("boundary_confidence", 0.0))
+    start, end = prediction.interval
+    frame_period = 1.0 / expert_fps
+    clear_of_edges = (
+        start - prediction.component.start > frame_period
+        and prediction.component.end - end > frame_period
+    )
+    safe_geometry = clear_of_edges and not low_confidence_route
+    if safe_geometry and confidence >= config.high_confidence:
+        return RefinementDecision(False, "high", confidence, 0.0, "strong_endpoint_contrast")
+    if safe_geometry and confidence >= config.medium_confidence:
+        return RefinementDecision(True, "medium", confidence, config.medium_fps, "moderate_endpoint_contrast")
+    reason = "component_edge" if not clear_of_edges else (
+        "low_confidence_route" if low_confidence_route else "weak_endpoint_contrast"
+    )
+    return RefinementDecision(True, "low", confidence, config.low_fps, reason)
 
 
 def boundary_scores(

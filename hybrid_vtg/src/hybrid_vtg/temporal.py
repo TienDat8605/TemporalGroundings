@@ -125,7 +125,12 @@ def interval_boundary_quality(
     inside = values[(times >= start) & (times <= end)]
     component_values = values[(times >= component.start) & (times <= component.end)]
     if not len(inside):
-        return {"score": -1.0, "boundary_contrast": -1.0, "tightness": -1.0}
+        return {
+            "score": -1.0, "boundary_contrast": -1.0,
+            "start_contrast": -1.0, "end_contrast": -1.0,
+            "tightness": -1.0, "start_confidence": 0.0,
+            "end_confidence": 0.0, "boundary_confidence": 0.0,
+        }
     inside_mean = float(inside.mean())
     component_mean = float(component_values.mean()) if len(component_values) else inside_mean
     left_inside = mean_between(start, min(end, start + context), inside_mean)
@@ -136,6 +141,28 @@ def interval_boundary_quality(
     end_contrast = right_inside - right_outside
     boundary_contrast = (start_contrast + end_contrast) / 2.0
     tightness = inside_mean - component_mean
+
+    component_indices = np.flatnonzero((times >= component.start) & (times <= component.end))
+    possible_starts = []
+    possible_ends = []
+    for candidate_index in component_indices:
+        candidate_time = float(times[candidate_index])
+        center = float(values[candidate_index])
+        before = mean_between(max(component.start, candidate_time - context), candidate_time, center)
+        after = mean_between(candidate_time, min(component.end, candidate_time + context) + 1e-9, center)
+        possible_starts.append(after - before)
+        possible_ends.append(before - after)
+
+    def confidence(value: float, candidates: list[float]) -> float:
+        distribution = np.asarray(candidates, dtype=float)
+        # A flat or non-positive transition is not a confident semantic boundary,
+        # even though a conventional percentile rank would assign tied values 1.0.
+        if value <= 0 or len(distribution) < 2 or float(np.ptp(distribution)) <= 1e-8:
+            return 0.0
+        return float(np.mean(distribution <= value))
+
+    start_confidence = confidence(start_contrast, possible_starts)
+    end_confidence = confidence(end_contrast, possible_ends)
     weight_sum = config.boundary_contrast_weight + config.tightness_weight
     score = (
         config.boundary_contrast_weight * boundary_contrast
@@ -147,6 +174,9 @@ def interval_boundary_quality(
         "start_contrast": float(start_contrast),
         "end_contrast": float(end_contrast),
         "tightness": float(tightness),
+        "start_confidence": start_confidence,
+        "end_confidence": end_confidence,
+        "boundary_confidence": min(start_confidence, end_confidence),
     }
 
 
