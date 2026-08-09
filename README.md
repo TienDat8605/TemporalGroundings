@@ -207,9 +207,9 @@ ls -lh "$TPSA_REPO/outputs/smoke/omtg-tpsa-boundary"*
 
 The JSONL contains per-sample predictions and telemetry. The adjacent manifest freezes the configuration, and the metrics file reports OMTG C-Acc, tIoU, tF1, and EtF1.
 
-## 11. Run the complete OMTG matrix
+## 11. Run the 12.5% OMTG comparison
 
-The matrix is sequential and contains dense Qwen plus `uniform`, `semvid`, `tpsa_query`, `tpsa_motion`, and `tpsa_boundary` at 6.25%, 12.5%, and 25% retention.
+The launcher is sequential and runs only `tpsa_query`, `tpsa_motion`, and `tpsa_boundary` at 12.5% retention. It deliberately skips dense, uniform, and SemVID because their baseline results are already available. At seven seconds per sample, the three 320-sample runs take approximately 1 hour 52 minutes, plus model-loading overhead.
 
 ```bash
 mkdir -p "$TPSA_REPO/outputs/tpsa-matrix/omtg" "$TPSA_REPO/logs"
@@ -271,7 +271,7 @@ hybrid-vtg validate-optimization \
   --logit-tolerance 0.05
 ```
 
-Use fresh output names for the optimized full matrix. A batch-two CUDA out-of-memory fallback invalidates a strict speed comparison.
+Use fresh output names for the optimized comparison. A batch-two CUDA out-of-memory fallback invalidates a strict speed comparison.
 
 ## Multi-GPU selection
 

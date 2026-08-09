@@ -37,7 +37,7 @@ export OMTG_ROOT=/datasets/OMTGBench
 # Smoke test
 bash hybrid_vtg/scripts/run_omtg_local.sh --limit 10 --fail-fast
 
-# Dense plus every equal-token policy at 6.25%, 12.5%, and 25%
+# Three TPSA stages at 12.5%; completed baselines are skipped
 bash hybrid_vtg/scripts/run_spatial_matrix.sh \
   omtg outputs/tpsa-matrix/omtg --fail-fast
 ```
@@ -56,7 +56,7 @@ export TACOS_ROOT=/datasets/TACoS-compressed
 # Smoke test
 bash hybrid_vtg/scripts/run_tacos_local.sh --limit 10 --fail-fast
 
-# Equal-token matrix
+# Three TPSA stages at 12.5%; completed baselines are skipped
 bash hybrid_vtg/scripts/run_spatial_matrix.sh \
   tacos outputs/tpsa-matrix/tacos --fail-fast
 ```

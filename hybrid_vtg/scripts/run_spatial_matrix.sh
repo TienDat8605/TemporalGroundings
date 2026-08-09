@@ -21,15 +21,12 @@ esac
 
 mkdir -p "$output_dir"
 
-"$runner" --spatial-policy dense --output "$output_dir/dense.jsonl" "$@"
-
-for ratio in 0.0625 0.125 0.25; do
-  ratio_name="${ratio/./p}"
-  for policy in uniform semvid tpsa_query tpsa_motion tpsa_boundary; do
-    "$runner" \
-      --spatial-policy "$policy" \
-      --retention-ratio "$ratio" \
-      --output "$output_dir/${policy}-${ratio_name}.jsonl" \
-      "$@"
-  done
+retention_ratio=0.125
+ratio_name="${retention_ratio/./p}"
+for policy in tpsa_query tpsa_motion tpsa_boundary; do
+  "$runner" \
+    --spatial-policy "$policy" \
+    --retention-ratio "$retention_ratio" \
+    --output "$output_dir/${policy}-${ratio_name}.jsonl" \
+    "$@"
 done
