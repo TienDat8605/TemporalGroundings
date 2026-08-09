@@ -1,4 +1,7 @@
+import pytest
+
 from hybrid_vtg.cli import _config, _parser
+from hybrid_vtg.config import SpatialAllocatorConfig
 
 
 def _args(*extra):
@@ -24,3 +27,8 @@ def test_optimized_profile_enables_verified_batch_and_prefetch():
     assert config.grounder.batch_size == 2
     assert config.grounder.preprocess_workers == 1
     assert config.grounder.prefetch_depth == 2
+
+
+def test_query_core_and_boundary_quotas_cannot_overcommit_budget():
+    with pytest.raises(ValueError, match="must not exceed"):
+        SpatialAllocatorConfig(query_core_fraction=0.9, boundary_quota_fraction=0.1)

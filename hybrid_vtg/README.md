@@ -1,6 +1,18 @@
 # TPSA: timeline-preserving spatial allocation
 
-This package benchmarks a frozen Qwen3-VL grounder with one continuous full video and one generation per query. TPSA retains at least one real visual token from every decoded frame and distributes the remaining exact token budget using query relevance, feature-native transitions, and directional boundary evidence.
+This package benchmarks a frozen Qwen3-VL grounder with one continuous full video and one generation per query. TPSA retains at least one real visual token from every post-encoder temporal tubelet and distributes the remaining exact token budget using query relevance, feature-native transitions, and directional boundary evidence.
+
+## Implementation status
+
+TPSA currently prunes **after** the frozen Qwen vision encoder. All sampled frames and spatial patches still pass through every vision-transformer block.
+
+| Pruning location | Implemented | Notes |
+| --- | --- | --- |
+| Before the vision encoder | No | The pipeline does not yet perform cheap temporal scans, frame pruning, or input-region pruning. |
+| Within the vision encoder | No | The pipeline does not yet prune tokens between encoder blocks or re-encode selected regions. |
+| After the vision encoder | Yes | TPSA selects encoded visual tokens before compact language-model prefill. |
+
+The retention ratio therefore measures post-encoder visual tokens delivered to the language model. It reduces multimodal prefill length but does not reduce video decoding or frozen vision-encoder computation. Pre-encoder and mid-encoder hierarchical pruning are roadmap ideas, not part of the results produced by this package.
 
 Spatial policies:
 
@@ -10,6 +22,12 @@ Spatial policies:
 - `tpsa_query`: timeline coverage plus query evidence;
 - `tpsa_motion`: query evidence plus feature-native state change;
 - `tpsa_boundary`: complete TPSA allocator.
+
+Motion and boundary policies keep 80% of the non-prototype budget as a
+query-only core. Feature transitions are ranked across the complete video and
+can refine only the remaining capacity; boundary quotas preserve evidence on
+both sides of a transition. Boundary timing uses the post-encoder tubelet FPS,
+not the decoded-frame FPS.
 
 SemVID remains the command-line default until the declared promotion gates pass. The removed temporal router, component reranker, presence verifier, and refinement path are not part of this implementation.
 
@@ -75,7 +93,7 @@ hybrid-vtg run \
   --output outputs/omtg-tpsa-boundary-0p125.jsonl
 ```
 
-Use a distinct output path for each configuration because the adjacent manifest is immutable. Manifests use schema 4 and record the spatial policy, allocator constants, project revision, and SemVID revision.
+Use a distinct output path for each configuration because the adjacent manifest is immutable. Manifests use schema 5 and record the spatial policy, allocator constants, project revision, and SemVID revision.
 
 For batch-two and CPU prefetch after validating on the target GPU:
 
@@ -106,5 +124,10 @@ Single-span datasets report mIoU, boundary MAE, and R@1 at IoU 0.3/0.5/0.7. OMTG
 ```bash
 hybrid-vtg evaluate --input outputs/omtg.jsonl
 ```
+
+The evaluator accepts numeric-pair and object-form JSON, recovers complete
+intervals from truncated generations, applies the shared duplicate/gap merge,
+and reports `parse_status_counts`. This also repairs older TPSA JSONLs whose raw
+object-form responses were retained but whose `intervals` field was empty.
 
 TPSA is post-encoder: all policies decode identical frames and run the same frozen vision encoder. Any speed claim must therefore use measured latency rather than infer savings from retained-token ratio.

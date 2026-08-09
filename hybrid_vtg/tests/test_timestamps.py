@@ -1,7 +1,11 @@
 import pytest
 
 from hybrid_vtg.timestamps import (
-    normalize_timestamp, parse_intervals, parse_timestamp,
+    consolidate_intervals,
+    normalize_timestamp,
+    parse_intervals,
+    parse_intervals_detailed,
+    parse_timestamp,
 )
 from hybrid_vtg.types import Component
 
@@ -18,6 +22,36 @@ def test_parse_multispan_json_array():
     assert parse_intervals("[[4.0, 5.0], [1.0, 2.0], [1.0, 2.0]]") == (
         (1.0, 2.0), (4.0, 5.0),
     )
+
+
+def test_parse_multispan_object_arrays_and_start_time_aliases():
+    text = '''```json
+    [{"start": 4, "end": 5}, {"start_time": 1, "end_time": 2}]
+    ```'''
+    parsed = parse_intervals_detailed(text)
+    assert parsed.intervals == ((1.0, 2.0), (4.0, 5.0))
+    assert parsed.status == "valid_json"
+
+
+def test_parse_recovers_complete_objects_from_truncated_generation():
+    parsed = parse_intervals_detailed(
+        '[{"start": 1, "end": 2}, {"start": 4, "end": 5}, {"start": 8'
+    )
+    assert parsed.intervals == ((1.0, 2.0), (4.0, 5.0))
+    assert parsed.status == "recovered"
+
+
+def test_parse_distinguishes_explicit_empty_from_invalid_text():
+    assert parse_intervals_detailed("```json\n[]\n```").status == "explicit_empty"
+    with pytest.raises(ValueError, match="contains no interval set"):
+        parse_intervals_detailed("I cannot determine the interval")
+
+
+def test_shared_interval_consolidation_suppresses_duplicates_and_merges_gaps():
+    assert consolidate_intervals(
+        ((1.0, 5.0), (1.2, 4.8), (5.5, 7.0), (20.0, 25.0)),
+        duration=22.0,
+    ) == ((1.2, 7.0), (20.0, 22.0))
 
 
 def test_relative_timestamp_is_converted_and_clamped():

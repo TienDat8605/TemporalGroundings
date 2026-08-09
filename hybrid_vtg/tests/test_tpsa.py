@@ -5,6 +5,7 @@ from hybrid_vtg.config import SpatialAllocatorConfig
 from hybrid_vtg.tpsa import (
     TimelinePreservingSpatialAllocator,
     directional_boundary_evidence,
+    effective_temporal_fps,
     feature_transition_maps,
     select_boundary_bands,
 )
@@ -67,6 +68,10 @@ def test_directional_boundary_quota_is_assigned_exactly_when_bands_exist():
     assert result.end_indices.numel() == quota
     assert result.start_bands[0].center_frame == 4
     assert result.end_bands[0].center_frame == 9
+    start_frames = result.start_indices // tokens.shape[1]
+    end_frames = result.end_indices // tokens.shape[1]
+    assert bool((start_frames < 4).any()) and bool((start_frames >= 4).any())
+    assert bool((end_frames < 9).any()) and bool((end_frames >= 9).any())
 
 
 def test_single_frame_uses_zero_motion_and_is_deterministic():
@@ -151,3 +156,29 @@ def test_global_translation_is_camera_compensated_away_from_edges():
     novelty = feature_transition_maps(torch.stack((base, shifted)), height, width, radius=2)
     interior = novelty.reshape(2, height, width)[:, :, 1:]
     assert float((interior == 0).float().mean()) >= 0.5
+
+
+def test_motion_magnitude_is_comparable_across_the_complete_video():
+    frame = _tokens(frames=1, height=3, width=3)[0]
+    video = frame.unsqueeze(0).repeat(4, 1, 1)
+    video[2, 4] = -video[2, 4]
+    novelty = feature_transition_maps(video, 3, 3)
+    frame_strength = novelty.topk(2, dim=1).values.mean(dim=1)
+    assert float(frame_strength[1]) > float(frame_strength[0])
+    assert float(frame_strength[2]) > float(frame_strength[3])
+
+
+def test_motion_and_boundary_policies_protect_query_core():
+    tokens = _tokens(frames=10, height=3, width=4)
+    query = tokens[3, :2].clone()
+    for policy in ("tpsa_motion", "tpsa_boundary"):
+        result = _allocator(policy, 0.25)(tokens, 3, 4, query, fps=1.0)
+        remaining = result.target_tokens - tokens.shape[0]
+        assert result.query_core_indices.numel() == round(remaining * 0.8)
+        assert result.stats()["protected_query_tokens"] == round(remaining * 0.8)
+
+
+def test_effective_temporal_fps_accounts_for_qwen_tubelets():
+    assert effective_temporal_fps(2.0, 2) == 1.0
+    with pytest.raises(ValueError):
+        effective_temporal_fps(2.0, 0)

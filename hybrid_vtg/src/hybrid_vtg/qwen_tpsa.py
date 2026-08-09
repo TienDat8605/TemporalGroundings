@@ -7,7 +7,7 @@ import torch
 from src.models.models.modeling_qwen3_vl_semvid import Qwen3VLForConditionalGenerationSemVID
 
 from .config import SpatialAllocatorConfig
-from .tpsa import TimelinePreservingSpatialAllocator
+from .tpsa import TimelinePreservingSpatialAllocator, effective_temporal_fps
 
 
 class Qwen3VLForConditionalGenerationTPSA(Qwen3VLForConditionalGenerationSemVID):
@@ -26,6 +26,8 @@ class Qwen3VLForConditionalGenerationTPSA(Qwen3VLForConditionalGenerationSemVID)
             boundary_nms_seconds=float(getattr(config, "tpsa_boundary_nms_seconds", 4.0)),
             boundary_expansion_seconds=float(getattr(config, "tpsa_boundary_expansion_seconds", 1.0)),
             maximum_boundary_bands=int(getattr(config, "tpsa_maximum_boundary_bands", 4)),
+            query_core_fraction=float(getattr(config, "tpsa_query_core_fraction", 0.80)),
+            motion_bonus_fraction=float(getattr(config, "tpsa_motion_bonus_fraction", 0.10)),
         )
         self.tpsa_allocator = TimelinePreservingSpatialAllocator(allocator_config)
         self.tpsa_fps = float(getattr(config, "tpsa_fps", 2.0))
@@ -76,16 +78,24 @@ class Qwen3VLForConditionalGenerationTPSA(Qwen3VLForConditionalGenerationSemVID)
     ):
         if merged_grid_hw is None:
             raise ValueError("TPSA selection hook did not receive merged (H,W) metadata")
+        temporal_patch_size = max(
+            int(getattr(getattr(self.visual, "patch_embed", None), "temporal_patch_size", 1)),
+            1,
+        )
+        tubelet_fps = effective_temporal_fps(self.tpsa_fps, temporal_patch_size)
         allocation = self.tpsa_allocator(
             video_hidden_states,
             merged_grid_hw[0],
             merged_grid_hw[1],
             query_embed,
-            self.tpsa_fps,
+            tubelet_fps,
             retention_ratio=self.semantic_retention_ratio,
         )
         stats = allocation.stats()
         stats["spatial_policy"] = self.tpsa_allocator.config.spatial_policy
+        stats["decoded_fps"] = self.tpsa_fps
+        stats["temporal_patch_size"] = temporal_patch_size
+        stats["effective_temporal_fps"] = tubelet_fps
         self.last_tpsa_stats_batch.append(stats)
         self.last_tpsa_stats_batch = self.last_tpsa_stats_batch[-32:]
 

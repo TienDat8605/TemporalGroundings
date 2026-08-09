@@ -7,6 +7,8 @@ from collections.abc import Iterable, Sequence
 import numpy as np
 from scipy.optimize import linear_sum_assignment
 
+from .timestamps import consolidate_intervals, parse_intervals_detailed
+
 
 def temporal_iou(prediction: Sequence[float], target: Sequence[float]) -> float:
     overlap = max(
@@ -104,22 +106,50 @@ def _efficiency_summary(records: Sequence[dict]) -> dict[str, float | None]:
     return output
 
 
-def _prediction_intervals(record: dict) -> list[Sequence[float]]:
+def _prediction_intervals(record: dict) -> tuple[list[Sequence[float]], str]:
     prediction = record.get("prediction") or {}
+    if not prediction:
+        return [], "error"
+    status = prediction.get("parse_status")
+    if status:
+        intervals = prediction.get("intervals")
+        if intervals is None:
+            intervals = [prediction["interval"]] if prediction.get("interval") else []
+        return list(intervals), str(status)
+
+    raw_text = prediction.get("raw_text")
+    if raw_text is not None:
+        try:
+            parsed = parse_intervals_detailed(raw_text)
+            intervals = consolidate_intervals(
+                parsed.intervals,
+                duration=float(record["duration"]),
+            )
+            return list(intervals), parsed.status
+        except (KeyError, TypeError, ValueError):
+            return [], "invalid"
+
     intervals = prediction.get("intervals")
     if intervals is not None:
-        return intervals
-    return [prediction["interval"]] if prediction.get("interval") else []
+        return list(intervals), "legacy"
+    return ([prediction["interval"]] if prediction.get("interval") else []), "legacy"
 
 
 def evaluate_omtg(records: Sequence[dict]) -> dict:
     labelled = [record for record in records if record.get("targets") is not None]
+    parsed = [_prediction_intervals(record) for record in labelled]
     rows = [
-        one_to_many_metrics(_prediction_intervals(record), record.get("targets") or [])
-        for record in labelled
+        one_to_many_metrics(prediction, record.get("targets") or [])
+        for record, (prediction, _) in zip(labelled, parsed)
     ]
     if not rows:
         return {"count": 0}
+    parse_success = {"valid_json", "recovered", "explicit_empty", "parsed", "legacy"}
+    status_counts = {
+        status: sum(parsed_status == status for _, parsed_status in parsed)
+        for status in sorted({parsed_status for _, parsed_status in parsed})
+    }
+    parsed_predictions = sum(status in parse_success for _, status in parsed)
     return {
         "count": len(rows),
         "metric_units": "percent except CardinalityError and efficiency counters",
@@ -129,8 +159,9 @@ def evaluate_omtg(records: Sequence[dict]) -> dict:
             )
             for key in rows[0]
         },
-        "parsed_predictions": sum(bool(record.get("prediction")) for record in labelled),
-        "parse_rate": sum(bool(record.get("prediction")) for record in labelled) / len(labelled),
+        "parsed_predictions": parsed_predictions,
+        "parse_rate": parsed_predictions / len(labelled),
+        "parse_status_counts": status_counts,
         **_efficiency_summary([record for record in labelled if record.get("prediction")]),
     }
 

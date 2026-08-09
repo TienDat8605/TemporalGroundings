@@ -56,3 +56,31 @@ def test_omtg_parse_failures_count_as_empty_predictions():
     assert result["count"] == 1
     assert result["parsed_predictions"] == 0
     assert result["EtF1"] == 0.0
+
+
+def test_omtg_evaluation_recovers_legacy_object_output_and_reports_status():
+    result = evaluate([{
+        "group": "omtg",
+        "cardinality": "multi",
+        "duration": 10.0,
+        "targets": [[1.0, 2.0], [4.0, 5.0]],
+        "prediction": {
+            "intervals": [],
+            "raw_text": '[{"start": 1, "end": 2}, {"start": 4, "end": 5}]',
+        },
+    }])
+    assert result["C-Acc"] == 100.0
+    assert result["EtF1"] == 100.0
+    assert result["parse_rate"] == 1.0
+    assert result["parse_status_counts"] == {"valid_json": 1}
+
+
+def test_omtg_invalid_legacy_output_reduces_parse_rate():
+    result = evaluate([{
+        "group": "omtg", "cardinality": "multi", "duration": 10.0,
+        "targets": [[1.0, 2.0]],
+        "prediction": {"intervals": [], "raw_text": "not a timestamp"},
+    }])
+    assert result["parsed_predictions"] == 0
+    assert result["parse_rate"] == 0.0
+    assert result["parse_status_counts"] == {"invalid": 1}

@@ -102,7 +102,7 @@ def _run(args: argparse.Namespace) -> int:
     config = _config(args)
     repository_root = Path(__file__).resolve().parents[3]
     manifest = {
-        "schema": 4,
+        "schema": 5,
         "benchmark": args.benchmark,
         "data": str(args.data.resolve()),
         "split": split,

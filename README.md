@@ -4,6 +4,18 @@ This repository contains the training-free Timeline-Preserving Spatial Allocator
 
 For allocator design and output details, see [`hybrid_vtg/README.md`](hybrid_vtg/README.md).
 
+## Current pruning scope
+
+The current implementation performs **post-encoder token selection only**. It decodes the same sampled frames and runs every visual token through the frozen Qwen vision encoder before TPSA selects the tokens retained for the language-model prefill.
+
+| Stage | Status | Current effect |
+| --- | --- | --- |
+| Pre-encoder pruning | Not implemented | No frames or image regions are removed before the vision encoder. |
+| Mid-encoder pruning | Not implemented | No tokens are removed between vision-transformer blocks. |
+| Post-encoder pruning | Implemented | TPSA reduces the visual tokens passed from the vision encoder to the language model. |
+
+Consequently, 12.5% retention means approximately 12.5% of encoded visual tokens reach the language model; it does not imply a 12.5% decode or vision-encoder workload. Hierarchical pre-encoder and mid-encoder pruning remain future work and should be evaluated as coordinated stages rather than added blindly to the current selector.
+
 ## Recommended server
 
 - Ubuntu 22.04 or another recent x86-64 Linux distribution;
@@ -209,7 +221,7 @@ The JSONL contains per-sample predictions and telemetry. The adjacent manifest f
 
 ## 11. Run the 12.5% OMTG comparison
 
-The launcher is sequential and runs only `tpsa_query`, `tpsa_motion`, and `tpsa_boundary` at 12.5% retention. It deliberately skips dense, uniform, and SemVID because their baseline results are already available. At seven seconds per sample, the three 320-sample runs take approximately 1 hour 52 minutes, plus model-loading overhead.
+The launcher is sequential and runs only `tpsa_query`, `tpsa_motion`, and `tpsa_boundary` at 12.5% retention. It deliberately skips dense, uniform, and SemVID because their baseline results are already available. The completed runs measured about 13--15 seconds per sample, or approximately 3 hours 50 minutes total for all three 320-sample runs, plus model-loading overhead. Actual time depends on the rented GPU and generation behavior.
 
 ```bash
 mkdir -p "$TPSA_REPO/outputs/tpsa-matrix/omtg" "$TPSA_REPO/logs"

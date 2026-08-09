@@ -41,6 +41,8 @@ class SpatialAllocation:
     start_indices: torch.LongTensor
     end_indices: torch.LongTensor
     adaptive_indices: torch.LongTensor
+    query_core_indices: torch.LongTensor
+    refinement_indices: torch.LongTensor
     frame_allocation: torch.LongTensor
     query_relevance: torch.Tensor
     novelty: torch.Tensor
@@ -67,6 +69,8 @@ class SpatialAllocation:
             "start_boundary_tokens": int(self.start_indices.numel()),
             "end_boundary_tokens": int(self.end_indices.numel()),
             "adaptive_tokens": int(self.adaptive_indices.numel()),
+            "protected_query_tokens": int(self.query_core_indices.numel()),
+            "auxiliary_refinement_tokens": int(self.refinement_indices.numel()),
             "start_boundary_bands": [asdict(value) for value in self.start_bands],
             "end_boundary_bands": [asdict(value) for value in self.end_bands],
             **self.latencies,
@@ -91,6 +95,13 @@ def percentile_rank(values: torch.Tensor) -> torch.Tensor:
 
 def _rank_mean(*values: torch.Tensor) -> torch.Tensor:
     return torch.stack([percentile_rank(value) for value in values], dim=0).mean(dim=0)
+
+
+def effective_temporal_fps(decoded_fps: float, temporal_patch_size: int) -> float:
+    """Convert decoded-frame FPS to the post-encoder temporal-tubelet rate."""
+    if decoded_fps <= 0 or temporal_patch_size <= 0:
+        raise ValueError("decoded FPS and temporal patch size must be positive")
+    return decoded_fps / temporal_patch_size
 
 
 def patch_query_relevance(
@@ -129,7 +140,7 @@ def _transition_from_source(
     height: int,
     width: int,
     radius: int,
-) -> torch.Tensor:
+) -> tuple[torch.Tensor, torch.Tensor]:
     """Camera-compensated source-patch transition evidence for one frame pair."""
     source_n = F.normalize(source.float(), dim=-1, eps=1e-6)
     destination_n = F.normalize(destination.float(), dim=-1, eps=1e-6)
@@ -171,7 +182,7 @@ def _transition_from_source(
     )
     camera_motion = displacement.median(dim=0).values
     local_motion = (displacement - camera_motion).norm(dim=-1)
-    return _rank_mean(evidence_appearance, local_motion)
+    return evidence_appearance, local_motion
 
 
 def feature_transition_maps(
@@ -189,8 +200,8 @@ def feature_transition_maps(
         )
     if frames == 1:
         return visual_tokens.new_zeros((1, patches), dtype=torch.float32)
-    incoming: list[torch.Tensor | None] = [None] * frames
-    outgoing: list[torch.Tensor | None] = [None] * frames
+    incoming: list[tuple[torch.Tensor, torch.Tensor] | None] = [None] * frames
+    outgoing: list[tuple[torch.Tensor, torch.Tensor] | None] = [None] * frames
     for frame in range(frames - 1):
         outgoing[frame] = _transition_from_source(
             visual_tokens[frame], visual_tokens[frame + 1], height, width, radius,
@@ -198,15 +209,28 @@ def feature_transition_maps(
         incoming[frame + 1] = _transition_from_source(
             visual_tokens[frame + 1], visual_tokens[frame], height, width, radius,
         )
-    output = []
+    appearance_output = []
+    motion_output = []
     for frame in range(frames):
         if incoming[frame] is None:
-            output.append(outgoing[frame])
+            value = outgoing[frame]
         elif outgoing[frame] is None:
-            output.append(incoming[frame])
+            value = incoming[frame]
         else:
-            output.append(0.5 * (incoming[frame] + outgoing[frame]))
-    return torch.stack([value for value in output if value is not None], dim=0)
+            value = (
+                0.5 * (incoming[frame][0] + outgoing[frame][0]),
+                0.5 * (incoming[frame][1] + outgoing[frame][1]),
+            )
+        if value is not None:
+            appearance_output.append(value[0])
+            motion_output.append(value[1])
+    appearance = torch.stack(appearance_output, dim=0)
+    local_motion = torch.stack(motion_output, dim=0)
+    appearance_rank = percentile_rank(appearance)
+    motion_rank = percentile_rank(local_motion)
+    appearance_rank[appearance <= 1e-5] = 0
+    motion_rank[local_motion <= 1e-5] = 0
+    return 0.5 * (appearance_rank + motion_rank)
 
 
 def directional_boundary_evidence(
@@ -243,12 +267,18 @@ def select_boundary_bands(
     maximum_bands: int,
 ) -> tuple[BoundaryBand, ...]:
     frames = int(evidence.numel())
+    positive = evidence[evidence > 0].float()
+    if positive.numel() == 0:
+        return ()
+    if positive.numel() > 1 and bool(torch.allclose(positive, positive[:1], rtol=0.0, atol=1e-8)):
+        return ()
+    confidence_floor = float(positive.min().item())
     separation = max(1, int(round(nms_seconds * fps)))
     expansion = max(0, int(round(expansion_seconds * fps)))
     order = torch.argsort(evidence, descending=True, stable=True).tolist()
     centers: list[int] = []
     for center in order:
-        if float(evidence[center].item()) <= 0:
+        if float(evidence[center].item()) < confidence_floor:
             break
         if all(abs(center - previous) >= separation for previous in centers):
             centers.append(center)
@@ -328,15 +358,42 @@ def _take_global(
     score: torch.Tensor,
     quota: int,
     selected: torch.BoolTensor,
+    candidate_mask: torch.BoolTensor | None = None,
 ) -> torch.LongTensor:
     flat_score = score.reshape(-1).clone()
     eligible = (~selected) & torch.isfinite(flat_score) & flat_score.gt(0)
+    if candidate_mask is not None:
+        eligible &= candidate_mask.reshape(-1)
     candidates = torch.nonzero(eligible, as_tuple=False).flatten()
     if quota <= 0 or candidates.numel() == 0:
         return candidates[:0]
     order = torch.argsort(flat_score[candidates], descending=True, stable=True)
     chosen = candidates[order[:min(quota, int(candidates.numel()))]]
     selected[chosen] = True
+    return chosen.sort().values
+
+
+def _take_boundary_sides(
+    bands: tuple[BoundaryBand, ...],
+    score: torch.Tensor,
+    quota: int,
+    selected: torch.BoolTensor,
+) -> torch.LongTensor:
+    if quota <= 0 or not bands:
+        return selected.new_empty((0,), dtype=torch.long)
+    before = torch.zeros_like(score, dtype=torch.bool)
+    after = torch.zeros_like(score, dtype=torch.bool)
+    for band in bands:
+        before[band.start_frame:band.center_frame] = True
+        after[band.center_frame:band.end_frame + 1] = True
+    first_quota = quota // 2
+    before_indices = _take_global(score, first_quota, selected, before)
+    after_indices = _take_global(score, quota - int(before_indices.numel()), selected, after)
+    chosen = torch.cat((before_indices, after_indices))
+    if chosen.numel() < quota:
+        eligible = before | after
+        remainder = _take_global(score, quota - int(chosen.numel()), selected, eligible)
+        chosen = torch.cat((chosen, remainder))
     return chosen.sort().values
 
 
@@ -364,6 +421,41 @@ def _mmr_select(
         selected.append(choice)
         redundancy = torch.maximum(redundancy, torch.matmul(normalized, normalized[choice]))
     return torch.tensor(selected, device=tokens.device, dtype=torch.long).sort().values
+
+
+def _query_gated_score(
+    query_score: torch.Tensor,
+    auxiliary_score: torch.Tensor,
+    bonus_fraction: float,
+) -> torch.Tensor:
+    query_rank = percentile_rank(query_score)
+    if auxiliary_score.numel() == 0 or not bool((auxiliary_score > 0).any()):
+        return query_rank
+    auxiliary_rank = percentile_rank(auxiliary_score)
+    auxiliary_rank[auxiliary_score <= 0] = 0
+    return query_rank + bonus_fraction * query_rank * auxiliary_rank
+
+
+def _select_per_frame(
+    tokens: torch.Tensor,
+    scores: torch.Tensor,
+    frame_counts: torch.LongTensor,
+    selected: torch.BoolTensor,
+    mmr_lambda: float,
+) -> torch.LongTensor:
+    frames, patches, _ = tokens.shape
+    parts = []
+    for frame in range(frames):
+        unavailable = selected[frame * patches:(frame + 1) * patches].clone()
+        local = _mmr_select(
+            tokens[frame], scores[frame], int(frame_counts[frame].item()),
+            unavailable, mmr_lambda,
+        )
+        if local.numel():
+            global_indices = local + frame * patches
+            selected[global_indices] = True
+            parts.append(global_indices)
+    return torch.cat(parts).sort().values if parts else selected.new_empty((0,), dtype=torch.long)
 
 
 class TimelinePreservingSpatialAllocator:
@@ -422,7 +514,10 @@ class TimelinePreservingSpatialAllocator:
                 merged_grid_width,
                 self.config.motion_neighborhood_radius,
             )
-            novelty = novelty_map.mean(dim=1)
+            novelty = frame_relevance_curve(
+                novelty_map,
+                self.config.relevance_top_fraction,
+            )
         else:
             novelty_map = torch.zeros_like(patch_relevance)
             novelty = torch.zeros_like(frame_relevance)
@@ -460,41 +555,64 @@ class TimelinePreservingSpatialAllocator:
             int(remaining * self.config.boundary_quota_fraction)
             if self.config.spatial_policy == "tpsa_boundary" else 0
         )
+        query_patch_score = percentile_rank(patch_relevance)
         patch_selection_score = (
-            percentile_rank(patch_relevance)
+            query_patch_score
             if self.config.spatial_policy == "tpsa_query"
-            else _rank_mean(patch_relevance, novelty_map)
+            else _query_gated_score(
+                patch_relevance,
+                novelty_map,
+                self.config.motion_bonus_fraction,
+            )
         )
+
         start_score = _band_candidate_score(start_bands, patch_selection_score)
-        start = _take_global(start_score, boundary_quota, selected)
+        start = _take_boundary_sides(start_bands, start_score, boundary_quota, selected)
         end_score = _band_candidate_score(end_bands, patch_selection_score)
-        end = _take_global(end_score, boundary_quota, selected)
+        end = _take_boundary_sides(end_bands, end_score, boundary_quota, selected)
+
+        query_core = prototype[:0]
+        if self.config.spatial_policy in {"tpsa_motion", "tpsa_boundary"}:
+            query_is_flat = bool(torch.allclose(
+                frame_relevance.float(), frame_relevance[:1].float(), rtol=0.0, atol=1e-8,
+            ))
+            query_core_total = (
+                0 if query_is_flat
+                else int(round(remaining * self.config.query_core_fraction))
+            )
+            query_capacity = (~selected.reshape(frames, patches)).sum(dim=1).long()
+            query_frame_extra = _allocate_capped(
+                percentile_rank(frame_relevance),
+                query_core_total,
+                query_capacity,
+            )
+            query_core = _select_per_frame(
+                visual_tokens,
+                query_patch_score,
+                query_frame_extra,
+                selected,
+                self.config.mmr_lambda,
+            )
 
         adaptive_total = target - int(selected.sum().item())
         capacity = (~selected.reshape(frames, patches)).sum(dim=1).long()
         if self.config.spatial_policy == "tpsa_query":
             frame_weight = percentile_rank(frame_relevance)
-        elif self.config.spatial_policy == "tpsa_motion":
-            frame_weight = _rank_mean(frame_relevance, novelty)
         else:
-            boundary_max = torch.maximum(start_evidence, end_evidence)
-            frame_weight = _rank_mean(frame_relevance, novelty, boundary_max)
-        frame_extra = _allocate_capped(frame_weight, adaptive_total, capacity)
-        adaptive_parts = []
-        for frame in range(frames):
-            unavailable = selected[frame * patches:(frame + 1) * patches].clone()
-            local = _mmr_select(
-                visual_tokens[frame], patch_selection_score[frame],
-                int(frame_extra[frame].item()), unavailable, self.config.mmr_lambda,
+            frame_weight = _query_gated_score(
+                frame_relevance,
+                novelty,
+                self.config.motion_bonus_fraction,
             )
-            if local.numel():
-                global_indices = local + frame * patches
-                selected[global_indices] = True
-                adaptive_parts.append(global_indices)
-        adaptive = (
-            torch.cat(adaptive_parts).sort().values
-            if adaptive_parts else prototype[:0]
+        frame_extra = _allocate_capped(frame_weight, adaptive_total, capacity)
+        refinement = _select_per_frame(
+            visual_tokens,
+            patch_selection_score,
+            frame_extra,
+            selected,
+            self.config.mmr_lambda,
         )
+        adaptive = torch.cat((query_core, refinement)).sort().values
         keep = torch.nonzero(selected, as_tuple=False).flatten().sort().values
         if keep.numel() != target:
             raise RuntimeError(f"TPSA budget error: selected {keep.numel()} tokens, expected {target}")
@@ -509,6 +627,10 @@ class TimelinePreservingSpatialAllocator:
             start_indices=start,
             end_indices=end,
             adaptive_indices=adaptive,
+            query_core_indices=query_core,
+            refinement_indices=(
+                refinement if self.config.spatial_policy != "tpsa_query" else prototype[:0]
+            ),
             frame_allocation=frame_allocation,
             query_relevance=frame_relevance,
             novelty=novelty,

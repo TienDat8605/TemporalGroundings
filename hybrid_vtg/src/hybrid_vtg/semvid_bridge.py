@@ -11,7 +11,12 @@ from time import perf_counter
 from typing import Any, Sequence
 
 from .config import GrounderConfig, SpatialAllocatorConfig
-from .timestamps import normalize_timestamp, parse_intervals, parse_timestamp
+from .timestamps import (
+    consolidate_intervals,
+    normalize_timestamp,
+    parse_intervals_detailed,
+    parse_timestamp,
+)
 from .types import Component, GroundingPrediction, Sample
 
 
@@ -215,6 +220,8 @@ class SemVIDGrounder:
             "tpsa_boundary_nms_seconds": allocator.boundary_nms_seconds,
             "tpsa_boundary_expansion_seconds": allocator.boundary_expansion_seconds,
             "tpsa_maximum_boundary_bands": allocator.maximum_boundary_bands,
+            "tpsa_query_core_fraction": allocator.query_core_fraction,
+            "tpsa_motion_bonus_fraction": allocator.motion_bonus_fraction,
             "attn_implementation": config.attention,
         }
         handler = TPSA_HANDLER if policy.startswith("tpsa_") else HANDLER
@@ -240,7 +247,9 @@ class SemVIDGrounder:
             instruction = (
                 f"Find every disjoint time interval where this event occurs: {sample.query!r}.\n"
                 f"Timestamps must be seconds within [0.000, {sample.duration:.3f}]. "
-                "Return only a JSON array of [start, end] pairs ordered by start time. "
+                "Return only a JSON array of numeric pairs like "
+                "[[12.0, 18.0], [42.0, 49.5]], ordered by start time. "
+                "Do not use objects, keys, prose, or Markdown fences. "
                 "Return [] if the event never occurs, and do not omit repeated occurrences."
             )
         else:
@@ -486,9 +495,12 @@ class SemVIDGrounder:
                     first_token_topk[batch_index] if batch_index < len(first_token_topk) else None
                 ),
             }
+            parse_status = "parsed"
             try:
                 if request.sample.cardinality == "multi":
-                    response_intervals = parse_intervals(text)
+                    parsed = parse_intervals_detailed(text)
+                    response_intervals = parsed.intervals
+                    parse_status = parsed.status
                 else:
                     response_interval = parse_timestamp(text)
                     response_intervals = (response_interval,)
@@ -505,6 +517,11 @@ class SemVIDGrounder:
                     )
                     for candidate in response_intervals
                 )
+                if request.sample.cardinality == "multi":
+                    intervals = consolidate_intervals(
+                        intervals,
+                        duration=request.sample.duration,
+                    )
                 interval = intervals[0] if intervals else None
             except (TypeError, ValueError) as error:
                 outputs.append(GroundingOutputError(
@@ -517,6 +534,7 @@ class SemVIDGrounder:
                 token_roles=token_roles,
                 telemetry=telemetry,
                 intervals=intervals,
+                parse_status=parse_status,
             ))
         return outputs
 

@@ -50,6 +50,7 @@ class GroundingPrediction:
     token_roles: dict[str, int]
     telemetry: dict[str, Any]
     intervals: tuple[tuple[float, float], ...] = ()
+    parse_status: str = "parsed"
 
     @property
     def semvid_stats(self) -> dict[str, Any]:

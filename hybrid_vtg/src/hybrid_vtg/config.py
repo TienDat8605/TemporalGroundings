@@ -58,6 +58,8 @@ class SpatialAllocatorConfig:
     boundary_nms_seconds: float = 4.0
     boundary_expansion_seconds: float = 1.0
     maximum_boundary_bands: int = 4
+    query_core_fraction: float = 0.80
+    motion_bonus_fraction: float = 0.10
 
     def __post_init__(self) -> None:
         if self.spatial_policy not in SPATIAL_POLICIES:
@@ -82,6 +84,12 @@ class SpatialAllocatorConfig:
             raise ValueError("boundary window must be positive")
         if self.maximum_boundary_bands <= 0:
             raise ValueError("maximum boundary bands must be positive")
+        if not 0 <= self.query_core_fraction <= 1:
+            raise ValueError("query core fraction must be in [0, 1]")
+        if not 0 <= self.motion_bonus_fraction <= 1:
+            raise ValueError("motion bonus fraction must be in [0, 1]")
+        if self.query_core_fraction + 2 * self.boundary_quota_fraction > 1 + 1e-8:
+            raise ValueError("query core and two boundary quotas must not exceed the token budget")
 
     def allocator_constants(self) -> dict[str, Any]:
         return asdict(self)
