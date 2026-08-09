@@ -11,5 +11,4 @@ hybrid-vtg run \
   --data "$CHARADES_STA_ROOT" \
   --split test \
   --output "$repo_root/outputs/hybrid-vtg/charades-sta.jsonl" \
-  --cache-dir "$repo_root/.cache/hybrid-vtg" \
   "$@"

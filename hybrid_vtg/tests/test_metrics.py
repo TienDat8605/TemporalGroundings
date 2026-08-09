@@ -1,7 +1,7 @@
-from hybrid_vtg.metrics import endpoint_availability, evaluate, target_coverage, temporal_iou
+from hybrid_vtg.metrics import evaluate, one_to_many_metrics, temporal_iou
 
 
-def test_temporal_iou_and_summary():
+def test_temporal_iou_and_single_span_summary():
     assert temporal_iou((0, 5), (2, 7)) == 3 / 7
     result = evaluate([{
         "targets": [[2, 7]],
@@ -12,34 +12,47 @@ def test_temporal_iou_and_summary():
     assert result["R@1,IoU=0.5"] == 0.0
 
 
-def test_router_metrics_measure_evidence_availability_not_proposal_iou():
-    components = [{"start": 0.0, "end": 16.0}]
-    target = [7.0, 9.0]
-    assert target_coverage(components, target) == 1.0
-    assert endpoint_availability(components, target) == (True, True, True)
+def test_single_span_parse_failure_is_not_dropped():
     result = evaluate([{
-        "targets": [target],
-        "prediction": {"interval": target},
-        "route": {"components": components, "retained_fraction": 0.5},
+        "duration": 8.0, "targets": [[2.0, 7.0]], "prediction": None,
     }])
-    assert result["RouterTargetCoverage@0.5"] == 1.0
-    assert result["RouterFullContainment"] == 1.0
-    assert result["RouterBothEndpointsAvailable"] == 1.0
+    assert result["count"] == 1
+    assert result["parsed_predictions"] == 0
+    assert result["mIoU"] == 0.0
+    assert result["boundary_MAE_seconds"] == 8.0
 
 
-def test_summary_reports_fallback_and_component_rejections():
+def test_omtg_exact_multispan_metrics():
+    intervals = [[1.0, 2.0], [4.0, 5.0]]
+    metrics = one_to_many_metrics(intervals, intervals)
+    assert metrics["C-Acc"] == 1.0
+    assert metrics["EtF1"] == 1.0
+    assert metrics["tIoU"] == 1.0
+
+
+def test_omtg_evaluation_uses_set_valued_predictions():
     result = evaluate([{
-        "targets": [[2.0, 4.0]],
-        "prediction": {"interval": [2.0, 4.0], "presence_score": 0.8},
-        "route": {
-            "components": [{"start": 0.0, "end": 10.0}],
-            "retained_fraction": 1.0,
-            "low_confidence_fallback": True,
-        },
-        "component_predictions": [{"interval": [2.0, 4.0]}],
-        "component_errors": [{"event_present": False}],
+        "group": "omtg",
+        "cardinality": "multi",
+        "targets": [[1.0, 2.0], [4.0, 5.0]],
+        "prediction": {"intervals": [[1.0, 2.0], [4.0, 5.0]]},
     }])
-    assert result["TemporalFallbackRate"] == 1.0
-    assert result["mean_routed_component_count"] == 1.0
-    assert result["mean_component_rejection_fraction"] == 0.5
-    assert result["mean_selected_presence_score"] == 0.8
+    assert result["C-Acc"] == 100.0
+    assert result["EtF1"] == 100.0
+
+
+def test_omtg_cardinality_errors_penalize_effective_f1():
+    metrics = one_to_many_metrics([[1.0, 2.0]], [[1.0, 2.0], [4.0, 5.0]])
+    assert metrics["C-Acc"] == 0.0
+    assert metrics["CardinalityError"] == 1.0
+    assert metrics["EtF1"] == 0.0
+
+
+def test_omtg_parse_failures_count_as_empty_predictions():
+    result = evaluate([{
+        "group": "omtg", "cardinality": "multi", "targets": [[1.0, 2.0]],
+        "prediction": None, "error": "unparseable",
+    }])
+    assert result["count"] == 1
+    assert result["parsed_predictions"] == 0
+    assert result["EtF1"] == 0.0

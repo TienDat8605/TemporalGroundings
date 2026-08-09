@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Sequence
-from dataclasses import dataclass
 
 from .types import Component
 
@@ -16,15 +15,6 @@ _SPAN = re.compile(
     r"(-?\d+(?:\.\d+)?)\s*(?:seconds?|secs?|sec|s)?",
     flags=re.IGNORECASE,
 )
-
-
-@dataclass(frozen=True)
-class GroundingResponse:
-    """Parsed frozen-model decision before timestamp normalization."""
-
-    present: bool
-    interval: tuple[float, float] | None
-    confidence: float
 
 
 def _json_objects(text: str) -> list[dict]:
@@ -50,32 +40,34 @@ def parse_timestamp(text: str) -> tuple[float, float]:
     return spans[-1]
 
 
-def parse_grounding_response(text: str) -> GroundingResponse:
-    """Parse presence, confidence, and an optional timestamp span.
-
-    Explicit negative responses are preserved instead of forcing a timestamp.
-    Legacy timestamp-only responses remain positive for compatibility with old
-    checkpoints and already generated outputs.
-    """
-    for value in _json_objects(text):
-        raw_present = value.get("present")
-        if raw_present is not None and not isinstance(raw_present, bool):
-            raise ValueError(f"model response has non-boolean presence: {raw_present!r}")
-        present = bool(raw_present) if raw_present is not None else (
-            "start" in value and "end" in value
-        )
-        default_confidence = 1.0 if present else 0.0
-        confidence = float(value.get("confidence", default_confidence))
-        if not 0.0 <= confidence <= 1.0:
-            raise ValueError(f"model response confidence must be in [0, 1]: {confidence}")
-        if not present:
-            return GroundingResponse(False, None, confidence)
-        if "start" in value and "end" in value:
-            return GroundingResponse(
-                True, (float(value["start"]), float(value["end"])), confidence,
+def parse_intervals(text: str) -> tuple[tuple[float, float], ...]:
+    """Parse ordered, deduplicated intervals for set-valued grounding."""
+    try:
+        value = json.loads(text.strip())
+    except (json.JSONDecodeError, TypeError, AttributeError):
+        value = None
+    candidates = []
+    if isinstance(value, list):
+        if len(value) == 2 and all(isinstance(item, (int, float)) for item in value):
+            candidates = [value]
+        else:
+            candidates = [item for item in value if isinstance(item, list) and len(item) == 2]
+    if not candidates:
+        candidates = [list(map(float, match)) for match in _SPAN.findall(text)]
+    if not candidates:
+        candidates = [
+            [float(start), float(end)]
+            for start, end in re.findall(
+                r"\[\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*\]",
+                text,
             )
-        raise ValueError(f"positive model response contains no timestamp span: {text!r}")
-    return GroundingResponse(True, parse_timestamp(text), 1.0)
+        ]
+    unique = {
+        (float(interval[0]), float(interval[1]))
+        for interval in candidates
+        if float(interval[1]) > float(interval[0])
+    }
+    return tuple(sorted(unique))
 
 
 def normalize_timestamp(

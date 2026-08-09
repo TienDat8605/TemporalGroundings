@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import csv
 import json
 import re
 from pathlib import Path
 from typing import Any
 
+from .timestamps import parse_intervals
 from .types import Sample
 from .video import probe_video
 
@@ -14,6 +16,10 @@ from .video import probe_video
 VIDEO_SUFFIXES = (".mp4", ".mkv", ".webm", ".avi")
 _CHARADES = re.compile(
     r"^(?P<video>\S+)\s+(?P<start>-?\d+(?:\.\d+)?)\s+(?P<end>-?\d+(?:\.\d+)?)##(?P<query>.+)$"
+)
+_OMTG_QUERY = re.compile(
+    r"textual query\s+['\"](?P<query>.+)['\"]\s+and determine",
+    re.IGNORECASE,
 )
 
 
@@ -27,8 +33,10 @@ def _first_file(root: Path, candidates: tuple[str, ...]) -> Path:
 
 def _video_index(root: Path) -> dict[str, Path]:
     directories = [path for path in (
-        root / "videos", root / "rgb_videos_30fps_480", root / "rgb_videos_15fps_short256", root,
+        root / "videos", root / "rgb_videos_30fps_480", root / "rgb_videos_15fps_short256",
     ) if path.is_dir()]
+    if not directories:
+        directories = [root]
     output: dict[str, Path] = {}
     for directory in directories:
         for suffix in VIDEO_SUFFIXES:
@@ -139,6 +147,46 @@ def load_tacos(root: Path, split: str = "test", maximum: int = 0) -> list[Sample
     return rows
 
 
+def load_omtg(root: Path, split: str = "test", maximum: int = 0) -> list[Sample]:
+    """Load the fixed 320-query OMTG Bench TSV using its native multi-span labels."""
+    if split not in {"test", "all"}:
+        raise ValueError("OMTG Bench has one fixed evaluation split; use 'test'")
+    annotation = _first_file(root, ("OMTGBench.tsv",))
+    videos = _video_index(root)
+    durations: dict[str, float] = {}
+    rows = []
+    with annotation.open(encoding="utf-8", newline="") as handle:
+        for line_number, record in enumerate(csv.DictReader(handle, delimiter="\t"), 1):
+            video_name = str(record["video"])
+            video_id = Path(video_name).stem
+            path = videos.get(video_id)
+            if path is None:
+                raise FileNotFoundError(f"missing OMTG video {video_name}")
+            question = str(record["question"]).strip()
+            match = _OMTG_QUERY.search(question)
+            query = match.group("query").strip() if match else question
+            targets = parse_intervals(str(record["answer"]))
+            if video_id not in durations:
+                durations[video_id] = probe_video(path).duration
+            labelled_end = max((end for _, end in targets), default=0.0)
+            durations[video_id] = max(durations[video_id], labelled_end)
+            sample = Sample(
+                id=str(record.get("id", line_number - 1)),
+                video=video_name,
+                video_path=str(path),
+                duration=durations[video_id],
+                query=query,
+                targets=targets,
+                group="omtg",
+                cardinality="multi",
+            )
+            sample.validate()
+            rows.append(sample)
+            if maximum > 0 and len(rows) >= maximum:
+                break
+    return rows
+
+
 def load_jsonl(path: Path, maximum: int = 0) -> list[Sample]:
     rows = []
     with path.open(encoding="utf-8") as handle:
@@ -152,6 +200,7 @@ def load_jsonl(path: Path, maximum: int = 0) -> list[Sample]:
                 id=str(value.get("id", line_number)), video=str(value.get("video", Path(video_path).stem)),
                 video_path=video_path, duration=float(value.get("duration") or probe_video(video_path).duration),
                 query=str(value["query"]), targets=targets, group=str(value.get("group", "custom")),
+                cardinality=str(value.get("cardinality", "single")),
             )
             sample.validate()
             rows.append(sample)
@@ -161,6 +210,8 @@ def load_jsonl(path: Path, maximum: int = 0) -> list[Sample]:
 
 
 def load_benchmark(name: str, source: Path, split: str, maximum: int = 0) -> list[Sample]:
+    if name == "omtg":
+        return load_omtg(source, split, maximum)
     if name == "charades-sta":
         return load_charades_sta(source, split, maximum)
     if name in {"activitynet-grounding", "activitynet-captions"}:

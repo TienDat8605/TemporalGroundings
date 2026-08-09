@@ -1,152 +1,190 @@
-"""Standard single-span VTG metrics."""
+"""Single-span VTG and official OMTG set-valued metrics."""
 
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
 
+import numpy as np
+from scipy.optimize import linear_sum_assignment
+
 
 def temporal_iou(prediction: Sequence[float], target: Sequence[float]) -> float:
-    overlap = max(0.0, min(float(prediction[1]), float(target[1])) - max(float(prediction[0]), float(target[0])))
-    union = float(prediction[1]) - float(prediction[0]) + float(target[1]) - float(target[0]) - overlap
+    overlap = max(
+        0.0,
+        min(float(prediction[1]), float(target[1]))
+        - max(float(prediction[0]), float(target[0])),
+    )
+    union = (
+        float(prediction[1]) - float(prediction[0])
+        + float(target[1]) - float(target[0]) - overlap
+    )
     return overlap / union if union > 0 else 0.0
 
 
-def target_coverage(components: Sequence[dict], target: Sequence[float]) -> float:
-    """Fraction of target duration available anywhere in the routed component union."""
-    start, end = map(float, target)
-    clipped = sorted(
-        (max(start, float(item["start"])), min(end, float(item["end"])))
-        for item in components
-        if min(end, float(item["end"])) > max(start, float(item["start"]))
+def one_to_many_metrics(
+    predictions: Sequence[Sequence[float]],
+    targets: Sequence[Sequence[float]],
+    thresholds: tuple[float, ...] = (0.3, 0.5, 0.7),
+) -> dict[str, float]:
+    """Official deterministic OMTG C-Acc, tIoU, Hungarian tF1, and EtF1."""
+    prediction_values = [tuple(map(float, interval)) for interval in predictions]
+    target_values = [tuple(map(float, interval)) for interval in targets]
+
+    def merge(intervals: list[tuple[float, float]]) -> list[list[float]]:
+        output: list[list[float]] = []
+        for start, end in sorted(intervals):
+            if output and start <= output[-1][1]:
+                output[-1][1] = max(output[-1][1], end)
+            else:
+                output.append([start, end])
+        return output
+
+    prediction_union, target_union = merge(prediction_values), merge(target_values)
+    prediction_length = sum(end - start for start, end in prediction_union)
+    target_length = sum(end - start for start, end in target_union)
+    intersection = sum(
+        max(0.0, min(prediction_end, target_end) - max(prediction_start, target_start))
+        for prediction_start, prediction_end in prediction_union
+        for target_start, target_end in target_union
     )
-    merged: list[list[float]] = []
-    for lower, upper in clipped:
-        if merged and lower <= merged[-1][1]:
-            merged[-1][1] = max(merged[-1][1], upper)
-        else:
-            merged.append([lower, upper])
-    covered = sum(upper - lower for lower, upper in merged)
-    return covered / (end - start) if end > start else 0.0
+    union = prediction_length + target_length - intersection
+    result = {
+        "C-Acc": float(len(prediction_values) == len(target_values)),
+        "tIoU": intersection / union if union > 0 else 0.0,
+        "CardinalityError": float(abs(len(prediction_values) - len(target_values))),
+    }
+    if not prediction_values or not target_values:
+        value = float(not prediction_values and not target_values)
+        for threshold in thresholds:
+            result[f"tP@{threshold}"] = value
+            result[f"tR@{threshold}"] = value
+            result[f"tF1@{threshold}"] = value
+        result["EtF1"] = value
+        return result
+
+    matrix = np.asarray([
+        [temporal_iou(prediction, target) for target in target_values]
+        for prediction in prediction_values
+    ])
+    prediction_indices, target_indices = linear_sum_assignment(-matrix)
+    matched = matrix[prediction_indices, target_indices]
+    for threshold in thresholds:
+        true_positives = int((matched >= threshold).sum())
+        precision = true_positives / len(prediction_values)
+        recall = true_positives / len(target_values)
+        result[f"tP@{threshold}"] = precision
+        result[f"tR@{threshold}"] = recall
+        result[f"tF1@{threshold}"] = (
+            2 * precision * recall / (precision + recall) if precision + recall else 0.0
+        )
+    result["EtF1"] = result["C-Acc"] * float(np.mean([
+        result[f"tF1@{threshold}"] for threshold in thresholds
+    ]))
+    return result
 
 
-def endpoint_availability(components: Sequence[dict], target: Sequence[float]) -> tuple[bool, bool, bool]:
-    start, end = map(float, target)
-    start_available = any(float(item["start"]) <= start <= float(item["end"]) for item in components)
-    end_available = any(float(item["start"]) <= end <= float(item["end"]) for item in components)
-    contained = any(float(item["start"]) <= start and float(item["end"]) >= end for item in components)
-    return start_available, end_available, contained
+def _efficiency_summary(records: Sequence[dict]) -> dict[str, float | None]:
+    mappings = {
+        "mean_visual_token_ratio": "effective_retention_ratio",
+        "mean_decoded_frames": "decoded_frames",
+        "mean_decoded_pixels": "decoded_pixels",
+        "mean_vision_encoder_seconds": "vision_encoder_seconds",
+        "mean_generation_seconds": "generation_seconds",
+        "mean_prefill_tokens_before_pruning": "prefill_tokens_before_pruning",
+        "mean_prefill_tokens_after_pruning": "prefill_tokens_after_pruning",
+        "mean_end_to_end_seconds": "total_seconds",
+    }
+    output: dict[str, float | None] = {}
+    for output_name, field in mappings.items():
+        values = [
+            float(record.get("efficiency", {})[field])
+            for record in records if field in record.get("efficiency", {})
+        ]
+        output[output_name] = sum(values) / len(values) if values else None
+    return output
+
+
+def _prediction_intervals(record: dict) -> list[Sequence[float]]:
+    prediction = record.get("prediction") or {}
+    intervals = prediction.get("intervals")
+    if intervals is not None:
+        return intervals
+    return [prediction["interval"]] if prediction.get("interval") else []
+
+
+def evaluate_omtg(records: Sequence[dict]) -> dict:
+    labelled = [record for record in records if record.get("targets") is not None]
+    rows = [
+        one_to_many_metrics(_prediction_intervals(record), record.get("targets") or [])
+        for record in labelled
+    ]
+    if not rows:
+        return {"count": 0}
+    return {
+        "count": len(rows),
+        "metric_units": "percent except CardinalityError and efficiency counters",
+        **{
+            key: sum(row[key] for row in rows) / len(rows) * (
+                1.0 if key == "CardinalityError" else 100.0
+            )
+            for key in rows[0]
+        },
+        "parsed_predictions": sum(bool(record.get("prediction")) for record in labelled),
+        "parse_rate": sum(bool(record.get("prediction")) for record in labelled) / len(labelled),
+        **_efficiency_summary([record for record in labelled if record.get("prediction")]),
+    }
+
+
+def evaluate_single_span(
+    records: Sequence[dict], thresholds: tuple[float, ...] = (0.3, 0.5, 0.7),
+) -> dict:
+    labelled = [record for record in records if record.get("targets")]
+    if not labelled:
+        return {"count": 0, "mIoU": 0.0, **{
+            f"R@1,IoU={value:g}": 0.0 for value in thresholds
+        }}
+    ious = [
+        max(temporal_iou(record["prediction"]["interval"], target) for target in record["targets"])
+        if record.get("prediction") and record["prediction"].get("interval") else 0.0
+        for record in labelled
+    ]
+    boundary_errors = [
+        min(
+            (
+                abs(float(record["prediction"]["interval"][0]) - float(target[0]))
+                + abs(float(record["prediction"]["interval"][1]) - float(target[1]))
+            ) / 2
+            for target in record["targets"]
+        )
+        if record.get("prediction") and record["prediction"].get("interval")
+        else float(record.get("duration", max(target[1] for target in record["targets"])))
+        for record in labelled
+    ]
+    return {
+        "count": len(labelled),
+        "parsed_predictions": sum(
+            bool(record.get("prediction") and record["prediction"].get("interval"))
+            for record in labelled
+        ),
+        "parse_rate": sum(
+            bool(record.get("prediction") and record["prediction"].get("interval"))
+            for record in labelled
+        ) / len(labelled),
+        "mIoU": sum(ious) / len(ious),
+        "boundary_MAE_seconds": sum(boundary_errors) / len(boundary_errors),
+        **{
+            f"R@1,IoU={threshold:g}": sum(iou >= threshold for iou in ious) / len(ious)
+            for threshold in thresholds
+        },
+        **_efficiency_summary([record for record in labelled if record.get("prediction")]),
+    }
 
 
 def evaluate(records: Iterable[dict], thresholds: tuple[float, ...] = (0.3, 0.5, 0.7)) -> dict:
-    ious = []
-    route_coverages = []
-    route_start_available = []
-    route_end_available = []
-    route_containment = []
-    boundary_errors = []
-    retained_fractions = []
-    token_ratios = []
-    decoded_frames = []
-    decoded_pixels = []
-    vision_seconds = []
-    prefill_before = []
-    prefill_after = []
-    total_seconds = []
-    fallback_flags = []
-    routed_component_counts = []
-    component_rejection_fractions = []
-    selected_presence_scores = []
-    for record in records:
-        targets = record.get("targets") or []
-        if not targets or not record.get("prediction"):
-            continue
-        interval = record["prediction"]["interval"]
-        ious.append(max(temporal_iou(interval, target) for target in targets))
-        boundary_errors.append(min(
-            (abs(interval[0] - target[0]) + abs(interval[1] - target[1])) / 2 for target in targets
-        ))
-        route = record.get("route") or {}
-        components = route.get("components") or []
-        fallback_flags.append(bool(route.get("low_confidence_fallback", False)))
-        routed_component_counts.append(len(components))
-        component_predictions = record.get("component_predictions") or []
-        component_errors = record.get("component_errors") or []
-        attempted_components = len(component_predictions) + len(component_errors)
-        if attempted_components:
-            rejections = sum(error.get("event_present") is False for error in component_errors)
-            component_rejection_fractions.append(rejections / attempted_components)
-        if "presence_score" in record["prediction"]:
-            selected_presence_scores.append(float(record["prediction"]["presence_score"]))
-        target_route_values = []
-        for target in targets:
-            coverage = target_coverage(components, target)
-            start_available, end_available, contained = endpoint_availability(components, target)
-            target_route_values.append((coverage, start_available, end_available, contained))
-        coverage, start_available, end_available, contained = max(
-            target_route_values, key=lambda value: (value[0], value[3], value[1] and value[2]),
-            default=(0.0, False, False, False),
-        )
-        route_coverages.append(coverage)
-        route_start_available.append(start_available)
-        route_end_available.append(end_available)
-        route_containment.append(contained)
-        if "retained_fraction" in route:
-            retained_fractions.append(float(route["retained_fraction"]))
-        efficiency = record.get("efficiency") or {}
-        if "total_decoded_frames" in efficiency:
-            decoded_frames.append(float(efficiency["total_decoded_frames"]))
-        if "total_decoded_pixels" in efficiency:
-            decoded_pixels.append(float(efficiency["total_decoded_pixels"]))
-        if "total_vision_encoder_seconds" in efficiency:
-            vision_seconds.append(float(efficiency["total_vision_encoder_seconds"]))
-        if "llm_prefill_tokens_before_pruning" in efficiency:
-            prefill_before.append(float(efficiency["llm_prefill_tokens_before_pruning"]))
-        if "llm_prefill_tokens_after_pruning" in efficiency:
-            prefill_after.append(float(efficiency["llm_prefill_tokens_after_pruning"]))
-        timing = efficiency.get("timing_seconds") or {}
-        if "total" in timing:
-            total_seconds.append(float(timing["total"]))
-        original_tokens = efficiency.get("semvid_original_tokens")
-        retained_tokens = efficiency.get("semvid_retained_tokens")
-        if original_tokens:
-            token_ratios.append(float(retained_tokens) / float(original_tokens))
-        else:
-            stats = record["prediction"].get("semvid_stats") or {}
-            if stats.get("orig_video_tokens"):
-                token_ratios.append(float(stats["kept_video_tokens"]) / float(stats["orig_video_tokens"]))
-    if not ious:
-        return {"count": 0, "mIoU": 0.0, **{f"R@1,IoU={value:g}": 0.0 for value in thresholds}}
-    return {
-        "count": len(ious),
-        "mIoU": sum(ious) / len(ious),
-        "boundary_MAE_seconds": sum(boundary_errors) / len(boundary_errors),
-        "mean_retained_duration_fraction": sum(retained_fractions) / len(retained_fractions) if retained_fractions else None,
-        "mean_semvid_token_ratio": sum(token_ratios) / len(token_ratios) if token_ratios else None,
-        "mean_total_decoded_frames": sum(decoded_frames) / len(decoded_frames) if decoded_frames else None,
-        "mean_total_decoded_pixels": sum(decoded_pixels) / len(decoded_pixels) if decoded_pixels else None,
-        "mean_vision_encoder_seconds": sum(vision_seconds) / len(vision_seconds) if vision_seconds else None,
-        "mean_llm_prefill_tokens_before_pruning": sum(prefill_before) / len(prefill_before) if prefill_before else None,
-        "mean_llm_prefill_tokens_after_pruning": sum(prefill_after) / len(prefill_after) if prefill_after else None,
-        "mean_end_to_end_seconds": sum(total_seconds) / len(total_seconds) if total_seconds else None,
-        "TemporalFallbackRate": sum(fallback_flags) / len(fallback_flags),
-        "mean_routed_component_count": sum(routed_component_counts) / len(routed_component_counts),
-        "mean_component_rejection_fraction": (
-            sum(component_rejection_fractions) / len(component_rejection_fractions)
-            if component_rejection_fractions else None
-        ),
-        "mean_selected_presence_score": (
-            sum(selected_presence_scores) / len(selected_presence_scores)
-            if selected_presence_scores else None
-        ),
-        **{f"R@1,IoU={threshold:g}": sum(iou >= threshold for iou in ious) / len(ious)
-           for threshold in thresholds},
-        "RouterTargetCoverageMean": sum(route_coverages) / len(route_coverages),
-        "RouterStartEndpointAvailable": sum(route_start_available) / len(route_start_available),
-        "RouterEndEndpointAvailable": sum(route_end_available) / len(route_end_available),
-        "RouterBothEndpointsAvailable": sum(
-            start and end for start, end in zip(route_start_available, route_end_available)
-        ) / len(route_start_available),
-        "RouterFullContainment": sum(route_containment) / len(route_containment),
-        **{f"RouterTargetCoverage@{threshold:g}": sum(value >= threshold for value in route_coverages) / len(route_coverages)
-           for threshold in thresholds},
-    }
+    values = list(records)
+    if any(
+        record.get("cardinality") == "multi" or record.get("group") == "omtg"
+        for record in values
+    ):
+        return evaluate_omtg(values)
+    return evaluate_single_span(values, thresholds)

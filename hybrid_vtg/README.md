@@ -1,32 +1,22 @@
-# Hybrid-VTG: training-free temporal routing + SemVID
+# TPSA: timeline-preserving spatial allocation
 
-This package is the primary implementation of the proposed hierarchical VTG method. It replaces TimeLens2 as the research backbone and composes two frozen systems:
+This package benchmarks a frozen Qwen3-VL grounder with one continuous full video and one generation per query. TPSA retains at least one real visual token from every decoded frame and distributes the remaining exact token budget using query relevance, feature-native transitions, and directional boundary evidence.
 
-1. a cheap SigLIP2 whole-video scan finds high-recall temporal components;
-2. the official SemVID Qwen3-VL implementation performs real object/motion/context token pruning and grounding inside every retained component;
-3. SigLIP2 resamples a small neighborhood at high FPS and adjusts the predicted boundaries from semantic change and visual continuity.
+Spatial policies:
 
-No training code, optimizer, loss, adapter, checkpoint update, or benchmark-label access exists in the inference path. All models run in evaluation and inference mode.
+- `dense`: all post-encoder visual tokens;
+- `uniform`: equal tokens per frame;
+- `semvid`: official SemVID selection baseline;
+- `tpsa_query`: timeline coverage plus query evidence;
+- `tpsa_motion`: query evidence plus feature-native state change;
+- `tpsa_boundary`: complete TPSA allocator.
 
-## What is new relative to SemVID
+SemVID remains the command-line default until the declared promotion gates pass. The removed temporal router, component reranker, presence verifier, and refinement path are not part of this implementation.
 
-SemVID sparsifies tokens after frames have reached the expert vision encoder. This package adds query-guided temporal routing before that expensive encoding. The research claim is therefore hierarchical conditional computation:
-
-```text
-whole video --cheap frozen scan--> retained temporal components
-retained component --SemVID expert encoding + token pruning--> coarse interval
-boundary neighborhoods --dense cheap scan--> refined global timestamps
-```
-
-SemVID remains pinned at `432a76928817cdfba7d04c460ac475482cd7c3a4`. Hybrid-VTG carries one reproducible patch that fixes compact-prefill attention masks, left padding, per-sample RoPE deltas, and telemetry for verified Qwen microbatching. The local run scripts apply it idempotently. TimeLens2 remains in the repository only as a legacy comparison baseline.
-
-## Local GPU setup
-
-Clone with submodules and create a clean environment:
+## Setup
 
 ```bash
-git clone --recurse-submodules <repository-url>
-cd read_papers
+git submodule update --init --recursive
 conda create -n hybrid-vtg python=3.11 -y
 conda activate hybrid-vtg
 pip install -r hybrid_vtg/requirements.txt
@@ -34,188 +24,87 @@ pip install -e 'hybrid_vtg[test]'
 hybrid-vtg doctor
 ```
 
-If the repository was already cloned:
+The default checkpoint is `Qwen/Qwen3-VL-4B-Thinking`. Inference requires CUDA; SDPA is the default attention backend.
+
+## 1. OMTG Bench first
+
+[OMTG Bench](https://huggingface.co/datasets/insomnia7/omtg_bench) is the primary bring-up benchmark. Its 320 questions require set-valued output: the model is asked for every disjoint occurrence, and evaluation reports cardinality accuracy, temporal IoU, Hungarian-matched temporal precision/recall/F1, and effective temporal F1. Review its CC BY-NC 4.0 terms and the source-video licenses before downloading.
 
 ```bash
-git submodule update --init --recursive
+bash hybrid_vtg/scripts/prepare_omtg.sh --data-root /datasets/OMTGBench
+export OMTG_ROOT=/datasets/OMTGBench
+
+# Smoke test
+bash hybrid_vtg/scripts/run_omtg_local.sh --limit 10 --fail-fast
+
+# Dense plus every equal-token policy at 6.25%, 12.5%, and 25%
+bash hybrid_vtg/scripts/run_spatial_matrix.sh \
+  omtg outputs/tpsa-matrix/omtg --fail-fast
 ```
 
-The default is `Qwen/Qwen3-VL-4B-Thinking` with SDPA, so FlashAttention is optional. A recent CUDA GPU with 24 GiB VRAM is the practical minimum recommendation; an L40/L40S, A100, or H100 gives more headroom. SemVID uses `device_map="auto"` and can spread the model over multiple visible GPUs, but CPU offload is substantially slower. Model weights are downloaded from Hugging Face on first use.
+Remove `--limit` for the complete fixed test set. Each result is append-only and resumes by sample ID.
 
-`hybrid-vtg doctor` is read-only and checks the submodule, Python packages, FFmpeg, CUDA visibility, GPU name, and VRAM without loading either checkpoint.
+## 2. Compressed TACoS second
 
-## Datasets
-
-Charades-STA accepts the original SemVID layout or a conventional `videos/` layout:
-
-```text
-Charades/
-├── sta_annotation/charades_sta_test.txt
-└── rgb_videos_30fps_480/*.mp4
-```
-
-On a headless server, the preparation script downloads the public test-only mirror (1,334 videos, approximately 6.2 GiB compressed), resumes interrupted transfers, verifies checksums, checks ZIP paths before extraction, and validates every annotated video:
-
-```bash
-bash hybrid_vtg/scripts/prepare_charades_sta.sh \
-  --accept-license \
-  --data-root /root/datasets/Charades
-
-source /root/datasets/Charades/activate_charades.sh
-```
-
-Review the [official Charades terms](https://prior.allenai.org/projects/charades) and the [public test mirror](https://huggingface.co/datasets/jwnt4/charades-sta-test) before passing `--accept-license`. The script removes the downloaded ZIP after successful validation to recover disk space; add `--keep-archive` to retain it. Set `CHARADES_VIDEOS_URL` or `CHARADES_ANNOTATION_URL` when using an authorized mirror.
-
-ActivityNet-Grounding accepts:
-
-```text
-ActivityNet/
-├── captions/val_2.json
-└── rgb_videos_15fps_short256/*.mp4
-```
-
-Prepare the complete `val_2` split directly on the rented GPU server. The downloader
-resumes its checksummed 39.1 GiB source archive, extracts only the 4,885 evaluation
-videos, records missing IDs, and removes the archive after successful extraction:
-
-```bash
-bash hybrid_vtg/scripts/prepare_activitynet_grounding.sh \
-  --accept-license \
-  --data-root /root/datasets/ActivityNet
-
-source /root/datasets/ActivityNet/activate_activitynet.sh
-```
-
-Review the [official ActivityNet terms](https://activity-net.org/download.html)
-and the [public ActivityNet Captions mirror](https://huggingface.co/datasets/friedrichor/ActivityNet_Captions)
-before passing `--accept-license`. At least 60 GB of temporary free space is
-recommended. Add `--keep-archive` only if the 39.1 GiB source archive is needed
-after preparation.
-
-Run either benchmark on the GPU server:
-
-```bash
-export CHARADES_STA_ROOT=/datasets/Charades
-bash hybrid_vtg/scripts/run_charades_local.sh --limit 10 --fail-fast
-
-source /root/datasets/ActivityNet/activate_activitynet.sh
-bash hybrid_vtg/scripts/run_activitynet_local.sh --limit 10 --fail-fast
-```
-
-TACoS is the compact long-video benchmark: 127 original high-frame-rate videos
-(10.5 GiB compressed), with 4,001 queries in the standard test split. Prepare it
-directly on the GPU server:
+TACoS uses [VideoMind's complete compressed release](https://huggingface.co/datasets/yeliudev/VideoMind-Dataset/tree/main/tacos): 127 videos at 3 fps, 480p, without audio, plus `train.jsonl`, `val.jsonl`, and `test.jsonl`. The preparation script is pinned to a specific dataset revision, validates annotation hashes and row counts, checks archive paths before extraction, verifies all referenced video IDs, and rejects unexpected frame rates, dimensions, or audio streams.
 
 ```bash
 bash hybrid_vtg/scripts/prepare_tacos.sh \
-  --accept-license \
-  --data-root /root/datasets/TACoS
+  --data-root /datasets/TACoS-compressed
+export TACOS_ROOT=/datasets/TACoS-compressed
 
-source /root/datasets/TACoS/activate_tacos.sh
+# Smoke test
 bash hybrid_vtg/scripts/run_tacos_local.sh --limit 10 --fail-fast
+
+# Equal-token matrix
+bash hybrid_vtg/scripts/run_spatial_matrix.sh \
+  tacos outputs/tpsa-matrix/tacos --fail-fast
 ```
 
-The preparation script uses the original videos rather than a 3-FPS derivative,
-because the latter cannot support the default 8-FPS boundary-refinement stage.
-It resumes interrupted downloads, validates the ZIP and all 127 annotated video
-IDs, and removes the archive after extraction. Allow at least 25 GiB of temporary
-free space.
+The downloaded video artifact is `tacos/videos_3fps_480_noaudio.tar.gz` (about 1.49 GB), not the 30.2 GB original-video archive. Add `--keep-archive` only if the local compressed tarball is still needed after extraction.
 
-Remove `--limit 10` for a complete run. Results are append-only JSONL and resume by sample ID. Each run also writes an immutable manifest containing every method setting and the exact SemVID Git revision, plus a metrics JSON with mIoU and R@1 at IoU 0.3/0.5/0.7.
-
-## Optimized local inference
-
-The default `safe` profile keeps batch-one execution, serial preprocessing, and fixed 8 FPS refinement. After validating equivalence on the rented GPU, enable the complete training-free optimization path with a fresh output name:
+## Direct runs
 
 ```bash
-bash hybrid_vtg/scripts/run_charades_local.sh \
+hybrid-vtg run \
+  --benchmark omtg \
+  --data "$OMTG_ROOT" \
+  --split test \
+  --spatial-policy tpsa_boundary \
+  --retention-ratio 0.125 \
+  --output outputs/omtg-tpsa-boundary-0p125.jsonl
+```
+
+Use a distinct output path for each configuration because the adjacent manifest is immutable. Manifests use schema 4 and record the spatial policy, allocator constants, project revision, and SemVID revision.
+
+For batch-two and CPU prefetch after validating on the target GPU:
+
+```bash
+bash hybrid_vtg/scripts/run_omtg_local.sh \
   --optimization-profile optimized \
-  --output outputs/hybrid-vtg/charades-sta-optimized.jsonl
+  --output outputs/omtg-optimized.jsonl
 ```
 
-The optimized profile uses Qwen batch size two, pairs similar-duration components within a 16-sample look-ahead, prepares two microbatches in one CPU worker, and selects no/4/8 FPS boundary refinement from fixed endpoint-contrast percentiles. It does not read annotations when making any inference decision. Override individual stages for ablations:
-
-```bash
-# Microbatching only
-bash hybrid_vtg/scripts/run_charades_local.sh \
-  --qwen-batch-size 2 \
-  --output outputs/ablations/qwen-batch-2.jsonl
-
-# Microbatching plus CPU prefetch
-bash hybrid_vtg/scripts/run_charades_local.sh \
-  --qwen-batch-size 2 --preprocess-workers 1 --prefetch-depth 2 \
-  --output outputs/ablations/qwen-batch-2-prefetch.jsonl
-
-# Complete path with explicit settings
-bash hybrid_vtg/scripts/run_charades_local.sh \
-  --qwen-batch-size 2 --preprocess-workers 1 --prefetch-depth 2 --adaptive-refine \
-  --output outputs/ablations/qwen-batch-2-prefetch-adaptive.jsonl
-```
-
-Use a different output path for every stage because optimization settings are part of the immutable run manifest. A batch-two CUDA OOM is retried as batch one and exposed as `qwen_oom_fallbacks`; any such fallback invalidates a strict speed benchmark.
-
-For the 32–64 sample batching gate, add `--capture-validation-logits` to both batch-one and batch-two runs, then compare them:
+Capture logits in matched batch-one and batch-two runs, then apply the strict equivalence gate:
 
 ```bash
 hybrid-vtg validate-optimization \
   --baseline outputs/validation/batch-1.jsonl \
   --candidate outputs/validation/batch-2.jsonl \
-  --mode equivalence --minimum-samples 32 --minimum-speedup 0.15
+  --minimum-samples 32 \
+  --minimum-speedup 0.15
 ```
 
-The equivalence gate requires identical parsed intervals, identical first-token argmax values, top-eight logit differences no greater than 0.05, no OOM fallback, and the requested speedup. Use `--mode refinement --minimum-samples 256 --minimum-speedup 0.08` for the adaptive-refinement gate; it enforces the predeclared 0.005 mIoU and one-percentage-point recall budgets without changing thresholds.
+The gate requires identical parsed interval sets, matching first-token argmax, top-eight logit differences no greater than 0.05, no CUDA-OOM fallback, and the requested wall-clock speedup.
 
-The main ablations use the same runner:
+## Outputs and evaluation
+
+Every sample records target and actual retained tokens, effective retention, per-frame allocation, token role counts, selected boundary bands, allocator-stage latency, original and compact prefill lengths, decoded frames/pixels, vision time, generation time, end-to-end time, and peak VRAM. Deprecated upstream `semvid_*` statistics are retained beside neutral spatial fields for existing analysis scripts.
+
+Single-span datasets report mIoU, boundary MAE, and R@1 at IoU 0.3/0.5/0.7. OMTG uses its native multi-interval targets and set-valued metrics. Re-score an existing JSONL with:
 
 ```bash
-# Dense Qwen3-VL on the whole sampled video
-bash hybrid_vtg/scripts/run_charades_local.sh \
-  --no-temporal-prune --no-spatial-prune --no-refine \
-  --output outputs/ablations/dense.jsonl
-
-# SemVID alone
-bash hybrid_vtg/scripts/run_charades_local.sh \
-  --no-temporal-prune --no-refine \
-  --output outputs/ablations/semvid.jsonl
-
-# Temporal routing alone, with dense local Qwen prefill
-bash hybrid_vtg/scripts/run_charades_local.sh \
-  --no-spatial-prune --no-refine \
-  --output outputs/ablations/temporal-only.jsonl
+hybrid-vtg evaluate --input outputs/omtg.jsonl
 ```
 
-Use a different output path for every configuration because the adjacent manifest is immutable by design.
-
-For another benchmark or a single video, use `--benchmark jsonl` with rows of this form:
-
-```json
-{"id":"sample-1","video_path":"/data/video.mp4","duration":123.4,"query":"the person opens the refrigerator","targets":[[42.1,47.3]],"group":"custom"}
-```
-
-`targets` may be omitted for inference-only runs.
-
-## Benchmark plan
-
-| Benchmark | Current adapter | Role in the paper |
-|---|---:|---|
-| Charades-STA | native | short indoor actions; direct SemVID comparison |
-| ActivityNet-Grounding/Captions | native | diverse, longer untrimmed activities |
-| QVHighlights | generic JSONL | longer videos and highlight-style query evidence |
-| Ego4D-NLQ | generic JSONL | egocentric long-video search |
-| TACoS | native | long, fine-grained cooking actions; compact development benchmark |
-| MAD | generic JSONL | very long movie grounding stress test |
-| DiDeMo, YouCook2, TVR | generic JSONL | secondary transfer evaluation |
-
-The primary report should include dense Qwen3-VL, SemVID alone, temporal routing alone, and the full hybrid at matched frame/token budgets. Report routed target coverage and endpoint availability before grounding, expert-encoded duration, decoded frames/pixels, retained visual tokens, vision/prefill latency, wall time, peak VRAM, mIoU, and recall. Do not infer end-to-end speedup from token ratio alone.
-
-## Important behavior
-
-- Coarse features are query-independent and cached by video fingerprint, model, FPS, and frame cap.
-- Window ranking uses mean/peak cosine similarity, asymmetric uncertainty-aware halos, post-halo marginal coverage, a merged-component cap, and a union-duration budget. Low-confidence retrieval fails open to one continuous full-video component instead of disconnected uniform windows.
-- SemVID processes every retained connected component and produces true sparse Qwen prefill tokens. Qwen may explicitly reject a component where the event is absent; positive spans are selected by frozen-Qwen presence confidence, boundary quality, and then coarse retrieval score.
-- Qwen is explicitly prompted for original-video timestamps. `--timestamp-mode relative` is available for model/checkpoint variants that emit clip-relative time.
-- Refinement jointly selects valid endpoint pairs using query-gated visual change, inside/outside evidence contrast, and a duration prior. It never reads annotations or leaves the routed component.
-- The default coarse cap is 2,048 frames. On extremely long videos this lowers the effective scan FPS instead of exceeding the fixed memory budget.
-- Efficiency telemetry reports decoded frames/pixels, vision-encoder time, sparse/dense prefill lengths, per-component latency, end-to-end time, and peak VRAM.
-
-The main failure mode is cascaded recall: if temporal routing removes the target, SemVID cannot recover it. Target coverage, endpoint availability, full containment, and retained-duration fraction must therefore be reported before final grounding accuracy.
+TPSA is post-encoder: all policies decode identical frames and run the same frozen vision encoder. Any speed claim must therefore use measured latency rather than infer savings from retained-token ratio.

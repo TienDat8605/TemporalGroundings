@@ -1,13 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-readonly OFFICIAL_PAGE="https://www.mpi-inf.mpg.de/departments/computer-vision-and-machine-learning/research/vision-and-language/tacos-multi-level-corpus"
-readonly DEFAULT_VIDEOS_URL="https://datasets.d2.mpi-inf.mpg.de/tacos/videos.zip"
-readonly ANNOTATION_PAGE="https://huggingface.co/datasets/yeliudev/VideoMind-Dataset/tree/main/tacos"
-readonly DEFAULT_ANNOTATION_BASE="https://huggingface.co/datasets/yeliudev/VideoMind-Dataset/resolve/main/tacos"
-readonly VIDEO_ARCHIVE_BYTES=11281674033
+readonly DATASET_REPO="yeliudev/VideoMind-Dataset"
+readonly DATASET_REVISION="3518d8e8c2c7c1ceec4b242afc07162bbafa33d8"
+readonly DATASET_PAGE="https://huggingface.co/datasets/yeliudev/VideoMind-Dataset/tree/main/tacos"
+readonly ARCHIVE_NAME="videos_3fps_480_noaudio.tar.gz"
 readonly EXPECTED_VIDEOS=127
-
 readonly -a SPLITS=(train val test)
 readonly -a EXPECTED_QUERIES=(9790 4436 4001)
 readonly -a ANNOTATION_SHA256=(
@@ -18,243 +16,126 @@ readonly -a ANNOTATION_SHA256=(
 
 usage() {
   cat <<'EOF'
-Prepare the full-fidelity TACoS temporal-grounding benchmark on a Linux server.
+Prepare VideoMind's compressed TACoS benchmark (3 fps, 480p, no audio).
 
 Usage:
-  bash hybrid_vtg/scripts/prepare_tacos.sh --accept-license [options]
+  bash hybrid_vtg/scripts/prepare_tacos.sh [options]
 
 Options:
-  --data-root DIR   Destination root (default: $TACOS_ROOT or ./data/TACoS)
-  --keep-archive    Keep the downloaded 10.5 GiB ZIP after extraction
-  --accept-license  Confirm that you accept the TACoS/MPII data terms (required)
-  -h, --help        Show this help
+  --data-root DIR  Destination (default: $TACOS_ROOT or ./data/TACoS-compressed)
+  --keep-archive   Keep the 1.49 GB archive after verified extraction
+  -h, --help       Show this help
 
-Environment overrides for authorized mirrors:
-  TACOS_VIDEOS_URL
-  TACOS_ANNOTATION_BASE_URL
-
-The script downloads all 127 original high-frame-rate AVI videos plus the
-standard train/val/test VTG annotations. Allow at least 25 GiB of free disk
-space during preparation. The archive is removed after successful validation.
+Requires the Hugging Face `hf` CLI. The script downloads the three JSONL
+splits and videos_3fps_480_noaudio.tar.gz from the pinned VideoMind revision.
 EOF
 }
 
-die() {
-  echo "ERROR: $*" >&2
-  exit 1
-}
+die() { echo "ERROR: $*" >&2; exit 1; }
+require_command() { command -v "$1" >/dev/null 2>&1 || die "missing command '$1'"; }
 
-require_command() {
-  command -v "$1" >/dev/null 2>&1 || die "missing command '$1'"
-}
-
-download() {
-  local url="$1"
-  local destination="$2"
-  local label="$3"
-  local partial="${destination}.incomplete"
-
-  if [[ -s "$destination" ]]; then
-    echo "[skip] ${label} already downloaded: ${destination}"
-    return
-  fi
-  echo "[download] ${label}"
-  echo "           ${url}"
-  curl --fail --location \
-    --retry 12 --retry-delay 10 --retry-all-errors \
-    --continue-at - --output "$partial" "$url"
-  mv "$partial" "$destination"
-}
-
-verify_sha256() {
-  local path="$1"
-  local expected="$2"
-  local label="$3"
-  local actual
-  actual="$(sha256sum "$path" | awk '{print $1}')"
-  [[ "$actual" == "$expected" ]] || die \
-    "${label} checksum mismatch: expected ${expected}, got ${actual}. Remove ${path} and retry."
-  echo "[OK] ${label} checksum"
-}
-
-data_root="${TACOS_ROOT:-}"
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+data_root="${TACOS_ROOT:-${repo_root}/data/TACoS-compressed}"
 keep_archive=false
-accepted=false
-
 while (($#)); do
   case "$1" in
-    --data-root)
-      (($# >= 2)) || die "--data-root requires a directory"
-      data_root="$2"
-      shift 2
-      ;;
-    --keep-archive)
-      keep_archive=true
-      shift
-      ;;
-    --accept-license)
-      accepted=true
-      shift
-      ;;
-    -h|--help)
-      usage
-      exit 0
-      ;;
-    *)
-      die "unknown argument: $1"
-      ;;
+    --data-root) (($# >= 2)) || die "--data-root requires a directory"; data_root="$2"; shift 2 ;;
+    --keep-archive) keep_archive=true; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *) die "unknown argument: $1" ;;
   esac
 done
 
-[[ "$accepted" == true ]] || {
-  echo "Review the TACoS/MPII terms and sources first:"
-  echo "  ${OFFICIAL_PAGE}"
-  echo "  ${ANNOTATION_PAGE}"
-  echo
-  usage
-  exit 2
-}
-
-for command_name in curl unzip sha256sum stat awk jq find sort comm ffprobe wc df mv rm date mkdir; do
+for command_name in hf tar jq sha256sum find sort comm ffprobe awk wc cp mv mkdir date rm; do
   require_command "$command_name"
 done
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-data_root="${data_root:-${repo_root}/data/TACoS}"
 annotation_dir="${data_root}/annotations"
 video_dir="${data_root}/videos"
 download_dir="${data_root}/.downloads"
 manifest_dir="${data_root}/manifests"
-archive_path="${download_dir}/videos.zip"
-videos_url="${TACOS_VIDEOS_URL:-$DEFAULT_VIDEOS_URL}"
-annotation_base="${TACOS_ANNOTATION_BASE_URL:-$DEFAULT_ANNOTATION_BASE}"
-
+archive_path="${download_dir}/tacos/${ARCHIVE_NAME}"
 mkdir -p "$annotation_dir" "$video_dir" "$download_dir" "$manifest_dir"
 
-available_kib="$(df -Pk "$data_root" | awk 'NR==2 {print $4}')"
-echo "[disk] $((available_kib / 1024 / 1024)) GiB currently free"
-if ((available_kib < 25 * 1024 * 1024)); then
-  echo "[warning] less than 25 GiB is free; preparation may run out of space" >&2
-fi
+echo "[source] ${DATASET_PAGE}"
+echo "[revision] ${DATASET_REVISION}"
+hf download "$DATASET_REPO" \
+  tacos/train.jsonl tacos/val.jsonl tacos/test.jsonl \
+  --repo-type dataset --revision "$DATASET_REVISION" --local-dir "$download_dir"
 
 expected_ids="${manifest_dir}/expected_video_ids.txt"
 available_ids="${manifest_dir}/available_video_ids.txt"
 missing_ids="${manifest_dir}/missing_video_ids.txt"
 : > "$expected_ids"
-
-total_queries=0
 for index in "${!SPLITS[@]}"; do
   split="${SPLITS[$index]}"
-  annotation_path="${annotation_dir}/${split}.jsonl"
-  download "${annotation_base}/${split}.jsonl" "$annotation_path" "TACoS ${split} annotations"
-  if [[ "$annotation_base" == "$DEFAULT_ANNOTATION_BASE" ]]; then
-    verify_sha256 "$annotation_path" "${ANNOTATION_SHA256[$index]}" "${split} annotations"
-  else
-    echo "[warning] checksum skipped for ${split} annotations from custom mirror"
-  fi
-
-  expected_queries="${EXPECTED_QUERIES[$index]}"
-  jq -e -s --argjson expected "$expected_queries" '
+  source_path="${download_dir}/tacos/${split}.jsonl"
+  destination="${annotation_dir}/${split}.jsonl"
+  cp "$source_path" "${destination}.incomplete"
+  mv "${destination}.incomplete" "$destination"
+  actual_sha="$(sha256sum "$destination" | awk '{print $1}')"
+  [[ "$actual_sha" == "${ANNOTATION_SHA256[$index]}" ]] || die "${split}.jsonl checksum mismatch"
+  jq -e -s --argjson expected "${EXPECTED_QUERIES[$index]}" '
     length == $expected and all(.[];
       (.qid | type) == "string" and (.vid | type) == "string" and
       (.query | type) == "string" and (.duration | type) == "number" and
       (.relevant_windows | type) == "array" and
-      (.relevant_windows | length) > 0 and
       all(.relevant_windows[]; type == "array" and length == 2))
-  ' "$annotation_path" >/dev/null || die "invalid ${split} annotation schema or row count"
-  jq -r '.vid' "$annotation_path" >> "$expected_ids"
-  total_queries=$((total_queries + expected_queries))
-  echo "[OK] ${split}: ${expected_queries} grounding queries"
+  ' "$destination" >/dev/null || die "invalid ${split} annotation schema or row count"
+  jq -r '.vid' "$destination" >> "$expected_ids"
+  echo "[OK] ${split}: ${EXPECTED_QUERIES[$index]} queries"
 done
 sort -u -o "$expected_ids" "$expected_ids"
+[[ "$(wc -l < "$expected_ids")" -eq "$EXPECTED_VIDEOS" ]] || die "annotations do not reference 127 videos"
 
-expected_video_count="$(wc -l < "$expected_ids")"
-((expected_video_count == EXPECTED_VIDEOS)) || die \
-  "expected ${EXPECTED_VIDEOS} unique annotated videos, found ${expected_video_count}"
-
-find "$video_dir" -type f \( -iname '*.avi' -o -iname '*.mp4' -o -iname '*.mkv' -o -iname '*.webm' \) \
-  -printf '%f\n' | awk '{sub(/[.][^.]+$/, ""); print}' | sort -u > "$available_ids"
-existing_count="$(comm -12 "$expected_ids" "$available_ids" | wc -l)"
-
-if ((existing_count == EXPECTED_VIDEOS)); then
-  echo "[skip] all ${EXPECTED_VIDEOS} TACoS videos already exist"
-else
-  download "$videos_url" "$archive_path" "127 original TACoS videos (10.5 GiB)"
-  if [[ "$videos_url" == "$DEFAULT_VIDEOS_URL" ]]; then
-    actual_bytes="$(stat -c '%s' "$archive_path")"
-    ((actual_bytes == VIDEO_ARCHIVE_BYTES)) || die \
-      "video archive size mismatch: expected ${VIDEO_ARCHIVE_BYTES} bytes, found ${actual_bytes}. Remove ${archive_path} and retry."
-    echo "[OK] video archive byte size"
-  else
-    echo "[warning] byte-size check skipped for custom video mirror"
+find "$video_dir" -type f -iname '*.mp4' -printf '%f\n' \
+  | awk '{sub(/[.][^.]+$/, ""); print}' | sort -u > "$available_ids"
+if [[ "$(comm -12 "$expected_ids" "$available_ids" | wc -l)" -ne "$EXPECTED_VIDEOS" ]]; then
+  hf download "$DATASET_REPO" "tacos/${ARCHIVE_NAME}" \
+    --repo-type dataset --revision "$DATASET_REVISION" --local-dir "$download_dir"
+  tar -tzf "$archive_path" > "${manifest_dir}/archive_members.txt"
+  if awk '/(^|\/)[.][.](\/|$)/ || /^\// {bad=1} END {exit bad ? 0 : 1}' \
+    "${manifest_dir}/archive_members.txt"; then
+    die "unsafe path in TACoS archive"
   fi
-
-  archive_manifest="${manifest_dir}/archive_members.txt"
-  unzip -Z1 "$archive_path" > "$archive_manifest"
-  if awk '
-    /(^|[/\\])[.][.]([/\\]|$)/ || /^[/\\]/ || /^[A-Za-z]:[/\\]/ {bad=1}
-    END {exit bad ? 0 : 1}
-  ' "$archive_manifest"; then
-    die "unsafe path found in TACoS ZIP; refusing to extract"
-  fi
-  unzip -tq "$archive_path" >/dev/null
-  echo "[extract] original videos into ${video_dir}"
-  unzip -nq "$archive_path" -d "$video_dir"
+  echo "[extract] compressed videos into ${video_dir}"
+  tar -xzf "$archive_path" --strip-components=1 -C "$video_dir"
 fi
 
-find "$video_dir" -type f \( -iname '*.avi' -o -iname '*.mp4' -o -iname '*.mkv' -o -iname '*.webm' \) \
-  -printf '%f\n' | awk '{sub(/[.][^.]+$/, ""); print}' | sort -u > "$available_ids"
+find "$video_dir" -type f -iname '*.mp4' -printf '%f\n' \
+  | awk '{sub(/[.][^.]+$/, ""); print}' | sort -u > "$available_ids"
 comm -23 "$expected_ids" "$available_ids" > "$missing_ids"
-available_count="$(comm -12 "$expected_ids" "$available_ids" | wc -l)"
-missing_count="$(wc -l < "$missing_ids")"
+[[ ! -s "$missing_ids" ]] || die "dataset is incomplete; see ${missing_ids}"
 
-if ((missing_count > 0)); then
-  echo "Missing annotated TACoS video IDs (first 20):" >&2
-  sed -n '1,20p' "$missing_ids" >&2
-  die "dataset is incomplete: ${available_count}/${EXPECTED_VIDEOS} annotated videos found"
-fi
-
-first_video="$(find "$video_dir" -type f \( -iname '*.avi' -o -iname '*.mp4' \) -print -quit)"
-[[ -n "$first_video" ]] || die "no TACoS video found after extraction"
-ffprobe -v error -select_streams v:0 -show_entries stream=codec_name,width,height,avg_frame_rate \
-  -of default=noprint_wrappers=1 "$first_video" >/dev/null
-echo "[OK] ${available_count} videos; sample video passes ffprobe"
-
-jq -n \
-  --arg source "$OFFICIAL_PAGE" \
-  --arg annotations "$ANNOTATION_PAGE" \
-  --arg prepared_utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-  --argjson videos "$available_count" \
-  --argjson queries "$total_queries" \
-  '{source:$source, annotations:$annotations, prepared_utc:$prepared_utc,
-    videos:$videos, queries:$queries, default_split:"test", full_fidelity:true}' \
-  > "${manifest_dir}/availability.json"
+video_count=0
+audio_count=0
+while IFS= read -r video; do
+  video_count=$((video_count + 1))
+  stream_info="$(ffprobe -v error -select_streams v:0 -show_entries stream=width,height,avg_frame_rate \
+    -of csv=p=0 "$video")" || die "invalid video: ${video}"
+  IFS=, read -r width height frame_rate <<< "$stream_info"
+  [[ "$width" =~ ^[0-9]+$ && "$height" =~ ^[0-9]+$ ]] || die "invalid dimensions: ${video}"
+  ((width <= 854 && height <= 480)) || die "video exceeds 480p envelope: ${video} (${width}x${height})"
+  awk -v rate="$frame_rate" 'BEGIN {
+    split(rate, parts, "/"); fps = parts[2] ? parts[1] / parts[2] : parts[1]; exit !(fps > 0 && fps <= 3.01)
+  }' || die "video exceeds 3 fps: ${video} (${frame_rate})"
+  if [[ -n "$(ffprobe -v error -select_streams a -show_entries stream=index -of csv=p=0 "$video")" ]]; then
+    audio_count=$((audio_count + 1))
+  fi
+done < <(find "$video_dir" -type f -iname '*.mp4' | sort)
+[[ "$video_count" -eq "$EXPECTED_VIDEOS" ]] || die "expected 127 videos, found ${video_count}"
+[[ "$audio_count" -eq 0 ]] || die "expected no audio streams, found ${audio_count}"
 
 if [[ "$keep_archive" == false && -f "$archive_path" ]]; then
   rm -f "$archive_path"
-  echo "[cleanup] removed the 10.5 GiB ZIP; it can be downloaded again"
 fi
+jq -n \
+  --arg source "$DATASET_PAGE" --arg revision "$DATASET_REVISION" \
+  --arg prepared_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  --argjson videos "$video_count" \
+  '{schema: 1, source: $source, revision: $revision, prepared_at: $prepared_at,
+    videos: $videos, fps: 3, resolution: "480p", audio: false, compressed: true}' \
+  > "${data_root}/dataset-manifest.json"
 
-cat > "${data_root}/activate_tacos.sh" <<'EOF'
-TACOS_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-export TACOS_ROOT
-export TACOS_SPLIT=test
-EOF
-
-cat > "${data_root}/PREPARED.txt" <<EOF
-TACoS temporal-grounding data prepared by Hybrid-VTG
-source=${OFFICIAL_PAGE}
-annotations=${ANNOTATION_PAGE}
-videos=${available_count}
-queries=${total_queries}
-test_queries=${EXPECTED_QUERIES[2]}
-prepared_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-EOF
-
-echo
-echo "TACoS preparation complete."
-echo "Dataset root: ${data_root}"
-echo
-echo "Next commands:"
-printf '  source %q\n' "${data_root}/activate_tacos.sh"
-echo "  bash hybrid_vtg/scripts/run_tacos_local.sh --limit 10 --fail-fast"
+echo "[ready] ${data_root}"
+echo "Set TACOS_ROOT=${data_root}"

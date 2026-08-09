@@ -12,5 +12,4 @@ hybrid-vtg run \
   --data "$TACOS_ROOT" \
   --split "$tacos_split" \
   --output "$repo_root/outputs/hybrid-vtg/tacos-${tacos_split}.jsonl" \
-  --cache-dir "$repo_root/.cache/hybrid-vtg" \
   "$@"

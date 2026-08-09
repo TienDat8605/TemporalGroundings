@@ -1,6 +1,8 @@
 import pytest
 
-from hybrid_vtg.timestamps import normalize_timestamp, parse_grounding_response, parse_timestamp
+from hybrid_vtg.timestamps import (
+    normalize_timestamp, parse_intervals, parse_timestamp,
+)
 from hybrid_vtg.types import Component
 
 
@@ -12,27 +14,10 @@ def test_parse_sentence_uses_final_span():
     assert parse_timestamp("clip 0 to 20; final answer 4.2s-7.9s") == (4.2, 7.9)
 
 
-def test_parse_explicit_positive_grounding_response():
-    response = parse_grounding_response(
-        '{"present": true, "confidence": 0.8, "start": 12.5, "end": 18}'
+def test_parse_multispan_json_array():
+    assert parse_intervals("[[4.0, 5.0], [1.0, 2.0], [1.0, 2.0]]") == (
+        (1.0, 2.0), (4.0, 5.0),
     )
-    assert response.present
-    assert response.interval == (12.5, 18.0)
-    assert response.confidence == 0.8
-
-
-def test_parse_explicit_negative_grounding_response_without_timestamp():
-    response = parse_grounding_response('{"present": false, "confidence": 0.9}')
-    assert not response.present
-    assert response.interval is None
-    assert response.confidence == 0.9
-
-
-def test_legacy_timestamp_response_remains_positive():
-    response = parse_grounding_response('{"start": 12.5, "end": 18}')
-    assert response.present
-    assert response.interval == (12.5, 18.0)
-    assert response.confidence == 1.0
 
 
 def test_relative_timestamp_is_converted_and_clamped():

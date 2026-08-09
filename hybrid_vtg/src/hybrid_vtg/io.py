@@ -23,7 +23,8 @@ def append_jsonl(path: Path, record: dict[str, Any]) -> None:
 
 
 def completed_ids(records: Iterable[dict[str, Any]]) -> set[str]:
-    return {str(record["id"]) for record in records if record.get("prediction")}
+    """Return every attempted sample ID so append-only resumes never duplicate rows."""
+    return {str(record["id"]) for record in records}
 
 
 def git_revision(root: Path) -> str | None:

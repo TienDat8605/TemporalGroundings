@@ -10,40 +10,28 @@ from pathlib import Path
 from time import perf_counter
 from typing import Any, Sequence
 
-from .config import SemVIDConfig
-from .timestamps import normalize_timestamp, parse_grounding_response
+from .config import GrounderConfig, SpatialAllocatorConfig
+from .timestamps import normalize_timestamp, parse_intervals, parse_timestamp
 from .types import Component, GroundingPrediction, Sample
 
 
 HANDLER = "modeling_qwen3_vl_semvid.Qwen3VLForConditionalGenerationSemVID"
+TPSA_HANDLER = "modeling_qwen3_vl_tpsa.Qwen3VLForConditionalGenerationTPSA"
 
 
 class GroundingOutputError(ValueError):
     """Failed model output with the compute telemetry needed for accounting."""
 
     def __init__(
-        self, message: str, raw_text: str, semvid_stats: dict[str, Any],
+        self, message: str, raw_text: str, spatial_stats: dict[str, Any],
         token_roles: dict[str, int], telemetry: dict[str, Any],
     ) -> None:
         super().__init__(message)
         self.raw_text = raw_text
-        self.semvid_stats = semvid_stats
+        self.spatial_stats = spatial_stats
+        self.semvid_stats = spatial_stats
         self.token_roles = token_roles
         self.telemetry = telemetry
-
-
-class EventAbsentError(GroundingOutputError):
-    """Structured negative decision from the frozen component verifier."""
-
-    def __init__(
-        self, confidence: float, raw_text: str, semvid_stats: dict[str, Any],
-        token_roles: dict[str, int], telemetry: dict[str, Any],
-    ) -> None:
-        super().__init__(
-            f"model reports event absent (confidence={confidence:.3f})",
-            raw_text, semvid_stats, token_roles, telemetry,
-        )
-        self.confidence = confidence
 
 
 def default_semvid_root() -> Path:
@@ -77,7 +65,16 @@ def _activate_upstream(root: Path) -> None:
         sys.path.insert(0, root_text)
 
 
-def _token_role_counts(model: Any, batch_index: int = 0) -> dict[str, int]:
+def _token_role_counts(
+    model: Any, batch_index: int = 0, allocator_stats: dict[str, Any] | None = None,
+) -> dict[str, int]:
+    if allocator_stats:
+        return {
+            "prototype": int(allocator_stats.get("prototype_tokens", 0)),
+            "start_boundary": int(allocator_stats.get("start_boundary_tokens", 0)),
+            "end_boundary": int(allocator_stats.get("end_boundary_tokens", 0)),
+            "adaptive": int(allocator_stats.get("adaptive_tokens", 0)),
+        }
     coordinates = getattr(model, "last_semantic_prune_coords", None) or {}
     output = {}
     for role in ("context", "object", "motion"):
@@ -85,6 +82,37 @@ def _token_role_counts(model: Any, batch_index: int = 0) -> dict[str, int]:
         value = values[batch_index] if batch_index < len(values) else None
         output[role] = int(value.numel() // 2) if hasattr(value, "numel") else 0
     return output
+
+
+def _per_frame_allocation(
+    model: Any,
+    batch_index: int,
+    frames: int,
+    patches: int,
+    allocator_stats: dict[str, Any],
+    spatial_policy: str,
+) -> list[int] | None:
+    if allocator_stats.get("per_frame_allocation") is not None:
+        return [int(value) for value in allocator_stats["per_frame_allocation"]]
+    if frames <= 0 or patches <= 0:
+        return None
+    if spatial_policy == "dense":
+        return [patches] * frames
+    coordinates = getattr(model, "last_semantic_prune_coords", None) or {}
+    values = []
+    for role in ("context", "object", "motion"):
+        rows = coordinates.get(role, [])
+        if batch_index < len(rows) and hasattr(rows[batch_index], "numel"):
+            values.append(rows[batch_index])
+    if not values:
+        return None
+    import torch
+    pairs = torch.cat(values, dim=0)
+    if pairs.numel() == 0:
+        return [0] * frames
+    flat = torch.unique(pairs[:, 0].long() * patches + pairs[:, 1].long())
+    counts = torch.bincount(flat // patches, minlength=frames)
+    return [int(value) for value in counts.tolist()]
 
 
 def _render_generation_prompt(processor: Any, prompt: list[dict[str, Any]], force_stop_thinking: bool) -> str:
@@ -131,7 +159,12 @@ class _FirstLogitsCapture:
 class SemVIDGrounder:
     """Batched inference adapter for routed video components."""
 
-    def __init__(self, config: SemVIDConfig, semvid_root: Path | None = None) -> None:
+    def __init__(
+        self,
+        config: GrounderConfig,
+        spatial_allocator: SpatialAllocatorConfig | None = None,
+        semvid_root: Path | None = None,
+    ) -> None:
         try:
             import torch
             from transformers import GenerationConfig
@@ -140,37 +173,60 @@ class SemVIDGrounder:
         if not torch.cuda.is_available():
             raise RuntimeError("SemVID grounding requires a CUDA GPU; CPU-only routing remains available")
         root = semvid_root or default_semvid_root()
+        allocator = spatial_allocator or SpatialAllocatorConfig()
         _activate_upstream(root)
+        policy = allocator.spatial_policy
         model_source = root / "src/models/models/modeling_qwen3_vl_semvid.py"
         if config.batch_size > 1 and "pruned_attention_mask" not in model_source.read_text(encoding="utf-8"):
             raise RuntimeError(
                 "Qwen microbatching requires the bundled SemVID cache/position patch. "
                 "Run `bash hybrid_vtg/scripts/apply_semvid_patches.sh` first."
             )
+        if policy.startswith("tpsa_"):
+            if "merged_grid_hw" not in model_source.read_text(encoding="utf-8"):
+                raise RuntimeError(
+                    "TPSA requires the bundled SemVID visual-selection hook patch. "
+                    "Run `bash hybrid_vtg/scripts/apply_semvid_patches.sh` first."
+                )
+            from . import qwen_tpsa
+            sys.modules["src.models.models.modeling_qwen3_vl_tpsa"] = qwen_tpsa
         from src.utils.model_utils import load_hosted_model
 
         hyperparameters = {
-            "enable_semantic_prune": config.enabled,
-            "semantic_retention_ratio": config.retention_ratio,
+            "enable_semantic_prune": policy != "dense",
+            "semantic_retention_ratio": allocator.retention_ratio,
             "semantic_stage1_topk_segments": 0,
             "semantic_stage1_smooth_win": 1,
-            "semantic_frame_weight_alpha": config.frame_weight_alpha,
-            "semantic_obj_ratio": config.object_ratio,
-            "semantic_mmr_lambda": config.mmr_lambda,
+            "semantic_frame_weight_alpha": 0.7,
+            "semantic_obj_ratio": 0.6,
+            "semantic_mmr_lambda": allocator.mmr_lambda,
             "semantic_min_tokens_per_frame": 0,
-            "semantic_motion_query_beta": config.motion_query_beta,
-            "ablation_uniform_allocation": False,
+            "semantic_motion_query_beta": 0.5,
+            "semantic_query_token_max": 4096 if policy.startswith("tpsa_") else 50,
+            "ablation_uniform_allocation": policy == "uniform",
             "ablation_use_semantic_selection": "semvid",
+            "spatial_policy": policy,
+            "tpsa_fps": config.fps,
+            "tpsa_mmr_lambda": allocator.mmr_lambda,
+            "tpsa_relevance_top_fraction": allocator.relevance_top_fraction,
+            "tpsa_boundary_quota_fraction": allocator.boundary_quota_fraction,
+            "tpsa_motion_neighborhood_radius": allocator.motion_neighborhood_radius,
+            "tpsa_boundary_window_seconds": allocator.boundary_window_seconds,
+            "tpsa_boundary_nms_seconds": allocator.boundary_nms_seconds,
+            "tpsa_boundary_expansion_seconds": allocator.boundary_expansion_seconds,
+            "tpsa_maximum_boundary_bands": allocator.maximum_boundary_bands,
             "attn_implementation": config.attention,
         }
+        handler = TPSA_HANDLER if policy.startswith("tpsa_") else HANDLER
         self.model, self.processor = load_hosted_model(
-            config.model, model_handler=HANDLER, model_hyper_parameters=hyperparameters,
+            config.model, model_handler=handler, model_hyper_parameters=hyperparameters,
             dtype=config.dtype, backend="vllm",
         )
         if self.model.config.text_config.pad_token_id is None:
             self.model.config.text_config.pad_token_id = self.processor.tokenizer.pad_token_id
         self.model.eval().requires_grad_(False)
         self.config = config
+        self.spatial_allocator = allocator
         self.torch = torch
         self._processor_lock = threading.Lock()
         self.generation_config = GenerationConfig(
@@ -180,19 +236,19 @@ class SemVIDGrounder:
     def _prompt(self, sample: Sample, component: Component) -> list[dict[str, Any]]:
         total_pixels = self.config.total_pixel_tokens * 16 * 16 * 4
         minimum_pixels = self.config.minimum_pixel_tokens * 16 * 16 * 4
-        instruction = (
-            f"The visible clip is from {component.start:.3f} to {component.end:.3f} seconds of the original video. "
-            f"Query: {sample.query}\n"
-            "First decide whether the described event is visibly present in this clip. "
-            "Do not infer that it happened from objects or surrounding actions alone. "
-            "Confidence must be a number from 0 to 1 indicating how likely the event is visibly present. "
-            "If absent, return only JSON: "
-            '{"present": false, "confidence": 0.0}. '
-            "If present, return original-video timestamps, not clip-relative time, inside "
-            f"[{component.start:.3f}, {component.end:.3f}]. Return only JSON: "
-            '{"present": true, "confidence": 1.0, '
-            '"start": number, "end": number}.'
-        )
+        if sample.cardinality == "multi":
+            instruction = (
+                f"Find every disjoint time interval where this event occurs: {sample.query!r}.\n"
+                f"Timestamps must be seconds within [0.000, {sample.duration:.3f}]. "
+                "Return only a JSON array of [start, end] pairs ordered by start time. "
+                "Return [] if the event never occurs, and do not omit repeated occurrences."
+            )
+        else:
+            instruction = (
+                f"Localize the event described by this query in the video: {sample.query}\n"
+                f"Return only JSON timestamps within [0.000, {sample.duration:.3f}]: "
+                '{"start": number, "end": number}.'
+            )
         return [{
             "role": "user",
             "content": [{
@@ -331,6 +387,10 @@ class SemVIDGrounder:
         aggregate_stats = dict(getattr(self.model, "fastvid_last_stats", {}) or {})
         if not stats_batch and len(prepared.requests) == 1:
             stats_batch = [aggregate_stats]
+        allocator_stats_all = list(getattr(self.model, "last_tpsa_stats_batch", []) or [])
+        allocator_stats_batch = (
+            allocator_stats_all[-len(prepared.requests):] if allocator_stats_all else []
+        )
         batch_wall = perf_counter() - started
         valid_tokens = inputs.get("attention_mask")
         first_token_topk: list[dict[str, list[float] | list[int]]] = []
@@ -347,11 +407,41 @@ class SemVIDGrounder:
         outputs: list[GroundingPrediction | Exception] = []
         for batch_index, (request, text) in enumerate(zip(prepared.requests, texts)):
             semvid_stats = dict(stats_batch[batch_index]) if batch_index < len(stats_batch) else {}
+            allocator_stats = (
+                dict(allocator_stats_batch[batch_index])
+                if batch_index < len(allocator_stats_batch) else {}
+            )
+            semvid_stats.update(allocator_stats)
+            grid = inputs.get("video_grid_thw")
+            if self.torch.is_tensor(grid) and batch_index < grid.shape[0]:
+                merge = int(getattr(self.model.visual, "spatial_merge_size", 1))
+                dense_visual_tokens = int(grid[batch_index].prod().item()) // (merge * merge)
+                grid_frames = int(grid[batch_index, 0].item())
+                grid_patches = dense_visual_tokens // max(grid_frames, 1)
+            else:
+                dense_visual_tokens = 0
+                grid_frames = grid_patches = 0
+            if dense_visual_tokens and not semvid_stats.get("orig_video_tokens"):
+                semvid_stats["orig_video_tokens"] = dense_visual_tokens
+            if (
+                dense_visual_tokens
+                and self.spatial_allocator.spatial_policy == "dense"
+                and not semvid_stats.get("kept_video_tokens")
+            ):
+                semvid_stats["kept_video_tokens"] = dense_visual_tokens
             row_valid_tokens = (
                 int(valid_tokens[batch_index].sum().item())
                 if self.torch.is_tensor(valid_tokens) else prompt_length
             )
-            token_roles = _token_role_counts(self.model, batch_index)
+            token_roles = _token_role_counts(self.model, batch_index, allocator_stats)
+            per_frame_allocation = _per_frame_allocation(
+                self.model,
+                batch_index,
+                grid_frames,
+                grid_patches,
+                allocator_stats,
+                self.spatial_allocator.spatial_policy,
+            )
             telemetry = {
                 **prepared.input_stats[batch_index],
                 "input_preparation_seconds": prepared.preparation_seconds / len(prepared.requests),
@@ -369,29 +459,53 @@ class SemVIDGrounder:
                 "pinned_memory_bytes": prepared.pinned_memory_bytes,
                 "prefill_tokens_before_pruning": row_valid_tokens,
                 "prefill_tokens_after_pruning": int(semvid_stats.get("new_seq_len", row_valid_tokens)),
+                "original_prefill_length": row_valid_tokens,
+                "compact_prefill_length": int(semvid_stats.get("new_seq_len", row_valid_tokens)),
+                "target_retained_tokens": int(semvid_stats.get(
+                    "target_retained_tokens", semvid_stats.get("kept_video_tokens", 0)
+                )),
+                "actual_retained_tokens": int(semvid_stats.get(
+                    "actual_retained_tokens", semvid_stats.get("kept_video_tokens", 0)
+                )),
+                "effective_retention_ratio": float(semvid_stats.get(
+                    "effective_retention_ratio",
+                    float(semvid_stats.get("kept_video_tokens", 0)) /
+                    max(int(semvid_stats.get("orig_video_tokens", 0)), 1),
+                )),
+                "per_frame_allocation": per_frame_allocation,
+                "selected_boundary_bands": {
+                    "start": semvid_stats.get("start_boundary_bands", []),
+                    "end": semvid_stats.get("end_boundary_bands", []),
+                },
+                "query_allocation_seconds": float(semvid_stats.get("query_allocation_seconds", 0.0)),
+                "motion_allocation_seconds": float(semvid_stats.get("motion_allocation_seconds", 0.0)),
+                "boundary_allocation_seconds": float(semvid_stats.get("boundary_allocation_seconds", 0.0)),
+                "selection_seconds": float(semvid_stats.get("selection_seconds", 0.0)),
                 "generated_tokens": int(prediction_ids.shape[-1]),
                 "first_token_topk": (
                     first_token_topk[batch_index] if batch_index < len(first_token_topk) else None
                 ),
             }
             try:
-                response = parse_grounding_response(text)
+                if request.sample.cardinality == "multi":
+                    response_intervals = parse_intervals(text)
+                else:
+                    response_interval = parse_timestamp(text)
+                    response_intervals = (response_interval,)
             except (TypeError, ValueError) as error:
                 outputs.append(GroundingOutputError(
                     str(error), text, semvid_stats, token_roles, telemetry,
                 ))
                 continue
-            if not response.present:
-                outputs.append(EventAbsentError(
-                    response.confidence, text, semvid_stats, token_roles, telemetry,
-                ))
-                continue
             try:
-                assert response.interval is not None
-                interval = normalize_timestamp(
-                    response.interval, request.component, request.sample.duration,
-                    self.config.timestamp_mode,
+                intervals = tuple(
+                    normalize_timestamp(
+                        candidate, request.component, request.sample.duration,
+                        "absolute",
+                    )
+                    for candidate in response_intervals
                 )
+                interval = intervals[0] if intervals else None
             except (TypeError, ValueError) as error:
                 outputs.append(GroundingOutputError(
                     str(error), text, semvid_stats, token_roles, telemetry,
@@ -399,10 +513,10 @@ class SemVIDGrounder:
                 continue
             outputs.append(GroundingPrediction(
                 interval=interval, component=request.component, raw_text=text,
-                semvid_stats=semvid_stats,
+                spatial_stats=semvid_stats,
                 token_roles=token_roles,
                 telemetry=telemetry,
-                presence_score=response.confidence,
+                intervals=intervals,
             ))
         return outputs
 
@@ -416,3 +530,7 @@ class SemVIDGrounder:
         if isinstance(result, Exception):
             raise result
         return result
+
+
+# Neutral name for new integrations; old imports remain valid.
+QwenGrounder = SemVIDGrounder

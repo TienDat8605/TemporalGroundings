@@ -12,14 +12,17 @@ def _records_by_id(records: Sequence[dict[str, Any]]) -> dict[str, dict[str, Any
     return {str(record["id"]): record for record in records}
 
 
-def _interval(record: dict[str, Any]) -> tuple[float, float]:
-    start, end = record["prediction"]["interval"]
-    return float(start), float(end)
+def _intervals(record: dict[str, Any]) -> tuple[tuple[float, float], ...]:
+    prediction = record["prediction"]
+    values = prediction.get("intervals")
+    if values is None:
+        values = [prediction["interval"]] if prediction.get("interval") else []
+    return tuple((float(start), float(end)) for start, end in values)
 
 
 def _mean_total_seconds(records: Sequence[dict[str, Any]]) -> float:
     values = [
-        float(record.get("efficiency", {}).get("timing_seconds", {}).get("total", 0.0))
+        float(record.get("efficiency", {}).get("total_seconds", 0.0))
         for record in records
     ]
     values = [value for value in values if value > 0]
@@ -30,7 +33,6 @@ def compare_optimization_runs(
     baseline: Sequence[dict[str, Any]],
     candidate: Sequence[dict[str, Any]],
     *,
-    mode: str,
     minimum_samples: int = 32,
     minimum_speedup: float = 0.0,
     logit_tolerance: float = 0.05,
@@ -38,8 +40,6 @@ def compare_optimization_runs(
     candidate_throughput: float = 0.0,
 ) -> dict[str, Any]:
     """Compare fixed-fixture outputs without using labels to alter inference settings."""
-    if mode not in {"equivalence", "refinement", "combined"}:
-        raise ValueError("validation mode must be equivalence, refinement, or combined")
     baseline_by_id = _records_by_id(baseline)
     candidate_by_id = _records_by_id(candidate)
     same_id_set = set(baseline_by_id) == set(candidate_by_id)
@@ -57,12 +57,13 @@ def compare_optimization_runs(
     candidate_rows = [candidate_by_id[sample_id] for sample_id in successful_ids]
 
     exact_intervals = sum(
-        _interval(left) == _interval(right) for left, right in zip(baseline_rows, candidate_rows)
+        _intervals(left) == _intervals(right) for left, right in zip(baseline_rows, candidate_rows)
     )
     endpoint_differences = [
         abs(a - b)
         for left, right in zip(baseline_rows, candidate_rows)
-        for a, b in zip(_interval(left), _interval(right))
+        for left_interval, right_interval in zip(_intervals(left), _intervals(right))
+        for a, b in zip(left_interval, right_interval)
     ]
     baseline_metrics = evaluate(baseline_rows)
     candidate_metrics = evaluate(candidate_rows)
@@ -75,7 +76,8 @@ def compare_optimization_runs(
         speedup = baseline_seconds / candidate_seconds - 1.0 if baseline_seconds and candidate_seconds else 0.0
         timing_source = "mean_recorded_latency"
     oom_fallbacks = sum(
-        int(row.get("efficiency", {}).get("qwen_oom_fallbacks", 0)) for row in candidate_rows
+        int(bool(row.get("efficiency", {}).get("qwen_oom_fallback", False)))
+        for row in candidate_rows
     )
 
     logit_rows = 0
@@ -99,16 +101,6 @@ def compare_optimization_runs(
         else:
             maximum_logit_difference = float("inf")
 
-    recall_keys = [key for key in baseline_metrics if key.startswith("R@1,")]
-    recall_deltas = {
-        key: float(candidate_metrics.get(key, 0.0) - baseline_metrics.get(key, 0.0))
-        for key in recall_keys
-    }
-    accuracy_pass = (
-        float(candidate_metrics.get("mIoU", 0.0))
-        >= float(baseline_metrics.get("mIoU", 0.0)) - 0.005
-        and all(delta >= -0.01 for delta in recall_deltas.values())
-    )
     equivalence_pass = (
         len(successful_ids) >= minimum_samples
         and same_id_set
@@ -120,17 +112,9 @@ def compare_optimization_runs(
         and oom_fallbacks == 0
     )
     performance_pass = speedup >= minimum_speedup
-    passed = (
-        equivalence_pass and performance_pass
-        if mode == "equivalence"
-        else (
-            len(successful_ids) >= minimum_samples and same_id_set and status_matches == len(ids)
-            and accuracy_pass and performance_pass and oom_fallbacks == 0
-        )
-    )
+    passed = equivalence_pass and performance_pass
     return {
         "passed": passed,
-        "mode": mode,
         "matched_samples": len(ids),
         "same_sample_ids": same_id_set,
         "successful_samples": len(successful_ids),
@@ -144,8 +128,6 @@ def compare_optimization_runs(
         "logit_tolerance": logit_tolerance,
         "baseline_metrics": baseline_metrics,
         "candidate_metrics": candidate_metrics,
-        "recall_deltas": recall_deltas,
-        "mIoU_delta": float(candidate_metrics.get("mIoU", 0.0) - baseline_metrics.get("mIoU", 0.0)),
         "baseline_mean_recorded_seconds": baseline_seconds,
         "candidate_mean_recorded_seconds": candidate_seconds,
         "speedup_fraction": speedup,
@@ -155,6 +137,75 @@ def compare_optimization_runs(
         "candidate_samples_per_second": candidate_throughput,
         "oom_fallbacks": oom_fallbacks,
         "equivalence_pass": equivalence_pass,
-        "accuracy_pass": accuracy_pass,
         "performance_pass": performance_pass,
+    }
+
+
+def validate_tpsa_promotion(
+    semvid_runs: dict[str, Sequence[dict[str, Any]]],
+    tpsa_runs: dict[str, Sequence[dict[str, Any]]],
+) -> dict[str, Any]:
+    """Apply the predeclared 12.5%-token TPSA promotion gates across datasets."""
+    datasets: dict[str, Any] = {}
+    for name in sorted(set(semvid_runs) | set(tpsa_runs)):
+        baseline_by_id = _records_by_id(semvid_runs.get(name, ()))
+        candidate_by_id = _records_by_id(tpsa_runs.get(name, ()))
+        same_ids = set(baseline_by_id) == set(candidate_by_id) and bool(baseline_by_id)
+        ids = sorted(set(baseline_by_id) & set(candidate_by_id))
+        matched = [
+            sample_id for sample_id in ids
+            if baseline_by_id[sample_id].get("prediction")
+            and candidate_by_id[sample_id].get("prediction")
+        ]
+        baseline = [baseline_by_id[sample_id] for sample_id in matched]
+        candidate = [candidate_by_id[sample_id] for sample_id in matched]
+        baseline_metrics = evaluate(baseline)
+        candidate_metrics = evaluate(candidate)
+        recall_07_delta = float(
+            candidate_metrics.get("R@1,IoU=0.7", 0.0)
+            - baseline_metrics.get("R@1,IoU=0.7", 0.0)
+        )
+        recall_03_delta = float(
+            candidate_metrics.get("R@1,IoU=0.3", 0.0)
+            - baseline_metrics.get("R@1,IoU=0.3", 0.0)
+        )
+        baseline_mae = float(baseline_metrics.get("boundary_MAE_seconds", float("inf")))
+        candidate_mae = float(candidate_metrics.get("boundary_MAE_seconds", float("inf")))
+        mae_reduction = (
+            (baseline_mae - candidate_mae) / baseline_mae
+            if baseline_mae > 0 and baseline_mae != float("inf") else 0.0
+        )
+        baseline_seconds = _mean_total_seconds(baseline)
+        candidate_seconds = _mean_total_seconds(candidate)
+        overhead = (
+            candidate_seconds / baseline_seconds - 1.0
+            if baseline_seconds > 0 and candidate_seconds > 0 else float("inf")
+        )
+        equal_compute = all(
+            left.get("efficiency", {}).get("decoded_frames")
+            == right.get("efficiency", {}).get("decoded_frames")
+            and left.get("efficiency", {}).get("actual_retained_tokens")
+            == right.get("efficiency", {}).get("actual_retained_tokens")
+            for left, right in zip(baseline, candidate)
+        )
+        primary_improvement = recall_07_delta >= 0.03 or mae_reduction >= 0.15
+        safety_pass = recall_03_delta >= -0.01 and overhead < 0.10
+        datasets[name] = {
+            "same_sample_ids": same_ids,
+            "matched_samples": len(matched),
+            "equal_frames_and_tokens": equal_compute,
+            "recall_07_delta": recall_07_delta,
+            "boundary_mae_relative_reduction": mae_reduction,
+            "recall_03_delta": recall_03_delta,
+            "inference_overhead_fraction": overhead,
+            "primary_improvement": primary_improvement,
+            "safety_pass": safety_pass,
+            "passed": same_ids and equal_compute and primary_improvement and safety_pass,
+        }
+    improved = sum(value["passed"] for value in datasets.values())
+    return {
+        "passed": improved >= 2,
+        "improved_datasets": improved,
+        "required_improved_datasets": 2,
+        "datasets": datasets,
     }

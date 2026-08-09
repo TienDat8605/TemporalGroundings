@@ -13,5 +13,4 @@ hybrid-vtg run \
   --data "$ACTIVITYNET_ROOT" \
   --split "$activitynet_split" \
   --output "$repo_root/outputs/hybrid-vtg/activitynet-${output_split}.jsonl" \
-  --cache-dir "$repo_root/.cache/hybrid-vtg" \
   "$@"
