@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import inspect
 import json
 import os
 import shutil
@@ -147,12 +148,14 @@ def _gdown_folder(url: str, destination: Path) -> list[Path]:
         raise RuntimeError("Google Drive downloads require: pip install -e '.[downloads]'") from error
     destination.mkdir(parents=True, exist_ok=True)
     print(f"download: {url}\n      -> {destination}")
-    result = gdown.download_folder(
-        url=url,
-        output=str(destination) + os.sep,
-        quiet=False,
-        remaining_ok=True,
-    )
+    options: dict[str, Any] = {
+        "url": url,
+        "output": str(destination) + os.sep,
+        "quiet": False,
+    }
+    if "remaining_ok" in inspect.signature(gdown.download_folder).parameters:
+        options["remaining_ok"] = True
+    result = gdown.download_folder(**options)
     files = [Path(value) for value in (result or ())]
     if not files and not any(path.is_file() for path in destination.rglob("*")):
         raise RuntimeError(f"Google Drive folder produced no files: {url}")

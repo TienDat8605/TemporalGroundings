@@ -1,5 +1,7 @@
 import io
+import sys
 import tarfile
+import types
 import zipfile
 from pathlib import Path
 
@@ -8,6 +10,7 @@ import pytest
 from hybrid_vtg.downloads import (
     _extract_tar,
     _extract_zip,
+    _gdown_folder,
     _http_headers,
     asset_paths,
     download_assets,
@@ -54,3 +57,19 @@ def test_hugging_face_token_is_only_sent_to_hugging_face():
     external = _http_headers("https://example.com/file", offset=0, hf_token="secret")
     assert "Authorization" not in external
     assert "Range" not in external
+
+
+def test_gdown_folder_supports_legacy_signature(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    received = {}
+
+    def legacy_download_folder(url, output, quiet):
+        received.update(url=url, output=output, quiet=quiet)
+        result = Path(output) / "test.jsonl"
+        result.write_text("{}\n", encoding="utf-8")
+        return [str(result)]
+
+    monkeypatch.setitem(sys.modules, "gdown", types.SimpleNamespace(download_folder=legacy_download_folder))
+    files = _gdown_folder("https://drive.google.com/folder", tmp_path / "metadata")
+
+    assert files == [tmp_path / "metadata" / "test.jsonl"]
+    assert received["quiet"] is False
