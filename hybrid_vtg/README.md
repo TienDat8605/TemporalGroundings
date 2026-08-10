@@ -44,6 +44,9 @@ one global anchor from every scout tubelet survives, redundant coarse evidence
 can be replaced by detailed evidence, and the accumulated pack is sorted by
 absolute timestamp and compacted to the declared retention budget before one
 LLM generation. HMVE currently supports Qwen batch size one.
+HMVE also reserves 20% of GPU memory during automatic checkpoint placement so
+the vision passes have activation headroom; override this with
+`--model-gpu-memory-ratio` when a particular GPU needs a larger reserve.
 
 ## Setup
 

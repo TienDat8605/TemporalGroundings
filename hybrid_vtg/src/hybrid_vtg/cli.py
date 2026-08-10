@@ -52,6 +52,15 @@ def _parser() -> argparse.ArgumentParser:
         "--hmve-maximum-corridors", type=int, default=ObservationConfig.maximum_corridors,
     )
     run.add_argument("--model", default=GrounderConfig.model)
+    run.add_argument(
+        "--model-gpu-memory-ratio",
+        type=float,
+        default=None,
+        help=(
+            "fraction of each GPU available to model placement; defaults to 0.80 for HMVE "
+            "and 0.95 for single-pass inference"
+        ),
+    )
     run.add_argument("--expert-fps", type=float, default=GrounderConfig.fps)
     run.add_argument("--retention-ratio", type=float, default=SpatialAllocatorConfig.retention_ratio)
     run.add_argument("--max-new-tokens", type=int, default=GrounderConfig.max_new_tokens)
@@ -98,6 +107,9 @@ def _config(args: argparse.Namespace) -> PipelineConfig:
     prefetch_depth = args.prefetch_depth if args.prefetch_depth is not None else (
         2 if optimized and preprocess_workers == 1 else 0
     )
+    model_gpu_memory_ratio = args.model_gpu_memory_ratio
+    if model_gpu_memory_ratio is None:
+        model_gpu_memory_ratio = 0.80 if args.observation_policy == "hmve" else 0.95
     grounder = replace(
         GrounderConfig(), model=args.model, fps=args.expert_fps,
         max_new_tokens=args.max_new_tokens, force_stop_thinking=not args.allow_thinking,
@@ -105,6 +117,7 @@ def _config(args: argparse.Namespace) -> PipelineConfig:
         batch_size=qwen_batch_size, pairing_lookahead=args.qwen_pairing_lookahead,
         preprocess_workers=preprocess_workers, prefetch_depth=prefetch_depth,
         capture_validation_logits=args.capture_validation_logits,
+        model_gpu_memory_ratio=model_gpu_memory_ratio,
     )
     spatial_allocator = replace(
         SpatialAllocatorConfig(), spatial_policy=args.spatial_policy,

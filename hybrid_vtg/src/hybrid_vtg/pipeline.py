@@ -196,6 +196,9 @@ class HybridVTGPipeline:
                 ),
                 "batch_padding_tokens": int(telemetry.get("batch_padding_tokens", 0)),
                 "qwen_batch_size": int(telemetry.get("qwen_batch_size", 1)),
+                "model_gpu_memory_ratio": float(telemetry.get(
+                    "model_gpu_memory_ratio", self.config.grounder.model_gpu_memory_ratio,
+                )),
                 "qwen_oom_fallback": bool(telemetry.get("qwen_oom_fallback", False)),
                 "queue_wait_seconds": float(telemetry.get("queue_wait_seconds", 0.0)),
                 "host_to_device_seconds": float(telemetry.get("host_to_device_seconds", 0.0)),

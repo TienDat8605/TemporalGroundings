@@ -14,6 +14,7 @@ def test_primary_cli_is_full_video_semvid_by_default():
     config = _config(_args())
     assert config.spatial_allocator.spatial_policy == "semvid"
     assert config.observation.policy == "single_pass"
+    assert config.grounder.model_gpu_memory_ratio == 0.95
     assert set(config.to_dict()) == {"grounder", "spatial_allocator", "observation"}
 
 
@@ -38,6 +39,18 @@ def test_hmve_observation_policy_is_independent_of_spatial_policy():
         maximum_corridors=3,
     )
     assert config.spatial_allocator.spatial_policy == "tpsa_query"
+    assert config.grounder.model_gpu_memory_ratio == 0.80
+
+
+def test_hmve_model_memory_reserve_can_be_overridden():
+    config = _config(_args(
+        "--observation-policy", "hmve",
+        "--model-gpu-memory-ratio", "0.7",
+    ))
+    assert config.grounder.model_gpu_memory_ratio == 0.7
+
+    with pytest.raises(ValueError, match="model GPU memory ratio"):
+        _config(_args("--model-gpu-memory-ratio", "1.0"))
 
 
 def test_optimized_profile_enables_verified_batch_and_prefetch():

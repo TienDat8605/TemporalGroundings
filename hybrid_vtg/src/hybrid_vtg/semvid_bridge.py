@@ -248,10 +248,15 @@ class SemVIDGrounder:
         self.model, self.processor = load_hosted_model(
             config.model, model_handler=handler, model_hyper_parameters=hyperparameters,
             dtype=config.dtype, backend="vllm",
+            max_memory_ratio=config.model_gpu_memory_ratio,
         )
         if self.model.config.text_config.pad_token_id is None:
             self.model.config.text_config.pad_token_id = self.processor.tokenizer.pad_token_id
         self.model.eval().requires_grad_(False)
+        # Transformers/Accelerate may leave checkpoint-loading cache reserved.
+        # HMVE needs that space for two explicit vision passes and retained scout
+        # projections, so release unused blocks before accepting the first batch.
+        torch.cuda.empty_cache()
         self.config = config
         self.spatial_allocator = allocator
         self.observation = observation
@@ -1083,6 +1088,7 @@ class SemVIDGrounder:
                 "batch_generation_seconds": generation_seconds,
                 "component_seconds": batch_wall / len(prepared.requests),
                 "qwen_batch_size": len(prepared.requests),
+                "model_gpu_memory_ratio": self.config.model_gpu_memory_ratio,
                 "batch_padding_tokens": prompt_length - row_valid_tokens,
                 "pinned_memory_bytes": prepared.pinned_memory_bytes,
                 "prefill_tokens_before_pruning": original_prefill_length,

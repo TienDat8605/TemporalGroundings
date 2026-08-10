@@ -29,6 +29,7 @@ class GrounderConfig:
     prefetch_depth: int = 0
     pinned_memory_limit_bytes: int = 4 * 1024**3
     capture_validation_logits: bool = False
+    model_gpu_memory_ratio: float = 0.95
 
     def __post_init__(self) -> None:
         if self.fps <= 0 or self.max_frames <= 0 or self.max_new_tokens <= 0:
@@ -45,6 +46,8 @@ class GrounderConfig:
             raise ValueError("Qwen prefetch requires one preprocessing worker")
         if self.pinned_memory_limit_bytes <= 0:
             raise ValueError("pinned-memory limit must be positive")
+        if not 0 < self.model_gpu_memory_ratio < 1:
+            raise ValueError("model GPU memory ratio must be in (0, 1)")
 
 
 @dataclass(frozen=True)
