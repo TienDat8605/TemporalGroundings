@@ -60,7 +60,8 @@ hybrid-vtg download --root ./assets --accept-licenses --hf-login
 This uses `HF_TOKEN` when that environment variable is set; otherwise it opens
 Hugging Face's secure token prompt and saves the login in the standard local
 Hugging Face token store. Authentication can avoid anonymous rate limits for
-OMTG and TimeLens2 downloads. The token is never stored in `assets/manifest.json`.
+OMTG, TACoS, QVHighlights, and TimeLens2 downloads. The token is never stored
+in `assets/manifest.json`.
 
 The equivalent repository script is:
 
@@ -104,7 +105,7 @@ TACoS data retains its upstream terms. QVHighlights annotations use CC BY-NC-SA
 4.0. The script does not mirror or redistribute any dataset. Sources are the
 [OMTG Bench release](https://huggingface.co/datasets/insomnia7/omtg_bench),
 [QVHighlights/Moment-DETR](https://github.com/jayleicn/moment_detr),
-[QVHighlights individual videos](https://huggingface.co/datasets/ayushsdev/qvhighlights-videos),
+[QVHighlights test archive](https://huggingface.co/datasets/jwnt4/qvhighlights-test),
 [VideoMind TACoS](https://huggingface.co/datasets/yeliudev/VideoMind-Dataset/tree/main/tacos),
 [TACoS](https://www.mpi-inf.mpg.de/departments/computer-vision-and-machine-learning/research/vision-and-language/tacos-multi-level-corpus),
 [TimeLens2](https://huggingface.co/MCG-NJU/TimeLens2-4B), and
@@ -142,10 +143,10 @@ QVHighlights contains 1,542 test queries over 1,529 videos. The TACoS source
 archive is all-split, but non-test members are never extracted on a fresh run
 and are pruned from older completed downloads.
 
-The QVHighlights downloader reads the official test annotation first, then
-selects exactly its 1,529 unique video IDs from the individual-video Hugging
-Face repository. This is about 17.75 GB and does not download train or
-validation videos; the old all-splits archive was about 134 GB.
+The QVHighlights downloader uses one resumable test-only archive containing
+exactly the 1,529 unique video IDs in the official test annotation. It is about
+17.6 GB, does not download train or validation videos, and avoids one API
+request per video. The old all-splits archive was about 134 GB.
 
 ### Models
 

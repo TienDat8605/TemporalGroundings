@@ -13,9 +13,10 @@ from hybrid_vtg.downloads import (
     _extract_zip,
     _gdown_folder,
     _http_headers,
-    _qvhighlights_video_paths,
+    _qvhighlights_video_ids,
     _retain_tacos_test_videos,
     _tacos_test_video_ids,
+    _verify_qvhighlights_videos,
     asset_paths,
     download_assets,
     resolve_targets,
@@ -55,7 +56,7 @@ def test_tacos_retains_only_test_videos_and_handles_camera_postfix(tmp_path: Pat
     assert not train.exists()
 
 
-def test_qvhighlights_selects_only_unique_test_video_paths(tmp_path: Path):
+def test_qvhighlights_selects_only_unique_test_video_ids(tmp_path: Path):
     annotation = tmp_path / "highlight_test_release.jsonl"
     annotation.write_text(
         '{"qid": 1, "vid": "Abc_60.0_210.0"}\n'
@@ -63,10 +64,17 @@ def test_qvhighlights_selects_only_unique_test_video_paths(tmp_path: Path):
         '{"qid": 3, "vid": "-xyz_60.0_210.0"}\n',
         encoding="utf-8",
     )
-    assert _qvhighlights_video_paths(annotation) == [
-        "-/-xyz_60.0_210.0.mp4",
-        "a/Abc_60.0_210.0.mp4",
-    ]
+    assert _qvhighlights_video_ids(annotation) == frozenset({"-xyz_60.0_210.0", "Abc_60.0_210.0"})
+
+
+def test_qvhighlights_archive_must_contain_only_test_videos(tmp_path: Path):
+    videos = tmp_path / "videos"
+    videos.mkdir()
+    (videos / "test-video.mp4").touch()
+    assert _verify_qvhighlights_videos(videos, frozenset({"test-video"})) == 1
+    (videos / "train-video.mp4").touch()
+    with pytest.raises(ValueError, match="non-test videos"):
+        _verify_qvhighlights_videos(videos, frozenset({"test-video"}))
 
 
 def test_download_extractors_reject_parent_traversal(tmp_path: Path):
