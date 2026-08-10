@@ -7,6 +7,7 @@ patch_files=(
   "$repo_root/hybrid_vtg/patches/semvid-qwen-microbatch.patch"
   "$repo_root/hybrid_vtg/patches/semvid-tpsa-selection-hook.patch"
   "$repo_root/hybrid_vtg/patches/semvid-hmve-positions.patch"
+  "$repo_root/hybrid_vtg/patches/semvid-generation-signature.patch"
 )
 
 for patch_file in "${patch_files[@]}"; do

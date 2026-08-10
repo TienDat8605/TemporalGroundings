@@ -1,0 +1,20 @@
+diff --git a/src/utils/model_utils.py b/src/utils/model_utils.py
+--- a/src/utils/model_utils.py
++++ b/src/utils/model_utils.py
+@@ -4,6 +4,7 @@ import logging
+ import inspect
+ import importlib
+ from collections import Counter
++from functools import wraps
+-
++
+ import torch
+ from peft import get_peft_model, PeftModel
+@@ -162,5 +163,6 @@ def _patch_legacy_prepare_inputs_for_generation(model):
+     if "cache_position" not in inspect.signature(prepare_inputs).parameters:
+         return
+-
++
++    @wraps(prepare_inputs)
+     def prepare_inputs_for_generation_compat(input_ids, *args, **kwargs):
+         if kwargs.get("cache_position") is None:
