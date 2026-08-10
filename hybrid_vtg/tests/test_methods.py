@@ -5,6 +5,7 @@ import torch
 from hybrid_vtg.contracts import GroundingContext, ModelBackend, Prediction, Sample, TemporalEvidence
 from hybrid_vtg.methods.coarse_to_fine_64 import (
     FRAME_BUDGET,
+    EmbeddingRouter,
     Window,
     content_windows,
     distribute_frames,
@@ -45,6 +46,34 @@ def test_coarse_to_fine_requests_headless_opencv_scene_backend(monkeypatch):
     assert received == {"path": "video.mp4", "backend": "opencv"}
     assert windows == uniform_windows(90.0)
     assert policy == "uniform-fallback"
+
+
+def test_coarse_to_fine_router_uses_sentence_transformer_encode(monkeypatch, tmp_path):
+    calls = []
+
+    class FakeEmbeddingModel:
+        def encode(self, values, **kwargs):
+            calls.append((values, kwargs))
+            if isinstance(values[0], str):
+                return torch.tensor([[1.0, 0.0]])
+            return torch.tensor([[0.5, 0.5], [1.0, 0.0]])
+
+    monkeypatch.setattr(
+        "hybrid_vtg.methods.coarse_to_fine_64.extract_frames",
+        lambda video, timestamps, destination: [destination / f"{index}.jpg" for index, _ in enumerate(timestamps)],
+    )
+    router = EmbeddingRouter()
+    router._model = FakeEmbeddingModel()
+    sample = Sample("1", "video", tmp_path / "video.mp4", 20.0, "open the door")
+    scores = router.rank(sample, [Window(0.0, 10.0), Window(10.0, 20.0)], 2, tmp_path)
+
+    assert scores == [0.5, 1.0]
+    assert calls[0][0] == ["open the door"]
+    assert [list(value) for value in calls[1][0]] == [
+        ["video"],
+        ["video"],
+    ]
+    assert all(call[1]["normalize_embeddings"] for call in calls)
 
 
 def test_tpsa_retains_exact_budget_and_timeline_coverage():

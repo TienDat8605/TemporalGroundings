@@ -7,6 +7,8 @@ from pathlib import Path
 from time import perf_counter
 from typing import Any
 
+from tqdm.auto import tqdm
+
 from .contracts import Prediction, Sample
 from .io import append_jsonl, ensure_manifest, git_revision, read_jsonl, write_json
 from .registry import BENCHMARKS, METHODS, MODELS, load_builtin_plugins
@@ -52,6 +54,38 @@ def _evaluation_records(samples: list[Sample], records: list[dict[str, Any]]) ->
     return output
 
 
+def _evaluation_summary(benchmark: Any, samples: list[Sample], records: list[dict[str, Any]]) -> dict[str, Any]:
+    successful_ids = {str(record["id"]) for record in records}
+    successful = sum(sample.id in successful_ids for sample in samples)
+    failed = len(samples) - successful
+    if not samples:
+        return {
+            "status": "empty",
+            "requested": 0,
+            "successful": 0,
+            "failed": 0,
+            "metrics": None,
+            "message": "The requested subset contains no samples.",
+        }
+    if successful == 0:
+        return {
+            "status": "failed",
+            "requested": len(samples),
+            "successful": 0,
+            "failed": failed,
+            "metrics": None,
+            "message": "No predictions succeeded; metrics were not calculated. See errors.jsonl.",
+        }
+    return {
+        "status": "complete" if failed == 0 else "partial",
+        "requested": len(samples),
+        "successful": successful,
+        "failed": failed,
+        "metrics": benchmark.evaluate(_evaluation_records(samples, records)),
+        "metrics_scope": "all requested samples; failed samples count as empty predictions",
+    }
+
+
 def run_benchmark(
     *,
     benchmark_name: str,
@@ -81,6 +115,7 @@ def run_benchmark(
     project_root = Path(__file__).resolve().parents[2]
     results_root = project_root / "results"
     run_dir = run_directory(results_root, benchmark_name, model_name, method_name, seed)
+    print(f"run directory: {run_dir}", flush=True)
     manifest = {
         "schema": SCHEMA_VERSION,
         "benchmark": benchmark_name,
@@ -115,7 +150,8 @@ def run_benchmark(
             feature_roots=feature_roots,
         )
         method.validate_model(model)
-        for sample in pending:
+        progress = tqdm(pending, desc=f"{benchmark_name}/{model_name}/{method_name}", unit="sample")
+        for sample in progress:
             started = perf_counter()
             try:
                 prediction = method.run(sample, model, run_dir / "cache" / sample.id)
@@ -126,24 +162,21 @@ def run_benchmark(
                         "id": sample.id,
                         "error_type": type(error).__name__,
                         "error": str(error),
+                        "wall_seconds": perf_counter() - started,
                     },
                 )
+                progress.set_postfix(failed="yes")
                 continue
             append_jsonl(predictions_path, _record(sample, prediction, perf_counter() - started))
+            progress.set_postfix(failed="no")
 
     records = read_jsonl(predictions_path)
     values = _evaluation_records(selected, records)
-    successful_ids = {str(record["id"]) for record in records}
-    metrics = benchmark.evaluate(values)
-    summary = {
-        "requested": len(selected),
-        "successful": sum(sample.id in successful_ids for sample in selected),
-        "failed": sum(sample.id not in successful_ids for sample in selected),
-        "metrics": metrics,
-    }
+    summary = _evaluation_summary(benchmark, selected, records)
+    summary["run_directory"] = str(run_dir)
     metrics_name = f"{percentage_key(percentage)}.json"
     write_json(run_dir / "metrics" / metrics_name, summary)
-    if percentage == 100:
+    if percentage == 100 and summary["failed"] == 0:
         submission = benchmark.export_submission(
             values,
             results_root / "submissions" / benchmark_name / model_name / method_name / f"seed-{seed}.jsonl",

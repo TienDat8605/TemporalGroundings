@@ -130,14 +130,11 @@ class EmbeddingRouter:
 
     def _load(self) -> Any:
         if self._model is None:
-            from transformers import AutoModel
+            from sentence_transformers import SentenceTransformer
 
-            self._model = AutoModel.from_pretrained(
-                self.model_id,
-                trust_remote_code=True,
-                torch_dtype="auto",
-                device_map="auto",
-            )
+            self._model = SentenceTransformer(self.model_id)
+            if not self._model.supports("video"):
+                raise RuntimeError(f"embedding model does not support video input: {self.model_id}")
         return self._model
 
     def rank(
@@ -147,32 +144,28 @@ class EmbeddingRouter:
         frames_per_window: int,
         cache_dir: Path,
     ) -> list[float]:
-        import torch
-
         model = self._load()
-        query = model.process(
-            [
-                {
-                    "text": sample.query,
-                    "instruction": "Represent this text for retrieving matching temporal video windows.",
-                }
-            ]
+        query = model.encode(
+            [sample.query],
+            prompt="Represent this text for retrieving matching temporal video windows. ",
+            convert_to_tensor=True,
+            normalize_embeddings=True,
+            show_progress_bar=False,
         )[0]
-        scores = []
+        videos = []
         for index, window in enumerate(windows):
             timestamps = uniform_timestamps(window.start, window.end, frames_per_window)
             frames = extract_frames(sample.video_path, timestamps, cache_dir / f"router-{index}")
-            embedding = model.process(
-                [
-                    {
-                        "video": [str(path) for path in frames],
-                        "sample_fps": frames_per_window / max(window.duration, 1e-6),
-                        "instruction": "Represent this video window for retrieval by a textual event description.",
-                    }
-                ]
-            )[0]
-            scores.append(float(torch.dot(query.float(), embedding.float()).item()))
-        return scores
+            videos.append({"video": [str(path) for path in frames]})
+        embeddings = model.encode(
+            videos,
+            prompt="Represent this video window for retrieval by a textual event description. ",
+            batch_size=1,
+            convert_to_tensor=True,
+            normalize_embeddings=True,
+            show_progress_bar=False,
+        )
+        return [float(value) for value in (embeddings.float() @ query.float()).tolist()]
 
 
 class CoarseToFine64(Method):

@@ -208,6 +208,10 @@ results/
 ```
 
 `RESULTS.md` and `index.csv` are rebuilt after every run. A manifest mismatch is rejected rather than mixing configurations. Inference is batch size one.
+The command prints the absolute run directory before model loading and shows a
+per-sample progress bar. If every sample fails, metrics are left as `null`
+instead of reporting failures as model predictions; inspect `errors.jsonl` for
+the underlying exceptions.
 
 ## Add another method, model, or benchmark
 

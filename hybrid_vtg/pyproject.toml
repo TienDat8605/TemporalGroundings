@@ -12,15 +12,19 @@ dependencies = [
   "numpy>=1.26,<3",
   "opencv-python-headless>=4.9,<5",
   "Pillow>=10",
+  "qwen-vl-utils>=0.0.14",
   "scenedetect[opencv-headless]>=0.6.4,<0.7",
+  "sentence-transformers>=5.4,<6",
   "scipy>=1.13",
   "torch>=2.4",
+  "torchvision>=0.19",
+  "tqdm>=4.66",
   "transformers>=4.57,<5",
 ]
 
 [project.optional-dependencies]
 test = ["pytest>=8", "ruff>=0.9"]
-downloads = ["gdown>=5.2", "huggingface-hub>=0.30", "tqdm>=4.66"]
+downloads = ["gdown>=5.2", "huggingface-hub>=0.30"]
 univtg-video = ["pytorchvideo>=0.1.5"]
 
 [project.scripts]
