@@ -165,6 +165,12 @@ class _HMVEInputUnit:
     cache_index: int = -1
 
 
+@dataclass(frozen=True)
+class _HMVEDecodedPass:
+    units: tuple[_HMVEInputUnit, ...]
+    observations: tuple[_HMVEInputUnit, ...]
+
+
 class _FirstLogitsCapture:
     """Read-only generation hook used only by batch-equivalence validation."""
 
@@ -378,10 +384,66 @@ class SemVIDGrounder:
                 pass_id=pass_id,
                 absolute_time=sum(unit_indices) / len(unit_indices) / fps,
                 source_observation=source_observation,
-                cache_index=cache_index if pass_id == 0 else -1,
+                cache_index=cache_index,
             ))
             cache_index += 1
         return units
+
+    def _hmve_observation(
+        self,
+        video: Any,
+        metadata: Any,
+        *,
+        pass_id: int,
+        source_observation: int,
+    ) -> _HMVEInputUnit:
+        indices = list(self._metadata_value(metadata, "frames_indices"))
+        fps = float(self._metadata_value(metadata, "fps"))
+        if not indices or fps <= 0:
+            raise ValueError("HMVE observation metadata requires frame indices and FPS")
+        return _HMVEInputUnit(
+            video=video,
+            metadata=metadata,
+            pass_id=pass_id,
+            absolute_time=sum(indices) / len(indices) / fps,
+            source_observation=source_observation,
+            cache_index=0,
+        )
+
+    def _split_hmve_embeddings(
+        self,
+        observation_embeddings: Sequence[Any],
+        observation_grids: Any,
+        units: Sequence[_HMVEInputUnit],
+    ) -> tuple[Any, ...]:
+        """Split grouped encoder outputs into timestamped temporal units."""
+        if len(observation_embeddings) != int(observation_grids.shape[0]):
+            raise RuntimeError("HMVE encoder output/grid count mismatch")
+        lookup: dict[tuple[int, int], Any] = {}
+        merge = int(self.model.visual.spatial_merge_size)
+        for source, (embeddings, grid) in enumerate(zip(
+            observation_embeddings, observation_grids,
+        )):
+            temporal = int(grid[0].item())
+            related = sorted(
+                (unit for unit in units if unit.source_observation == source),
+                key=lambda unit: unit.cache_index,
+            )
+            if len(related) != temporal:
+                raise RuntimeError(
+                    f"HMVE observation {source} encoded {temporal} temporal units, "
+                    f"but provenance contains {len(related)}"
+                )
+            tokens_per_unit = (
+                (int(grid[1].item()) // merge) * (int(grid[2].item()) // merge)
+            )
+            if int(embeddings.shape[0]) != temporal * tokens_per_unit:
+                raise RuntimeError("HMVE grouped projected-token accounting mismatch")
+            for unit, value in zip(related, embeddings.split(tokens_per_unit, dim=0)):
+                lookup[(source, unit.cache_index)] = value
+        return tuple(
+            lookup[(unit.source_observation, unit.cache_index)] for unit in units
+        )
 
     def _process_hmve_units(
         self,
@@ -484,8 +546,14 @@ class SemVIDGrounder:
             pass_id=0,
             source_observation=0,
         )
+        scout_observation = self._hmve_observation(
+            scout_video,
+            scout_metadata,
+            pass_id=0,
+            source_observation=0,
+        )
         with self._processor_lock:
-            inputs = self._process_hmve_units(request.sample, scout_units)
+            inputs = self._process_hmve_units(request.sample, [scout_observation])
             query_tokens = self.processor.tokenizer(
                 [request.sample.query], padding=True, truncation=True,
                 return_tensors="pt", add_special_tokens=True,
@@ -597,7 +665,7 @@ class SemVIDGrounder:
         self,
         request: GroundingRequest,
         corridors: Sequence[Any],
-    ) -> list[_HMVEInputUnit]:
+    ) -> _HMVEDecodedPass:
         try:
             import qwen_vl_utils
         except ImportError as error:
@@ -629,14 +697,21 @@ class SemVIDGrounder:
         if not decoded or len(decoded) != len(corridors):
             raise RuntimeError("HMVE detailed pass did not decode every selected corridor")
         units = []
+        observations = []
         for observation_index, (video, metadata) in enumerate(decoded):
+            observations.append(self._hmve_observation(
+                video,
+                metadata,
+                pass_id=1,
+                source_observation=observation_index,
+            ))
             units.extend(self._split_hmve_units(
                 video,
                 metadata,
                 pass_id=1,
                 source_observation=observation_index,
             ))
-        return units
+        return _HMVEDecodedPass(tuple(units), tuple(observations))
 
     def _video_unit_positions(
         self,
@@ -676,13 +751,24 @@ class SemVIDGrounder:
 
         self.torch.cuda.synchronize()
         scout_encoder_started = perf_counter()
-        scout_embeds, _, _ = self.model.model.get_video_features(
-            scout_inputs["pixel_values_videos"],
-            scout_inputs["video_grid_thw"],
-            return_token_scores=True,
+        scout_pixels = scout_inputs.pop("pixel_values_videos")
+        scout_grids = scout_inputs["video_grid_thw"]
+        scout_observation_embeds, scout_deepstack, scout_token_scores = (
+            self.model.model.get_video_features(
+                scout_pixels,
+                scout_grids,
+                return_token_scores=False,
+            )
         )
         self.torch.cuda.synchronize()
         scout_encoder_seconds = perf_counter() - scout_encoder_started
+        scout_embeds = self._split_hmve_embeddings(
+            scout_observation_embeds,
+            scout_grids,
+            prepared.hmve_scout_units,
+        )
+        del scout_pixels, scout_observation_embeds, scout_deepstack, scout_token_scores
+        self.torch.cuda.empty_cache()
         query_embeddings = query_token_embeddings(
             self.model.get_input_embeddings(),
             scout_inputs["query_ids"],
@@ -736,7 +822,8 @@ class SemVIDGrounder:
             nms_seconds=self.observation.corridor_nms_seconds,
             minimum_total_seconds=minimum_detailed_seconds,
         )
-        detailed_units = self._decode_hmve_corridors(request, corridors)
+        detailed_pass = self._decode_hmve_corridors(request, corridors)
+        detailed_units = list(detailed_pass.units)
         final_units = sorted(
             [*prepared.hmve_scout_units, *detailed_units],
             key=lambda value: (
@@ -744,40 +831,59 @@ class SemVIDGrounder:
             ),
         )
         with self._processor_lock:
+            detailed_inputs = self._process_hmve_units(
+                request.sample, detailed_pass.observations,
+            )
+        detailed_pixels = detailed_inputs["pixel_values_videos"].to(device)
+        detailed_grids = detailed_inputs["video_grid_thw"].to(device)
+
+        self.torch.cuda.synchronize()
+        detailed_encoder_started = perf_counter()
+        detailed_observation_embeds, detailed_deepstack, detailed_token_scores = (
+            self.model.model.get_video_features(
+                detailed_pixels,
+                detailed_grids,
+                return_token_scores=False,
+            )
+        )
+        self.torch.cuda.synchronize()
+        detailed_encoder_seconds = perf_counter() - detailed_encoder_started
+        detailed_embeds = self._split_hmve_embeddings(
+            detailed_observation_embeds,
+            detailed_grids,
+            detailed_units,
+        )
+        del (
+            detailed_pixels,
+            detailed_inputs,
+            detailed_observation_embeds,
+            detailed_deepstack,
+            detailed_token_scores,
+        )
+        self.torch.cuda.empty_cache()
+
+        with self._processor_lock:
             final_inputs = self._process_hmve_units(request.sample, final_units)
+        final_inputs.pop("pixel_values_videos", None)
         final_inputs = {
             key: value.to(device) if self.torch.is_tensor(value) else value
             for key, value in final_inputs.items()
         }
         grids = final_inputs["video_grid_thw"]
-        pixels = final_inputs["pixel_values_videos"]
-        raw_sizes = [int(value.prod().item()) for value in grids]
-        pixel_parts = []
-        offset = 0
-        for size in raw_sizes:
-            pixel_parts.append(pixels[offset:offset + size])
-            offset += size
-        if offset != int(pixels.shape[0]):
-            raise RuntimeError("HMVE pixel/grid accounting mismatch")
-        detailed_positions = [index for index, unit in enumerate(final_units) if unit.pass_id == 1]
-        detailed_pixels = self.torch.cat([pixel_parts[index] for index in detailed_positions], dim=0)
-        detailed_grids = grids[detailed_positions]
-
-        self.torch.cuda.synchronize()
-        detailed_encoder_started = perf_counter()
-        detailed_embeds, _, _ = self.model.model.get_video_features(
-            detailed_pixels,
-            detailed_grids,
-            return_token_scores=True,
-        )
-        self.torch.cuda.synchronize()
-        detailed_encoder_seconds = perf_counter() - detailed_encoder_started
-        detailed_iterator = iter(detailed_embeds)
         evidence: list[EvidenceUnit] = []
+        scout_by_provenance = {
+            (unit.source_observation, unit.cache_index): embeddings
+            for unit, embeddings in zip(prepared.hmve_scout_units, scout_embeds)
+        }
+        detailed_by_provenance = {
+            (unit.source_observation, unit.cache_index): embeddings
+            for unit, embeddings in zip(detailed_units, detailed_embeds)
+        }
         for unit_index, unit in enumerate(final_units):
+            provenance = (unit.source_observation, unit.cache_index)
             embeddings = (
-                scout_embeds[unit.cache_index]
-                if unit.pass_id == 0 else next(detailed_iterator)
+                scout_by_provenance[provenance]
+                if unit.pass_id == 0 else detailed_by_provenance[provenance]
             )
             merge = int(self.model.visual.spatial_merge_size)
             grid_height = int(grids[unit_index, 1].item()) // merge
@@ -877,7 +983,7 @@ class SemVIDGrounder:
         vision_config = self.model.config.vision_config
         pass_tflops = {
             "0": estimate_vision_transformer_tflops(
-                vision_config, scout_inputs["video_grid_thw"],
+                vision_config, scout_grids,
             ),
             "1": estimate_vision_transformer_tflops(vision_config, detailed_grids),
         }
@@ -915,7 +1021,7 @@ class SemVIDGrounder:
                         "retained_tokens": selection.retained_by_pass.get(0, 0),
                         "encoder_seconds": scout_encoder_seconds,
                         "raw_patch_tokens": int(
-                            scout_inputs["video_grid_thw"].prod(dim=-1).sum().item()
+                            scout_grids.prod(dim=-1).sum().item()
                         ),
                         "vision_transformer_core_tflops_estimate": pass_tflops["0"],
                     },

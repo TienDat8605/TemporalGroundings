@@ -16,6 +16,7 @@ from hybrid_vtg.semvid_bridge import (
     GroundingRequest,
     PreparedGroundingBatch,
     SemVIDGrounder,
+    _HMVEDecodedPass,
     _HMVEInputUnit,
 )
 from hybrid_vtg.types import Component, Sample
@@ -46,9 +47,9 @@ def test_projected_units_keep_absolute_source_timestamps():
 
 def test_vision_compute_estimate_accounts_for_each_observation_grid():
     config = SimpleNamespace(depth=2, hidden_size=4, intermediate_size=8)
-    grids = torch.tensor([[1, 2, 2], [1, 1, 2]])
-    tokens = 6
-    attention_pairs = 4**2 + 2**2
+    grids = torch.tensor([[2, 2, 2], [1, 1, 2]])
+    tokens = 10
+    attention_pairs = 2 * 4**2 + 2**2
     expected = 2 * (
         8 * tokens * 4**2 + 6 * tokens * 4 * 8 + 4 * attention_pairs * 4
     ) / 1e12
@@ -124,19 +125,21 @@ def test_phase_a_uses_two_encoder_calls_and_one_compact_generation(monkeypatch):
     class InnerModel:
         def __init__(self):
             self.encoder_calls = 0
+            self.encoder_temporal_grids = []
             self.rope_deltas = None
 
         def get_video_features(self, _pixels, grids, return_token_scores=False):
-            assert return_token_scores is True
+            assert return_token_scores is False
             self.encoder_calls += 1
-            vectors = (
-                [
+            self.encoder_temporal_grids.append(tuple(int(value) for value in grids[:, 0]))
+            vectors = [
+                torch.cat((
                     torch.tensor([[1.0, 0.0], [0.8, 0.2]]),
                     torch.tensor([[0.0, 1.0], [0.2, 0.8]]),
-                ]
-                if grids.shape[0] == 2
-                else [torch.tensor([[0.7, 0.7], [1.0, 0.0]])]
-            )
+                ), dim=0)
+            ] if int(grids[0, 0]) == 2 else [
+                torch.tensor([[0.7, 0.7], [1.0, 0.0]])
+            ]
             return tuple(vectors), None, None
 
         @staticmethod
@@ -193,19 +196,32 @@ def test_phase_a_uses_two_encoder_calls_and_one_compact_generation(monkeypatch):
     grounder._processor_lock = threading.Lock()
     scout_units = (unit(0, 1.0, 0), unit(0, 5.0, 1))
     detailed_units = [unit(1, 3.0)]
-    grounder._decode_hmve_corridors = lambda _request, _corridors: detailed_units
+    detailed_observation = unit(1, 3.0, 0)
+    grounder._decode_hmve_corridors = lambda _request, _corridors: _HMVEDecodedPass(
+        tuple(detailed_units), (detailed_observation,),
+    )
     final_ids = torch.tensor([[
         10, 12, 12, 11,
         10, 12, 12, 11,
         10, 12, 12, 11,
         15,
     ]])
-    grounder._process_hmve_units = lambda _sample, _units: {
-        "input_ids": final_ids,
-        "attention_mask": torch.ones_like(final_ids),
-        "video_grid_thw": torch.tensor([[1, 1, 2], [1, 1, 2], [1, 1, 2]]),
-        "pixel_values_videos": torch.zeros((6, 2)),
-    }
+    def process_units(_sample, units):
+        if len(units) == 1:
+            return {
+                "input_ids": torch.tensor([[15]]),
+                "attention_mask": torch.ones((1, 1), dtype=torch.long),
+                "video_grid_thw": torch.tensor([[1, 1, 2]]),
+                "pixel_values_videos": torch.zeros((2, 2)),
+            }
+        return {
+            "input_ids": final_ids,
+            "attention_mask": torch.ones_like(final_ids),
+            "video_grid_thw": torch.tensor([[1, 1, 2], [1, 1, 2], [1, 1, 2]]),
+            "pixel_values_videos": torch.zeros((6, 2)),
+        }
+
+    grounder._process_hmve_units = process_units
     sample = Sample("sample", "video.mp4", "/video.mp4", 10.0, "open drawer")
     request = GroundingRequest(sample, Component(0.0, 10.0, 1.0))
     prepared = PreparedGroundingBatch(
@@ -225,7 +241,7 @@ def test_phase_a_uses_two_encoder_calls_and_one_compact_generation(monkeypatch):
         "query_ids": torch.tensor([[15]]),
         "query_attention_mask": torch.ones((1, 1), dtype=torch.long),
         "pixel_values_videos": torch.zeros((4, 2)),
-        "video_grid_thw": torch.tensor([[1, 1, 2], [1, 1, 2]]),
+        "video_grid_thw": torch.tensor([[2, 1, 2]]),
     }
 
     _, compact_inputs, compact_length, _, _ = grounder._hmve_generate(
@@ -233,6 +249,7 @@ def test_phase_a_uses_two_encoder_calls_and_one_compact_generation(monkeypatch):
     )
 
     assert grounder.model.model.encoder_calls == 2
+    assert grounder.model.model.encoder_temporal_grids == [(2,), (1,)]
     assert grounder.model.generations == 1
     assert compact_length == 11
     assert compact_inputs["attention_mask"].sum().item() == 11

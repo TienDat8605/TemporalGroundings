@@ -88,9 +88,11 @@ def estimate_vision_transformer_tflops(vision_config: Any, grid_thw: torch.Tenso
     depth = int(vision_config.depth)
     hidden = int(vision_config.hidden_size)
     intermediate = int(vision_config.intermediate_size)
-    tokens = grid_thw.long().prod(dim=-1)
+    grids = grid_thw.long()
+    tokens = grids.prod(dim=-1)
     token_count = int(tokens.sum().item())
-    attention_pairs = int((tokens * tokens).sum().item())
+    spatial_tokens = grids[:, 1] * grids[:, 2]
+    attention_pairs = int((grids[:, 0] * spatial_tokens * spatial_tokens).sum().item())
     projection_and_mlp = 8 * token_count * hidden**2 + 6 * token_count * hidden * intermediate
     attention = 4 * attention_pairs * hidden
     return depth * (projection_and_mlp + attention) / 1e12
