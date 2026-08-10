@@ -6,6 +6,7 @@ readonly DATASET_REVISION="3518d8e8c2c7c1ceec4b242afc07162bbafa33d8"
 readonly DATASET_PAGE="https://huggingface.co/datasets/yeliudev/VideoMind-Dataset/tree/main/tacos"
 readonly ARCHIVE_NAME="videos_3fps_480_noaudio.tar.gz"
 readonly EXPECTED_VIDEOS=127
+readonly EXPECTED_ARCHIVE_VIDEOS=273
 readonly -a SPLITS=(train val test)
 readonly -a EXPECTED_QUERIES=(9790 4436 4001)
 readonly -a ANNOTATION_SHA256=(
@@ -46,7 +47,7 @@ while (($#)); do
   esac
 done
 
-for command_name in hf tar jq sha256sum find sort comm ffprobe awk wc cp mv mkdir date rm; do
+for command_name in hf tar jq sha256sum find sort comm ffprobe awk wc cp mv mkdir mktemp rmdir date rm; do
   require_command "$command_name"
 done
 
@@ -55,6 +56,13 @@ video_dir="${data_root}/videos"
 download_dir="${data_root}/.downloads"
 manifest_dir="${data_root}/manifests"
 archive_path="${download_dir}/tacos/${ARCHIVE_NAME}"
+extract_dir=""
+cleanup_extract() {
+  if [[ -n "$extract_dir" && -d "$extract_dir" ]]; then
+    rm -rf -- "$extract_dir"
+  fi
+}
+trap cleanup_extract EXIT
 mkdir -p "$annotation_dir" "$video_dir" "$download_dir" "$manifest_dir"
 
 echo "[source] ${DATASET_PAGE}"
@@ -91,6 +99,9 @@ sort -u -o "$expected_ids" "$expected_ids"
 find "$video_dir" -type f -iname '*.mp4' -printf '%f\n' \
   | awk '{sub(/[.][^.]+$/, ""); print}' | sort -u > "$available_ids"
 if [[ "$(comm -12 "$expected_ids" "$available_ids" | wc -l)" -ne "$EXPECTED_VIDEOS" ]]; then
+  if [[ -n "$(find "$video_dir" -type f -print -quit)" ]]; then
+    die "video directory is partial or uses unnormalized names; remove ${video_dir} before retrying"
+  fi
   hf download "$DATASET_REPO" "tacos/${ARCHIVE_NAME}" \
     --repo-type dataset --revision "$DATASET_REVISION" --local-dir "$download_dir"
   tar -tzf "$archive_path" > "${manifest_dir}/archive_members.txt"
@@ -98,8 +109,36 @@ if [[ "$(comm -12 "$expected_ids" "$available_ids" | wc -l)" -ne "$EXPECTED_VIDE
     "${manifest_dir}/archive_members.txt"; then
     die "unsafe path in TACoS archive"
   fi
-  echo "[extract] compressed videos into ${video_dir}"
-  tar -xzf "$archive_path" --strip-components=1 -C "$video_dir"
+  extract_dir="$(mktemp -d "${data_root}/.tacos-extract.XXXXXX")"
+  echo "[extract] compressed archive into temporary staging"
+  tar -xzf "$archive_path" -C "$extract_dir"
+  archive_video_dir="${extract_dir}/videos_3fps_480_noaudio"
+  [[ -d "$archive_video_dir" ]] || die "archive is missing videos_3fps_480_noaudio/"
+  archive_video_count="$(find "$archive_video_dir" -maxdepth 1 -type f -iname '*.mp4' | wc -l)"
+  [[ "$archive_video_count" -eq "$EXPECTED_ARCHIVE_VIDEOS" ]] || \
+    die "expected ${EXPECTED_ARCHIVE_VIDEOS} archive videos, found ${archive_video_count}"
+
+  selected_video_dir="${extract_dir}/selected"
+  mkdir "$selected_video_dir"
+  missing_archive_ids="${manifest_dir}/missing_archive_video_ids.txt"
+  : > "$missing_archive_ids"
+  while IFS= read -r video_id; do
+    source_video="${archive_video_dir}/${video_id}-cam-002.mp4"
+    if [[ ! -f "$source_video" ]]; then
+      echo "$video_id" >> "$missing_archive_ids"
+    fi
+  done < "$expected_ids"
+  [[ ! -s "$missing_archive_ids" ]] || \
+    die "archive is missing referenced videos; see ${missing_archive_ids}"
+
+  while IFS= read -r video_id; do
+    mv "${archive_video_dir}/${video_id}-cam-002.mp4" "${selected_video_dir}/${video_id}.mp4"
+  done < "$expected_ids"
+  rmdir "$video_dir"
+  mv "$selected_video_dir" "$video_dir"
+  echo "[extract] selected and normalized ${EXPECTED_VIDEOS} videos into ${video_dir}"
+  cleanup_extract
+  extract_dir=""
 fi
 
 find "$video_dir" -type f -iname '*.mp4' -printf '%f\n' \
