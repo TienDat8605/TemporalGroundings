@@ -8,7 +8,7 @@ The files under `src/hybrid_vtg/models/univtg/vendor/` are trimmed from the offi
 
 ## TimeLens2
 
-The `coarse-to-fine-64` method is a clean reimplementation of the `embedding-window-local` evaluation design in TimeLens2. No TimeLens2 source tree is required at runtime. The optional `MCG-NJU/TimeLens2-4B` checkpoint remains subject to the TimeLens license, which restricts use to academic purposes and states that TimeLens is not intended for use within the European Union. See `LICENSES/TimeLens2.txt` and <https://github.com/MCG-NJU/TimeLens2>.
+The `coarse-to-fine-64` method is a clean reimplementation of the `embedding-window-local` evaluation design in TimeLens2. No TimeLens2 source tree is required at runtime. The official `MCG-NJU/TimeLens2-4B` checkpoint and current TimeLens2 repository declare Apache License 2.0. The older Tencent TimeLens license retained in `LICENSES/TimeLens-v1.txt` applies to the historical TimeLens project, not the downloaded TimeLens2-4B checkpoint. See <https://github.com/MCG-NJU/TimeLens2> and <https://huggingface.co/MCG-NJU/TimeLens2-4B>.
 
 ## SemVID
 
@@ -16,4 +16,4 @@ No SemVID source code, selector, model subclass, prompt template, or runtime dep
 
 ## Models and data
 
-Qwen, CLIP, PyTorchVideo pretrained weights, UniVTG checkpoints, TimeLens2 checkpoints, OMTG, TACoS, and QVHighlights are downloaded separately. Their licenses and dataset/source-video terms apply independently.
+The optional downloader retrieves, but does not redistribute, upstream assets. Qwen, CLIP, PyTorchVideo pretrained weights, UniVTG checkpoints, TimeLens2 checkpoints, OMTG, TACoS, and QVHighlights retain their independent licenses and dataset/source-video terms. TACoS video data is limited to scientific use by MPII and may not be republished; QVHighlights annotations are CC BY-NC-SA 4.0.

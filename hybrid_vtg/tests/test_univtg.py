@@ -4,7 +4,7 @@ import numpy as np
 import torch
 
 from hybrid_vtg.contracts import Sample
-from hybrid_vtg.models.univtg import UniVTGBackend
+from hybrid_vtg.models.univtg import UniVTGBackend, _checkpoint_path
 from hybrid_vtg.models.univtg.features import UniVTGFeatures
 from hybrid_vtg.models.univtg.vendor.network import NetworkSpec, UniVTGNetwork
 
@@ -26,6 +26,13 @@ def test_checkpoint_shape_driven_loader_supports_clip_pretraining_family(tmp_pat
     assert backend.feature_stack == "clip-b32"
     assert backend.maximum_evidence_units == 75
     assert not backend._network.training
+
+
+def test_downloaded_univtg_checkpoint_directory_resolves_single_file(tmp_path: Path):
+    checkpoint = tmp_path / "download" / "nested" / "model_best.ckpt"
+    checkpoint.parent.mkdir(parents=True)
+    checkpoint.touch()
+    assert _checkpoint_path(str(tmp_path / "download")) == checkpoint
 
 
 def test_univtg_network_accepts_sparse_absolute_positions():

@@ -20,6 +20,7 @@ dependencies = [
 
 [project.optional-dependencies]
 test = ["pytest>=8", "ruff>=0.9"]
+downloads = ["gdown>=5.2", "huggingface-hub>=0.30"]
 univtg-video = ["pytorchvideo>=0.1.5"]
 
 [project.scripts]

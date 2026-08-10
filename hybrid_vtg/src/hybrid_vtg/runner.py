@@ -11,7 +11,7 @@ from .contracts import Prediction, Sample
 from .io import append_jsonl, ensure_manifest, git_revision, read_jsonl, write_json
 from .registry import BENCHMARKS, METHODS, MODELS, load_builtin_plugins
 from .results import refresh_results_index, run_directory
-from .sampling import SAMPLER_SCHEMA, SUPPORTED_PERCENTAGES, ordered_samples, subset_samples
+from .sampling import SAMPLER_SCHEMA, ordered_samples, percentage_key, subset_samples, validate_percentage
 
 SCHEMA_VERSION = 1
 
@@ -58,14 +58,13 @@ def run_benchmark(
     data: Path,
     model_name: str,
     method_name: str,
-    percentage: int,
+    percentage: float,
     seed: int,
     checkpoint: str | None = None,
     model_spec: str | None = None,
     feature_roots: tuple[Path, ...] = (),
 ) -> dict[str, Any]:
-    if percentage not in SUPPORTED_PERCENTAGES:
-        raise ValueError(f"percentage must be one of {SUPPORTED_PERCENTAGES}")
+    percentage = validate_percentage(percentage)
     load_builtin_plugins()
     benchmark = BENCHMARKS.create(benchmark_name)
     samples = benchmark.load_test(data.resolve())
@@ -135,7 +134,8 @@ def run_benchmark(
         "failed": sum(sample.id not in successful_ids for sample in selected),
         "metrics": metrics,
     }
-    write_json(run_dir / "metrics" / f"p{percentage:03d}.json", summary)
+    metrics_name = f"{percentage_key(percentage)}.json"
+    write_json(run_dir / "metrics" / metrics_name, summary)
     if percentage == 100:
         submission = benchmark.export_submission(
             values,
@@ -143,6 +143,6 @@ def run_benchmark(
         )
         if submission is not None:
             summary["submission"] = str(submission)
-            write_json(run_dir / "metrics" / "p100.json", summary)
+            write_json(run_dir / "metrics" / metrics_name, summary)
     refresh_results_index(results_root)
     return summary

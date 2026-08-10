@@ -25,6 +25,20 @@ FEATURE_STACKS = {
 }
 
 
+def _checkpoint_path(value: str) -> Path:
+    path = Path(value).expanduser().resolve()
+    if path.is_dir():
+        candidates = sorted(path.rglob("*.ckpt"))
+        if len(candidates) != 1:
+            raise ValueError(
+                f"UniVTG checkpoint directory must contain exactly one .ckpt file; found {len(candidates)}"
+            )
+        return candidates[0]
+    if not path.is_file():
+        raise FileNotFoundError(path)
+    return path
+
+
 def _infer_network_spec(state: dict[str, Any], maximum_video_length: int = 75) -> NetworkSpec:
     video_dim = int(state["input_vid_proj.0.LayerNorm.weight"].numel())
     text_dim = int(state["input_txt_proj.0.LayerNorm.weight"].numel())
@@ -55,9 +69,7 @@ class UniVTGBackend(ModelBackend):
     ) -> None:
         if not checkpoint:
             raise ValueError("--checkpoint is required for UniVTG")
-        self.checkpoint = Path(checkpoint).expanduser().resolve()
-        if not self.checkpoint.is_file():
-            raise FileNotFoundError(self.checkpoint)
+        self.checkpoint = _checkpoint_path(checkpoint)
         self.cache_dir = cache_dir
         self._requested_feature_stack = model_spec
         self._feature_roots = feature_roots

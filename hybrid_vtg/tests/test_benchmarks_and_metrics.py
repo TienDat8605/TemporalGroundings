@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+from hybrid_vtg.benchmarks.common import video_index
 from hybrid_vtg.benchmarks.qvhighlights import QVHighlightsBenchmark
 from hybrid_vtg.benchmarks.tacos import TACoSBenchmark
 from hybrid_vtg.io import read_jsonl
@@ -27,6 +28,13 @@ def test_tacos_loads_only_test(tmp_path: Path):
     values = TACoSBenchmark().load_test(tmp_path)
     assert len(values) == 1
     assert values[0].targets == ((2.0, 5.0), (7.0, 9.0))
+
+
+def test_tacos_raw_mpii_camera_name_is_indexed_by_video_id(tmp_path: Path):
+    video = tmp_path / "videos" / "s07-d72-cam-002.avi"
+    video.parent.mkdir()
+    video.touch()
+    assert video_index(tmp_path)["s07-d72"] == video
 
 
 def test_qvhighlights_submission_contains_only_moment_retrieval(tmp_path: Path):

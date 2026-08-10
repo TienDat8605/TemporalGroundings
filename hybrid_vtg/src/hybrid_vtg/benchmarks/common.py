@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 VIDEO_SUFFIXES = (".mp4", ".mkv", ".webm", ".avi")
+_TACOS_CAMERA = re.compile(r"^(s\d+-d\d+)-cam-\d+$", re.I)
 
 
 def first_file(root: Path, candidates: tuple[str, ...]) -> Path:
@@ -30,6 +32,8 @@ def video_index(root: Path) -> dict[str, Path]:
         for suffix in VIDEO_SUFFIXES:
             for path in directory.rglob(f"*{suffix}"):
                 output.setdefault(path.stem, path)
+                if match := _TACOS_CAMERA.match(path.stem):
+                    output.setdefault(match.group(1), path)
     if not output:
         raise FileNotFoundError(f"no videos found under {root}")
     return output

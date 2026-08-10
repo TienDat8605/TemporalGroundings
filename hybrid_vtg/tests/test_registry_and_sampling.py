@@ -5,7 +5,7 @@ import torch
 
 from hybrid_vtg.contracts import Sample, TemporalEvidence
 from hybrid_vtg.registry import BENCHMARKS, METHODS, MODELS, Registry, load_builtin_plugins
-from hybrid_vtg.sampling import subset_samples
+from hybrid_vtg.sampling import percentage_key, subset_samples
 
 
 def sample(index: int) -> Sample:
@@ -36,6 +36,18 @@ def test_seeded_query_subsets_are_reproducible_and_nested():
     assert len(twenty) == 5
     assert [value.id for value in ten] == [value.id for value in twenty[:3]]
     assert [value.id for value in twenty] != [value.id for value in subset_samples(values, 20, 43)]
+
+
+def test_any_percentage_from_zero_through_one_hundred_is_supported():
+    values = [sample(index) for index in range(23)]
+    assert subset_samples(values, 0, 42) == []
+    assert len(subset_samples(values, 12.5, 42)) == 3
+    assert len(subset_samples(values, 37, 42)) == 9
+    assert len(subset_samples(values, 100, 42)) == 23
+    assert percentage_key(12.5) == "p012.5"
+    assert percentage_key(100) == "p100"
+    with pytest.raises(ValueError, match="between 0 and 100"):
+        subset_samples(values, 100.1, 42)
 
 
 def test_temporal_evidence_selection_and_merge_keep_timestamps():

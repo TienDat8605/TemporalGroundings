@@ -6,6 +6,7 @@ __pycache__/
 .venv/
 .cache/
 data/
+assets/
 results/cache/
 results/runs/
 results/submissions/

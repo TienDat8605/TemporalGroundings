@@ -14,7 +14,7 @@ TPSA-query means **query-aware evidence selection after the video encoder**. It 
 
 ### `hmve`
 
-HMVE means **hierarchical multi-view evidence**. A low-rate full-video scout first preserves global coverage and proposes up to four query-relevant temporal corridors. Those corridors are encoded in more detail. Scout and detail evidence are then merged by absolute timestamp, near-duplicates are removed, one scout anchor per temporal location is protected, and the compact pack is used for one final prediction. HMVE changes what the model observes; it is not another TPSA scoring variant.
+HMVE means **hierarchical multi-view evidence**. It makes exactly three visual observation passes: a 0.5 FPS full-video scout, 1 FPS query-relevant corridor refinement, and the densest 2 FPS observation around relevance rises and falls that may indicate event boundaries. Each pass is batched into one encoder call. Evidence from all three passes is merged by absolute timestamp, near-duplicates are removed, one real scout anchor per temporal location is protected, and the compact pack is used for exactly one final prediction. Spatial crops and in-encoder pruning remain future extensions.
 
 ## SemVID relationship
 
@@ -27,7 +27,7 @@ From this directory:
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -e '.[test]'
+pip install -e '.[downloads,test]'
 ```
 
 Raw SlowFast extraction for a SlowFast + CLIP UniVTG checkpoint is optional:
@@ -37,6 +37,57 @@ pip install -e '.[univtg-video]'
 ```
 
 CUDA is strongly recommended for the 4B generative models. Model weights are downloaded by Transformers unless `--checkpoint` names a local directory.
+
+## Download datasets and checkpoints
+
+One command downloads the three benchmarks, TimeLens2-4B, and the official
+UniVTG CLIP-B/32 4M pretraining checkpoint:
+
+```bash
+hybrid-vtg download --root ./assets --accept-licenses
+```
+
+The equivalent repository script is:
+
+```bash
+python scripts/download_assets.py --root ./assets --accept-licenses
+```
+
+To download only selected assets, name them explicitly:
+
+```bash
+hybrid-vtg download omtg qvhighlights timelens2-4b --root ./assets --accept-licenses
+```
+
+Valid targets are `omtg`, `tacos`, `qvhighlights`, `timelens2-4b`, and
+`univtg`. With no targets, all five are downloaded. The layout is:
+
+```text
+assets/
+├── manifest.json
+├── datasets/
+│   ├── omtg/             OMTGBench.tsv + videos/
+│   ├── tacos/            annotations/test.jsonl + videos/
+│   └── qvhighlights/     annotations/highlight_test_release.jsonl + videos/
+└── checkpoints/
+    ├── timelens2-4b/
+    └── univtg-pretrained-clip-b32-4m/
+```
+
+HTTP downloads resume from `.part` files. Source archives are removed only
+after successful extraction to avoid retaining duplicate copies. Every
+completed target contains `.complete.json`; the UniVTG marker lists the exact
+downloaded `.ckpt` path to pass to `--checkpoint`.
+
+`--accept-licenses` confirms that you reviewed the upstream terms. In
+particular, TACoS uses the official MPII Cooking 2 videos, which are restricted
+to scientific use and may not be republished. QVHighlights annotations use
+CC BY-NC-SA 4.0. The script does not mirror or redistribute any dataset.
+Sources are the [OMTG Bench release](https://huggingface.co/datasets/insomnia7/omtg_bench),
+[QVHighlights/Moment-DETR](https://github.com/jayleicn/moment_detr),
+[TACoS and MPII Cooking 2](https://www.mpi-inf.mpg.de/departments/computer-vision-and-machine-learning/research/vision-and-language/tacos-multi-level-corpus),
+[TimeLens2](https://huggingface.co/MCG-NJU/TimeLens2-4B), and
+[UniVTG](https://github.com/showlab/UniVTG).
 
 ## One run interface
 
@@ -50,7 +101,7 @@ hybrid-vtg run \
   --seed 42
 ```
 
-The only subset choices are `10`, `20`, and `100`. Sampling is over queries, not videos: IDs are sorted, shuffled with the supplied seed, then the first `ceil(N × percentage / 100)` queries are used. Therefore 10% is a prefix of 20%, and 20% is a prefix of 100% for the same dataset and seed. Re-running a larger percentage resumes the existing run by sample ID.
+`--subset` accepts any percentage from `0` through `100`, including decimals such as `12.5`. Sampling is over queries, not videos: IDs are sorted, shuffled with the supplied seed, then the first `ceil(N × percentage / 100)` queries are used. For the same dataset and seed, every smaller percentage is a prefix of every larger percentage. Re-running a larger percentage resumes the existing run by sample ID. A 0% run validates the dataset and writes empty metrics without loading a model.
 
 ### Benchmarks
 
@@ -69,12 +120,16 @@ Video files are discovered recursively by stem. OMTG is evaluated as multi-inter
 | CLI name | Default checkpoint | Notes |
 |---|---|---|
 | `qwen3-vl-4b` | `Qwen/Qwen3-VL-4B-Instruct` | Direct Transformers adapter; no SemVID checkout |
-| `timelens2-4b` | `MCG-NJU/TimeLens2-4B` | Uses the same evidence interface; see its restrictive research license |
-| `univtg` | none | Pass an official moment-retrieval checkpoint with `--checkpoint` |
+| `timelens2-4b` | `MCG-NJU/TimeLens2-4B` | Official Apache-2.0 checkpoint; local downloader path is `assets/checkpoints/timelens2-4b` |
+| `univtg` | none | Pass a `.ckpt` file or a directory containing exactly one `.ckpt`; the downloader directory works directly |
 
 UniVTG checkpoint shapes configure the inference network, so pretraining-only, omnibus, and downstream moment-retrieval checkpoints are accepted when their feature stack is supported. Choose `--model-spec clip-b16`, `clip-b32`, or `slowfast-clip-b32` if checkpoint metadata is missing.
 
 Raw extraction and the repository cache work without extra arguments. To use official `.npz` features, pass one directory per feature stream; files must be named `<video-id>.npz` with a `features` array. Streams are concatenated in argument order:
+
+The downloaded pretraining-only UniVTG checkpoint can be passed directly as
+`--checkpoint assets/checkpoints/univtg-pretrained-clip-b32-4m` with
+`--model-spec clip-b32`.
 
 ```bash
 hybrid-vtg run \
@@ -104,7 +159,7 @@ results/
 │   ├── predictions.jsonl      append-only successful predictions
 │   ├── errors.jsonl           per-query failures
 │   ├── cache/                 method-local intermediates
-│   └── metrics/p010|p020|p100.json
+│   └── metrics/p<percentage>.json
 ├── submissions/<benchmark>/<model>/<method>/seed-<seed>.jsonl
 └── legacy/                    curated pre-refactor evidence
 ```

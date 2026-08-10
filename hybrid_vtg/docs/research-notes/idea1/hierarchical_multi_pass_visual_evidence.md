@@ -1,9 +1,11 @@
 # Hierarchical Multi-Pass Visual Evidence Accumulation
 
-- **Status:** Phase A implemented in `hybrid_vtg`; Phases B--D remain proposals
+- **Status:** Three-pass temporal controller implemented in `hybrid_vtg`;
+  spatial zoom, in-encoder pruning, and adaptive stopping remain proposals
 - **Working name:** HMVE (Hierarchical Multi-Pass Visual Encoder)
 - **Primary benchmark:** OMTG Bench at 12.5% final visual-token retention
-**Model contract:** frozen Qwen3-VL vision encoder and frozen LLM; training-free
+- **Model contract:** frozen Qwen3-VL vision encoder and frozen LLM;
+  training-free
 
 ## 1. Core idea
 
@@ -12,32 +14,32 @@ afterward, run the frozen vision encoder several times as a coarse-to-fine
 observer:
 
 1. scan the complete timeline cheaply;
-2. identify query-relevant temporal corridors and spatial regions;
-3. revisit those regions at higher temporal and spatial detail;
+2. identify query-relevant temporal corridors;
+3. revisit those corridors at higher temporal detail;
 4. refine likely event boundaries with the finest pass;
 5. accumulate the useful visual evidence from every pass; and
 6. give the final evidence pack to the LLM in exactly one generation.
 
-The method prunes **temporally between passes**, **spatially between passes**,
-and, in a later version, **inside the vision encoder**. It does not discard all
-coarse evidence after zooming in: a small set of global timeline anchors is
-retained so the LLM can interpret the detailed evidence in the context of the
-whole video.
+The implemented method prunes **temporally between passes**. Spatial pruning
+between passes and pruning **inside the vision encoder** are later extensions.
+It does not discard all coarse evidence after zooming in: a small set of global
+timeline anchors is retained so the LLM can interpret the detailed evidence in
+the context of the whole video.
 
 ```text
 query + full video
         |
         v
 Pass 0: cheap global scan -----------------------------------+
-  low FPS, low resolution, full timeline                    |
+  0.5 FPS, full-frame, full timeline                        |
         | relevance / novelty / uncertainty                  |
         v                                                    |
 Pass 1: candidate refinement --------------------------+     |
-  medium FPS, temporal corridors, spatial ROIs         |     |
+  1 FPS, temporal corridors, full-frame                |     |
         | content and boundary evidence                 |     |
         v                                               |     |
 Pass 2: fine boundary observation ----------------+     |     |
-  high FPS near starts/ends, tight spatial crops   |     |     |
+  2 FPS near relevance rises/falls, full-frame     |     |     |
         |                                          |     |     |
         +----------------------+-------------------+-----+-----+
                                v
@@ -73,21 +75,20 @@ at full temporal and spatial detail in the first place.
 ## 3. Three-pass observation policy
 
 The values below are initial experimental defaults, not learned parameters.
-All selection uses deterministic within-video percentile ranks so no benchmark
-labels are needed for fitting.
+Selection is deterministic and uses no benchmark labels for fitting.
 
 ### Pass 0: global scout
 
 Purpose: maximize recall over the entire timeline at low cost.
 
-- Decode the complete video at low FPS and low resolution.
-- Run the frozen patch embedder and a shallow or reduced-resolution vision
-  pass.
+- Decode the complete video at 0.5 FPS using the shared full-frame decoder.
+- Run one complete frozen vision-encoder call over the batched scout frames.
 - Preserve at least one real global anchor for every sampled temporal unit.
-- Score temporal units using query similarity, visual novelty, and uncertainty.
+- Score temporal units using the backend's training-free query similarity.
 - Produce several temporal corridors rather than one winning interval, because
   OMTG queries can have multiple disjoint occurrences.
-- Keep a small uniform exploration reserve outside the selected corridors.
+- Keep one actual scout token per sampled temporal unit in the final pack as
+  the uniform exploration reserve.
 
 The scout is allowed to be imprecise. Its job is to avoid false negatives and
 decide where the next observation should spend pixels and encoder FLOPs.
@@ -96,34 +97,36 @@ decide where the next observation should spend pixels and encoder FLOPs.
 
 Purpose: recognize the event and localize the relevant actors or objects.
 
-- Expand every candidate corridor with a temporal safety margin.
-- Decode those corridors at medium FPS and resolution.
-- Use Pass-0 patch evidence to propose spatial regions of interest (ROIs).
-- Encode selected ROIs plus a low-resolution full-frame context view.
-- Recompute query relevance and feature-native state change.
+- Expand every candidate into a 16-second corridor.
+- Decode the union of those corridors at 1 FPS.
+- Encode all full-frame corridor observations in one chronological batch and
+  one vision-encoder call.
+- Recompute query relevance from the medium-detail evidence.
 - Retain multiple disjoint corridors when their evidence remains competitive.
 
-Full-frame context prevents an ROI crop from losing relations such as “person
-enters the room” or “object moves from the table to the sink.”
+Spatial ROIs are intentionally deferred. Full-frame context avoids losing
+relations such as “person enters the room” or “object moves from the table to
+the sink.”
 
 ### Pass 2: boundary refinement
 
 Purpose: resolve the start and end of each surviving occurrence.
 
-- Build short windows around directional start-rise and end-fall evidence.
-- Decode these windows at high FPS.
-- Use tighter spatial crops while retaining occasional context frames.
-- Prefer tokens that distinguish the state immediately before, during, and
-  immediately after the queried event.
-- Stop after a fixed number of bands or when the remaining observation budget
-  is exhausted.
+- For every corridor, locate the largest query-relevance rise and fall in the
+  Pass-1 temporal score sequence.
+- Build a two-second halo on each side of those locations.
+- Decode the union of all boundary bands at 2 FPS, the densest rate used by
+  HMVE.
+- Encode all full-frame boundary observations in one chronological batch and
+  one vision-encoder call.
 
 This pass supplies visual evidence, not an intermediate timestamp prediction.
 The final LLM still decides the interval set.
 
 ## 4. Evidence accumulator
 
-Every retained token or merge cell carries provenance:
+The current accumulator records per-pass frame counts and evidence blocks plus
+one absolute timestamp per visual unit. The complete planned provenance is:
 
 ```text
 (absolute_time, spatial_box, source_resolution, pass_id,
@@ -151,9 +154,9 @@ The accumulator must not simply concatenate all passes. It applies four rules:
 4. **Enforce one final budget.** The LLM receives exactly the declared number
    of visual tokens, independent of how many encoder passes were made.
 
-The final evidence pack is sorted by absolute time and then spatial position.
-It preserves absolute temporal coordinates through multimodal RoPE rather than
-renumbering selected corridors as if they were adjacent in the original video.
+The final evidence pack is sorted by absolute time. Qwen compact prefill keeps
+explicit position IDs, while timestamp labels preserve the original absolute
+seconds instead of treating selected corridors as adjacent video.
 
 ## 5. Training-free controller
 
@@ -173,7 +176,9 @@ visual_tokens = SelectExactBudget(evidence, final_token_budget)
 intervals = GenerateOnce(visual_tokens, query)
 ```
 
-Selection signals are the same kind of label-free evidence used by TPSA:
+The implemented selection signal is the same label-free query similarity used
+by TPSA. Appearance residuals, motion, uncertainty, and dedicated directional
+boundary features remain planned extensions:
 
 - maximum patch-to-query cosine similarity;
 - feature-native appearance and local-motion residuals;
@@ -251,17 +256,18 @@ most of the video.
 
 ## 9. Incremental implementation plan
 
-### Phase A: multi-pass prototype
+### Phase A: three-pass temporal prototype — implemented
 
 - Reuse the existing video decoder and frozen Qwen vision encoder.
-- Implement Pass 0 at low FPS/resolution and Pass 1 on temporal corridors.
+- Implement Pass 0 at low FPS, Pass 1 on temporal corridors, and Pass 2 around
+  relevance-rise and relevance-fall boundary evidence.
 - Keep full-frame views; defer spatial crops and mid-encoder pruning.
 - Accumulate projected encoder outputs with absolute timestamps.
 - Pack an exact 12.5% token budget and call the LLM once.
 
 This phase answers the central question with the smallest architectural change:
-does accumulated coarse-to-fine visual evidence outperform one-pass TPSA at
-the same final LLM token count?
+does three-pass accumulated coarse-to-fine visual evidence outperform one-pass
+TPSA at the same final LLM token count?
 
 ### Phase B: spatial zoom
 

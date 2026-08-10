@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import argparse
 import json
+from collections.abc import Sequence
 from pathlib import Path
 
+from .downloads import TARGETS, download_assets
 from .registry import BENCHMARKS, METHODS, MODELS, load_builtin_plugins
 from .runner import run_benchmark
-from .sampling import SUPPORTED_PERCENTAGES
 
 
 def parser() -> argparse.ArgumentParser:
@@ -20,7 +21,12 @@ def parser() -> argparse.ArgumentParser:
     run.add_argument("--data", type=Path, required=True)
     run.add_argument("--model", choices=MODELS.names(), required=True)
     run.add_argument("--method", choices=METHODS.names(), required=True)
-    run.add_argument("--subset", type=int, choices=SUPPORTED_PERCENTAGES, required=True)
+    run.add_argument(
+        "--subset",
+        type=float,
+        required=True,
+        help="seeded query percentage from 0 through 100; decimals are accepted",
+    )
     run.add_argument("--seed", type=int, required=True)
     run.add_argument("--checkpoint", help="optional override; required for UniVTG")
     run.add_argument(
@@ -35,11 +41,28 @@ def parser() -> argparse.ArgumentParser:
         default=[],
         help="UniVTG directory containing <video-id>.npz; repeat to concatenate feature streams",
     )
+    download = commands.add_parser("download", help="download datasets and checkpoints into one assets tree")
+    download.add_argument(
+        "targets",
+        nargs="*",
+        choices=TARGETS,
+        help="assets to download; omit to download all datasets and checkpoints",
+    )
+    download.add_argument("--root", type=Path, default=Path("assets"), help="destination assets directory")
+    download.add_argument(
+        "--accept-licenses",
+        action="store_true",
+        help="confirm that you reviewed and accept every selected upstream license and dataset term",
+    )
     return root
 
 
-def main() -> int:
-    args = parser().parse_args()
+def main(argv: Sequence[str] | None = None) -> int:
+    args = parser().parse_args(argv)
+    if args.command == "download":
+        result = download_assets(args.root, args.targets, accept_licenses=args.accept_licenses)
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
     result = run_benchmark(
         benchmark_name=args.benchmark,
         data=args.data,
