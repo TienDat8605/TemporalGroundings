@@ -1,0 +1,58 @@
+{
+  "allocator_constants": {
+    "boundary_expansion_seconds": 1.0,
+    "boundary_nms_seconds": 4.0,
+    "boundary_quota_fraction": 0.1,
+    "boundary_window_seconds": 1.0,
+    "maximum_boundary_bands": 4,
+    "mmr_lambda": 0.9,
+    "motion_bonus_fraction": 0.1,
+    "motion_neighborhood_radius": 2,
+    "query_core_fraction": 0.8,
+    "relevance_top_fraction": 0.1,
+    "retention_ratio": 0.125,
+    "spatial_policy": "tpsa_query"
+  },
+  "benchmark": "tacos",
+  "config": {
+    "grounder": {
+      "attention": "sdpa",
+      "batch_size": 1,
+      "capture_validation_logits": false,
+      "dtype": "auto",
+      "force_stop_thinking": true,
+      "fps": 2.0,
+      "max_frames": 768,
+      "max_new_tokens": 512,
+      "minimum_pixel_tokens": 16,
+      "model": "Qwen/Qwen3-VL-4B-Thinking",
+      "pairing_lookahead": 16,
+      "pinned_memory_limit_bytes": 4294967296,
+      "prefetch_depth": 0,
+      "preprocess_workers": 0,
+      "total_pixel_tokens": 16384
+    },
+    "spatial_allocator": {
+      "boundary_expansion_seconds": 1.0,
+      "boundary_nms_seconds": 4.0,
+      "boundary_quota_fraction": 0.1,
+      "boundary_window_seconds": 1.0,
+      "maximum_boundary_bands": 4,
+      "mmr_lambda": 0.9,
+      "motion_bonus_fraction": 0.1,
+      "motion_neighborhood_radius": 2,
+      "query_core_fraction": 0.8,
+      "relevance_top_fraction": 0.1,
+      "retention_ratio": 0.125,
+      "spatial_policy": "tpsa_query"
+    }
+  },
+  "data": "/workspace/datasets/TACoS-compressed",
+  "hybrid_vtg_revision": "686be2cfea8374d26e51d8bad903523315bbac4d",
+  "project_revision": "686be2cfea8374d26e51d8bad903523315bbac4d",
+  "schema": 5,
+  "semvid_revision": "432a76928817cdfba7d04c460ac475482cd7c3a4",
+  "semvid_root": "/workspace/TemporalGroundings/SemVID",
+  "spatial_policy": "tpsa_query",
+  "split": "test"
+}

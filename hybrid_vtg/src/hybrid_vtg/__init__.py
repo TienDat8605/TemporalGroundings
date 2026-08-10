@@ -1,6 +1,6 @@
-"""Training-free hierarchical video temporal grounding."""
+"""Extensible, training-free video temporal grounding benchmarks."""
 
-from .types import Component, GroundingPrediction, Sample
+from .contracts import Benchmark, Method, ModelBackend, Prediction, Sample, ScoredSpan
 
-__all__ = ["Component", "GroundingPrediction", "Sample"]
-__version__ = "0.1.0"
+__all__ = ["Benchmark", "Method", "ModelBackend", "Prediction", "Sample", "ScoredSpan"]
+__version__ = "0.2.0"

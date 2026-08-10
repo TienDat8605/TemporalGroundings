@@ -1,174 +1,132 @@
-# TPSA: timeline-preserving spatial allocation
+# Hybrid VTG
 
-This package benchmarks a frozen Qwen3-VL grounder with one continuous full video and one generation per query. TPSA retains at least one real visual token from every post-encoder temporal tubelet and distributes the remaining exact token budget using query relevance, feature-native transitions, and directional boundary evidence.
+Hybrid VTG is a small, training-free benchmark runner for video temporal grounding. One command selects exactly one method, one frozen model backend, and one official test split. The package intentionally keeps only three experimental methods.
 
-## Implementation status
+## Core ideas
 
-TPSA currently prunes **after** the frozen Qwen vision encoder. All sampled frames and spatial patches still pass through every vision-transformer block.
+### `coarse-to-fine-64`
 
-| Stage | TPSA | HMVE Phase A |
-| --- | --- | --- |
-| Observation selection | One full-resolution pass | Low-resolution full-timeline scout, then one full-frame corridor pass |
-| Within the vision encoder | No pruning | No pruning; spatial crops and mid-encoder pruning are deferred |
-| Before LLM prefill | Exact post-encoder selection | Cross-pass deduplication and exact evidence packing |
-| LLM generations | One | One |
+This is the fixed-budget strategy reconstructed from the TimeLens2 `embedding-window-local` experiment. Content changes divide a long video into 20–60 second windows; a Qwen3-VL embedding model ranks those windows against the query; the chosen windows are grounded locally and mapped back to global time. Router frames plus grounder frames never exceed **64**. A short one-window video bypasses routing and gives all 64 frames to the grounder.
 
-The retention ratio therefore measures post-encoder visual tokens delivered to the language model. It reduces multimodal prefill length but does not reduce video decoding or frozen vision-encoder computation. Pre-encoder and mid-encoder hierarchical pruning are roadmap ideas, not part of the results produced by this package.
+### `tpsa-query`
 
-Spatial policies:
+TPSA-query means **query-aware evidence selection after the video encoder**. It encodes a uniform full-timeline sample, scores every encoded visual unit against the text query, and retains an exact 12.5% evidence budget by default. The selection combines high-relevance units with deterministic endpoint and temporal-band anchors, so a strong local match cannot erase the rest of the timeline. Selected evidence stays in chronological order and is passed to one final prediction call.
 
-- `dense`: all post-encoder visual tokens;
-- `uniform`: equal tokens per frame;
-- `semvid`: official SemVID selection baseline;
-- `tpsa_query`: timeline coverage plus query evidence;
-- `tpsa_motion`: query evidence plus feature-native state change;
-- `tpsa_boundary`: complete TPSA allocator.
+### `hmve`
 
-TPSA v3 constructs both auxiliary policies from the exact `tpsa_query`
-selection. At most 10% of its non-prototype tail is unlocked. Motion uses
-adjacent same-cell feature differences blended equally with positive query
-relevance, cannot change per-frame counts, and falls back exactly on weak or
-flat motion. `tpsa_boundary` splits the same pool evenly between motion and
-directional boundary evidence; only boundary evidence may move tokens between
-frames. Its prominence gate is median plus two MAD, with one-second evidence
-windows, four-second NMS, at most four bands per direction, and two-sided
-coverage. Boundary timing uses the post-encoder tubelet FPS, not decoded FPS.
+HMVE means **hierarchical multi-view evidence**. A low-rate full-video scout first preserves global coverage and proposes up to four query-relevant temporal corridors. Those corridors are encoded in more detail. Scout and detail evidence are then merged by absolute timestamp, near-duplicates are removed, one scout anchor per temporal location is protected, and the compact pack is used for one final prediction. HMVE changes what the model observes; it is not another TPSA scoring variant.
 
-SemVID remains the command-line default until the declared promotion gates pass. The removed temporal router, component reranker, presence verifier, and refinement path are not part of this implementation.
+## SemVID relationship
 
-HMVE is a separate observation policy enabled with `--observation-policy
-hmve`. Phase A performs exactly two frozen vision-encoder calls: a low-FPS,
-low-resolution full-timeline scout and one normal-resolution call containing
-all expanded query-relevant corridors. Scout projections are cached, at least
-one global anchor from every scout tubelet survives, redundant coarse evidence
-can be replaced by detailed evidence, and the accumulated pack is sorted by
-absolute timestamp and compacted to the declared retention budget before one
-LLM generation. Each pass stays grouped as one temporal encoder grid per
-observation; projected outputs are split into timestamped evidence units only
-after encoding, avoiding per-tubelet positional-embedding amplification. HMVE
-currently supports Qwen batch size one.
-HMVE also reserves 20% of GPU memory during automatic checkpoint placement so
-the vision passes have activation headroom; override this with
-`--model-gpu-memory-ratio` when a particular GPU needs a larger reserve.
+SemVID is no longer a runtime dependency, submodule, baseline, selector, prompt template, or policy source. Hybrid VTG keeps only one low-level implementation lesson from it: when already-encoded Qwen visual embeddings are inserted into a compact multimodal prefill, explicit first-step `position_ids` must survive `prepare_inputs_for_generation`. This is needed because TPSA-query and HMVE pass selected encoder outputs rather than asking the standard processor to encode an untouched video prompt. The three selection methods were reimplemented around the contracts in this repository and do not call SemVID code.
 
-## Setup
+## Install
+
+From this directory:
 
 ```bash
-git submodule update --init --recursive
-conda create -n hybrid-vtg python=3.11 -y
-conda activate hybrid-vtg
-pip install -r hybrid_vtg/requirements.txt
-pip install -e 'hybrid_vtg[test]'
-hybrid-vtg doctor
+python -m venv .venv
+source .venv/bin/activate
+pip install -e '.[test]'
 ```
 
-The default checkpoint is `Qwen/Qwen3-VL-4B-Thinking`. Inference requires CUDA; SDPA is the default attention backend.
-
-## 1. OMTG Bench first
-
-[OMTG Bench](https://huggingface.co/datasets/insomnia7/omtg_bench) is the primary bring-up benchmark. Its 320 questions require set-valued output: the model is asked for every disjoint occurrence, and evaluation reports cardinality accuracy, temporal IoU, Hungarian-matched temporal precision/recall/F1, and effective temporal F1. Review its CC BY-NC 4.0 terms and the source-video licenses before downloading.
+Raw SlowFast extraction for a SlowFast + CLIP UniVTG checkpoint is optional:
 
 ```bash
-bash hybrid_vtg/scripts/prepare_omtg.sh --data-root /datasets/OMTGBench
-export OMTG_ROOT=/datasets/OMTGBench
-
-# Smoke test
-bash hybrid_vtg/scripts/run_omtg_local.sh --limit 10 --fail-fast
-
-# The single permitted TPSA v3 diagnostic: repaired boundary only, IDs 0--63
-bash hybrid_vtg/scripts/run_omtg_local.sh \
-  --limit 64 \
-  --spatial-policy tpsa_boundary \
-  --retention-ratio 0.125 \
-  --output outputs/tpsa-v3-omtg-diagnostic/tpsa_boundary-0p125.jsonl \
-  --fail-fast
-
-# Compare with the archived query control; exit 0 means promote, exit 2 means HMVE fallback
-hybrid-vtg validate-tpsa-v3 \
-  --control results/tpsa-v2-omtg-diagnostic/tpsa_query-0p125.jsonl \
-  --candidate outputs/tpsa-v3-omtg-diagnostic/tpsa_boundary-0p125.jsonl
+pip install -e '.[univtg-video]'
 ```
 
-Remove `--limit` for the complete fixed test set. Each result is append-only and resumes by sample ID.
+CUDA is strongly recommended for the 4B generative models. Model weights are downloaded by Transformers unless `--checkpoint` names a local directory.
 
-## 2. Compressed TACoS second
-
-TACoS uses [VideoMind's complete compressed release](https://huggingface.co/datasets/yeliudev/VideoMind-Dataset/tree/main/tacos): 127 videos at 3 fps, 480p, without audio, plus `train.jsonl`, `val.jsonl`, and `test.jsonl`. The preparation script is pinned to a specific dataset revision, validates annotation hashes and row counts, checks archive paths before extraction, verifies all referenced video IDs, and rejects unexpected frame rates, dimensions, or audio streams.
-
-```bash
-bash hybrid_vtg/scripts/prepare_tacos.sh \
-  --data-root /datasets/TACoS-compressed
-export TACOS_ROOT=/datasets/TACoS-compressed
-
-# Smoke test
-bash hybrid_vtg/scripts/run_tacos_local.sh --limit 10 --fail-fast
-
-# Three TPSA stages at 12.5%; completed baselines are skipped
-bash hybrid_vtg/scripts/run_spatial_matrix.sh \
-  tacos outputs/tpsa-matrix/tacos --fail-fast
-```
-
-The downloaded video artifact is `tacos/videos_3fps_480_noaudio.tar.gz` (about 1.49 GB), not the 30.2 GB original-video archive. Add `--keep-archive` only if the local compressed tarball is still needed after extraction.
-
-## Direct runs
+## One run interface
 
 ```bash
 hybrid-vtg run \
   --benchmark omtg \
-  --data "$OMTG_ROOT" \
-  --split test \
-  --spatial-policy tpsa_boundary \
-  --retention-ratio 0.125 \
-  --output outputs/omtg-tpsa-boundary-0p125.jsonl
+  --data /datasets/omtg \
+  --model qwen3-vl-4b \
+  --method coarse-to-fine-64 \
+  --subset 10 \
+  --seed 42
+```
 
-# HMVE Phase A: two vision observations, one exact 12.5% evidence pack,
-# one language-model generation
+The only subset choices are `10`, `20`, and `100`. Sampling is over queries, not videos: IDs are sorted, shuffled with the supplied seed, then the first `ceil(N × percentage / 100)` queries are used. Therefore 10% is a prefix of 20%, and 20% is a prefix of 100% for the same dataset and seed. Re-running a larger percentage resumes the existing run by sample ID.
+
+### Benchmarks
+
+Only official test annotations are loaded:
+
+| CLI name | Required annotation name | Video location |
+|---|---|---|
+| `omtg` | `OMTGBench.tsv` | Any subdirectory below `--data` |
+| `tacos` | `test.jsonl`, `annotations/test.jsonl`, or `captions/test.jsonl` | Any subdirectory below `--data` |
+| `qvhighlights` | `highlight_test_release.jsonl` in the root, `annotations/`, or `metadata/` | Any subdirectory below `--data` |
+
+Video files are discovered recursively by stem. OMTG is evaluated as multi-interval grounding. TACoS reports single-result moment-retrieval metrics against all reference windows. Official QVHighlights test labels are hidden, so a 100% run creates a moment-retrieval submission without local metrics or saliency predictions.
+
+### Models
+
+| CLI name | Default checkpoint | Notes |
+|---|---|---|
+| `qwen3-vl-4b` | `Qwen/Qwen3-VL-4B-Instruct` | Direct Transformers adapter; no SemVID checkout |
+| `timelens2-4b` | `MCG-NJU/TimeLens2-4B` | Uses the same evidence interface; see its restrictive research license |
+| `univtg` | none | Pass an official moment-retrieval checkpoint with `--checkpoint` |
+
+UniVTG checkpoint shapes configure the inference network, so pretraining-only, omnibus, and downstream moment-retrieval checkpoints are accepted when their feature stack is supported. Choose `--model-spec clip-b16`, `clip-b32`, or `slowfast-clip-b32` if checkpoint metadata is missing.
+
+Raw extraction and the repository cache work without extra arguments. To use official `.npz` features, pass one directory per feature stream; files must be named `<video-id>.npz` with a `features` array. Streams are concatenated in argument order:
+
+```bash
 hybrid-vtg run \
-  --benchmark omtg \
-  --data "$OMTG_ROOT" \
-  --split test \
-  --observation-policy hmve \
-  --spatial-policy tpsa_query \
-  --qwen-batch-size 1 \
-  --retention-ratio 0.125 \
-  --output outputs/omtg-hmve-query-0p125.jsonl
+  --benchmark tacos \
+  --data /datasets/tacos \
+  --model univtg \
+  --checkpoint /checkpoints/univtg_tacos/model_best.ckpt \
+  --model-spec slowfast-clip-b32 \
+  --feature-root /features/tacos/slowfast \
+  --feature-root /features/tacos/clip \
+  --method hmve \
+  --subset 20 \
+  --seed 42
 ```
 
-Use a distinct output path for each configuration because the adjacent manifest is immutable. Manifests use schema 7 and record the observation policy, spatial policy, allocator constants, project revision, and SemVID revision.
+## Results
 
-For batch-two and CPU prefetch after validating on the target GPU:
+All outputs live under one directory:
+
+```text
+results/
+├── RESULTS.md                 generated summary table
+├── index.csv                  generated machine-readable index
+├── cache/                     shared decoded-frame and feature cache
+├── runs/<benchmark>/<model>/<method>/seed-<seed>/
+│   ├── manifest.json          immutable run identity and shuffled ID order
+│   ├── predictions.jsonl      append-only successful predictions
+│   ├── errors.jsonl           per-query failures
+│   ├── cache/                 method-local intermediates
+│   └── metrics/p010|p020|p100.json
+├── submissions/<benchmark>/<model>/<method>/seed-<seed>.jsonl
+└── legacy/                    curated pre-refactor evidence
+```
+
+`RESULTS.md` and `index.csv` are rebuilt after every run. A manifest mismatch is rejected rather than mixing configurations. Inference is batch size one.
+
+## Add another method, model, or benchmark
+
+The stable contracts are in `src/hybrid_vtg/contracts.py`:
+
+- A method implements `Method.run(sample, model, cache_dir)` and lives in its own folder under `methods/`.
+- A model implements `ModelBackend.encode`, `query_scores`, and `predict` under `models/`.
+- A benchmark implements `Benchmark.load_test` and `evaluate` under `benchmarks/`.
+- Each package adds its factory to its explicit `register_*` function. There is no import-time plugin discovery or model-specific branch in the runner.
+
+Run the checks with:
 
 ```bash
-bash hybrid_vtg/scripts/run_omtg_local.sh \
-  --optimization-profile optimized \
-  --output outputs/omtg-optimized.jsonl
+ruff check src tests
+pytest
 ```
 
-Capture logits in matched batch-one and batch-two runs, then apply the strict equivalence gate:
+## Provenance and licenses
 
-```bash
-hybrid-vtg validate-optimization \
-  --baseline outputs/validation/batch-1.jsonl \
-  --candidate outputs/validation/batch-2.jsonl \
-  --minimum-samples 32 \
-  --minimum-speedup 0.15
-```
-
-The gate requires identical parsed interval sets, matching first-token argmax, top-eight logit differences no greater than 0.05, no CUDA-OOM fallback, and the requested wall-clock speedup.
-
-## Outputs and evaluation
-
-Every sample records target and actual retained tokens, effective retention, per-frame allocation, token role counts, selected boundary bands, query-only overlap, attempted and actual replacements, motion-gated frames, rejected boundary evidence, median/MAD/peak evidence summaries, quota returned to query, allocator-stage latency, original and compact prefill lengths, decoded frames/pixels, vision time, generation time, end-to-end time, and peak VRAM. HMVE additionally reports corridors, per-pass decoded pixels, encoder calls and estimated FLOPs, created and retained tokens, scout-cache reuse, cross-pass replacement, controller latency, and the single LLM call. Deprecated upstream `semvid_*` statistics are retained beside neutral spatial fields for existing analysis scripts.
-
-Single-span datasets report mIoU, boundary MAE, and R@1 at IoU 0.3/0.5/0.7. OMTG uses its native multi-interval targets and set-valued metrics. Re-score an existing JSONL with:
-
-```bash
-hybrid-vtg evaluate --input outputs/omtg.jsonl
-```
-
-The evaluator accepts numeric-pair and object-form JSON, recovers complete
-intervals from truncated generations, applies the shared duplicate/gap merge,
-and reports `parse_status_counts`. This also repairs older TPSA JSONLs whose raw
-object-form responses were retained but whose `intervals` field was empty.
-
-TPSA is post-encoder: all policies decode identical frames and run the same frozen vision encoder. Any speed claim must therefore use measured latency rather than infer savings from retained-token ratio.
+The trimmed UniVTG transformer and positional-encoding implementation is derived from the official [showlab/UniVTG](https://github.com/showlab/UniVTG) repository under MIT. The fixed-budget method is a clean reimplementation of the TimeLens2 evaluation policy. Model checkpoints and datasets are not redistributed here and retain their own terms. Read [NOTICE.md](NOTICE.md) and [LICENSES](LICENSES/) before use; in particular, TimeLens2 is academic-only and states that it is not intended for use within the European Union.

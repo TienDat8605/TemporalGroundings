@@ -1,6 +1,0 @@
-[submodule "TimeLens2/OMTG"]
-	path = TimeLens2/OMTG
-	url = https://github.com/Tangent0308/OMTG.git
-[submodule "SemVID"]
-	path = SemVID
-	url = https://github.com/JiaqiLi404/SemVID.git

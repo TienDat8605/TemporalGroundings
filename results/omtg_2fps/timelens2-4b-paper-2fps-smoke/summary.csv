@@ -1,3 +1,0 @@
-schedule,prompt_mode,fps,min_pixels,total_pixels,samples,complete,C-Acc,tIoU,CardinalityError,tP@0.3,tR@0.3,tF1@0.3,tP@0.5,tR@0.5,tF1@0.5,tP@0.7,tR@0.7,tF1@0.7,EtF1,requested_frames_estimate,model_calls,gpu_seconds,wall_seconds,peak_vram_bytes
-paper-2fps-official,official,2.0,2048,8388608,5,True,0.0,0.0,2.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,1262.0,5.0,26.833581000000002,26.833581000000002,10970122240.0
-paper-2fps-controlled,controlled,2.0,2048,8388608,5,True,40.0,61.541514041514034,0.6,60.0,50.0,53.333333333333336,40.0,40.0,40.0,40.0,40.0,40.0,40.0,1262.0,5.0,25.717948,25.717948,10981703168.0

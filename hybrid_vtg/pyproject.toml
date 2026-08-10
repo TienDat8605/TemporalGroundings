@@ -4,16 +4,23 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hybrid-vtg"
-version = "0.1.0"
-description = "Training-free timeline-preserving spatial allocation for video temporal grounding"
+version = "0.2.0"
+description = "Extensible training-free video temporal grounding benchmarks"
 requires-python = ">=3.10"
 dependencies = [
-  "numpy>=2.0,<3",
+  "accelerate>=1.0",
+  "numpy>=1.26,<3",
+  "opencv-python-headless>=4.9",
+  "Pillow>=10",
+  "scenedetect>=0.6.4",
   "scipy>=1.13",
+  "torch>=2.4",
+  "transformers>=4.57,<5",
 ]
 
 [project.optional-dependencies]
-test = ["pytest>=8"]
+test = ["pytest>=8", "ruff>=0.9"]
+univtg-video = ["pytorchvideo>=0.1.5"]
 
 [project.scripts]
 hybrid-vtg = "hybrid_vtg.cli:main"
@@ -24,3 +31,10 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+
+[tool.ruff]
+line-length = 120
+extend-exclude = ["src/hybrid_vtg/models/univtg/vendor"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]

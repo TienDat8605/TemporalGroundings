@@ -1,0 +1,47 @@
+from pathlib import Path
+
+import pytest
+import torch
+
+from hybrid_vtg.contracts import Sample, TemporalEvidence
+from hybrid_vtg.registry import BENCHMARKS, METHODS, MODELS, Registry, load_builtin_plugins
+from hybrid_vtg.sampling import subset_samples
+
+
+def sample(index: int) -> Sample:
+    return Sample(str(index), f"v{index}", Path(__file__), 10.0, f"query {index}")
+
+
+def test_builtin_surface_is_exactly_the_requested_matrix():
+    load_builtin_plugins()
+    assert METHODS.names() == ("coarse-to-fine-64", "hmve", "tpsa-query")
+    assert MODELS.names() == ("qwen3-vl-4b", "timelens2-4b", "univtg")
+    assert BENCHMARKS.names() == ("omtg", "qvhighlights", "tacos")
+
+
+def test_registry_rejects_duplicates_and_unknown_values():
+    registry = Registry("thing")
+    registry.register("one", lambda: 1)
+    with pytest.raises(ValueError, match="duplicate"):
+        registry.register("one", lambda: 2)
+    with pytest.raises(ValueError, match="unknown"):
+        registry.create("two")
+
+
+def test_seeded_query_subsets_are_reproducible_and_nested():
+    values = [sample(index) for index in range(23)]
+    ten = subset_samples(values, 10, 42)
+    twenty = subset_samples(values, 20, 42)
+    assert len(ten) == 3
+    assert len(twenty) == 5
+    assert [value.id for value in ten] == [value.id for value in twenty[:3]]
+    assert [value.id for value in twenty] != [value.id for value in subset_samples(values, 20, 43)]
+
+
+def test_temporal_evidence_selection_and_merge_keep_timestamps():
+    first = TemporalEvidence(torch.arange(6).reshape(3, 2), (0.0, 1.0, 2.0), 3)
+    second = TemporalEvidence(torch.arange(4).reshape(2, 2), (0.5, 1.5), 2)
+    selected = first.select([2, 0])
+    assert selected.timestamps == (2.0, 0.0)
+    merged = TemporalEvidence.concatenate([first, second])
+    assert merged.timestamps == (0.0, 0.5, 1.0, 1.5, 2.0)

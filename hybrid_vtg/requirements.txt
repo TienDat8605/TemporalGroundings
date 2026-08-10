@@ -1,1 +1,1 @@
--r ../SemVID/requirements.txt
+-e .[test]

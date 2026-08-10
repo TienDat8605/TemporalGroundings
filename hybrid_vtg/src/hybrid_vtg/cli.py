@@ -1,258 +1,58 @@
-"""Command-line interface for local GPU evaluation."""
+"""Command-line interface for one explicit benchmark run."""
 
 from __future__ import annotations
 
 import argparse
 import json
-from dataclasses import replace
 from pathlib import Path
-from time import perf_counter
 
-from .benchmarks import load_benchmark
-from .config import (
-    OBSERVATION_POLICIES, SPATIAL_POLICIES, GrounderConfig, ObservationConfig,
-    PipelineConfig, SpatialAllocatorConfig,
-)
-from .doctor import inspect_runtime
-from .io import append_jsonl, completed_ids, ensure_manifest, git_revision, read_jsonl
-from .metrics import evaluate
-from .optimization_validation import compare_optimization_runs, validate_tpsa_v3_gate
-from .pipeline import HybridVTGPipeline
-from .semvid_bridge import default_semvid_root
+from .registry import BENCHMARKS, METHODS, MODELS, load_builtin_plugins
+from .runner import run_benchmark
+from .sampling import SUPPORTED_PERCENTAGES
 
 
-def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="hybrid-vtg")
-    commands = parser.add_subparsers(dest="command", required=True)
-    doctor = commands.add_parser("doctor", help="validate the local runtime without loading model weights")
-    doctor.add_argument("--semvid-root", type=Path, default=default_semvid_root())
-
-    run = commands.add_parser("run", help="run full-video spatial-token grounding")
+def parser() -> argparse.ArgumentParser:
+    load_builtin_plugins()
+    root = argparse.ArgumentParser(prog="hybrid-vtg")
+    commands = root.add_subparsers(dest="command", required=True)
+    run = commands.add_parser("run", help="run one test-only benchmark/model/method setting")
+    run.add_argument("--benchmark", choices=BENCHMARKS.names(), required=True)
+    run.add_argument("--data", type=Path, required=True)
+    run.add_argument("--model", choices=MODELS.names(), required=True)
+    run.add_argument("--method", choices=METHODS.names(), required=True)
+    run.add_argument("--subset", type=int, choices=SUPPORTED_PERCENTAGES, required=True)
+    run.add_argument("--seed", type=int, required=True)
+    run.add_argument("--checkpoint", help="optional override; required for UniVTG")
     run.add_argument(
-        "--benchmark",
-        choices=("omtg", "tacos", "charades-sta", "activitynet-grounding", "activitynet-captions", "jsonl"),
-        required=True,
-    )
-    run.add_argument("--data", type=Path, required=True, help="dataset root, or a canonical JSONL for --benchmark jsonl")
-    run.add_argument("--split", default=None)
-    run.add_argument("--output", type=Path, required=True)
-    run.add_argument("--semvid-root", type=Path, default=default_semvid_root())
-    run.add_argument("--limit", type=int, default=0)
-    run.add_argument("--spatial-policy", choices=SPATIAL_POLICIES, default="semvid")
-    run.add_argument(
-        "--observation-policy", choices=OBSERVATION_POLICIES,
-        default=ObservationConfig.policy,
-    )
-    run.add_argument("--hmve-scout-fps", type=float, default=ObservationConfig.scout_fps)
-    run.add_argument(
-        "--hmve-scout-pixel-tokens", type=int,
-        default=ObservationConfig.scout_total_pixel_tokens,
+        "--model-spec",
+        choices=("clip-b16", "clip-b32", "slowfast-clip-b32"),
+        help="UniVTG raw feature stack when checkpoint metadata is insufficient",
     )
     run.add_argument(
-        "--hmve-maximum-corridors", type=int, default=ObservationConfig.maximum_corridors,
+        "--feature-root",
+        action="append",
+        type=Path,
+        default=[],
+        help="UniVTG directory containing <video-id>.npz; repeat to concatenate feature streams",
     )
-    run.add_argument("--model", default=GrounderConfig.model)
-    run.add_argument(
-        "--model-gpu-memory-ratio",
-        type=float,
-        default=None,
-        help=(
-            "fraction of each GPU available to model placement; defaults to 0.80 for HMVE "
-            "and 0.95 for single-pass inference"
-        ),
-    )
-    run.add_argument("--expert-fps", type=float, default=GrounderConfig.fps)
-    run.add_argument("--retention-ratio", type=float, default=SpatialAllocatorConfig.retention_ratio)
-    run.add_argument("--max-new-tokens", type=int, default=GrounderConfig.max_new_tokens)
-    run.add_argument(
-        "--allow-thinking", action="store_true",
-        help="allow Qwen3-VL-Thinking to reason before answering (slower and less format-stable)",
-    )
-    run.add_argument("--dtype", choices=("auto", "bf16", "fp16", "fp32"), default=GrounderConfig.dtype)
-    run.add_argument("--attention", choices=("sdpa", "flash_attention_2", "eager"), default=GrounderConfig.attention)
-    run.add_argument(
-        "--optimization-profile", choices=("safe", "optimized"), default="safe",
-        help="safe preserves serial inference; optimized enables batch-two and CPU prefetch",
-    )
-    run.add_argument("--qwen-batch-size", type=int, choices=(1, 2), default=None)
-    run.add_argument("--qwen-pairing-lookahead", type=int, default=GrounderConfig.pairing_lookahead)
-    run.add_argument("--preprocess-workers", type=int, choices=(0, 1), default=None)
-    run.add_argument("--prefetch-depth", type=int, default=None)
-    run.add_argument(
-        "--capture-validation-logits", action="store_true",
-        help="record first-token top logits for batch-equivalence checks (validation only)",
-    )
-    run.add_argument("--fail-fast", action="store_true")
-
-    score = commands.add_parser("evaluate", help="compute standard VTG metrics from a result JSONL")
-    score.add_argument("--input", type=Path, required=True)
-    validate = commands.add_parser("validate-optimization", help="check batch/prefetch equivalence and speed")
-    validate.add_argument("--baseline", type=Path, required=True)
-    validate.add_argument("--candidate", type=Path, required=True)
-    validate.add_argument("--minimum-samples", type=int, default=32)
-    validate.add_argument("--minimum-speedup", type=float, default=0.0)
-    validate.add_argument("--logit-tolerance", type=float, default=0.05)
-    tpsa_gate = commands.add_parser(
-        "validate-tpsa-v3", help="apply the one-shot OMTG-64 TPSA v3 decision gate",
-    )
-    tpsa_gate.add_argument("--control", type=Path, required=True)
-    tpsa_gate.add_argument("--candidate", type=Path, required=True)
-    return parser
-
-
-def _config(args: argparse.Namespace) -> PipelineConfig:
-    optimized = args.optimization_profile == "optimized"
-    qwen_batch_size = args.qwen_batch_size if args.qwen_batch_size is not None else (2 if optimized else 1)
-    preprocess_workers = args.preprocess_workers if args.preprocess_workers is not None else (1 if optimized else 0)
-    prefetch_depth = args.prefetch_depth if args.prefetch_depth is not None else (
-        2 if optimized and preprocess_workers == 1 else 0
-    )
-    model_gpu_memory_ratio = args.model_gpu_memory_ratio
-    if model_gpu_memory_ratio is None:
-        model_gpu_memory_ratio = 0.80 if args.observation_policy == "hmve" else 0.95
-    grounder = replace(
-        GrounderConfig(), model=args.model, fps=args.expert_fps,
-        max_new_tokens=args.max_new_tokens, force_stop_thinking=not args.allow_thinking,
-        dtype=args.dtype, attention=args.attention,
-        batch_size=qwen_batch_size, pairing_lookahead=args.qwen_pairing_lookahead,
-        preprocess_workers=preprocess_workers, prefetch_depth=prefetch_depth,
-        capture_validation_logits=args.capture_validation_logits,
-        model_gpu_memory_ratio=model_gpu_memory_ratio,
-    )
-    spatial_allocator = replace(
-        SpatialAllocatorConfig(), spatial_policy=args.spatial_policy,
-        retention_ratio=args.retention_ratio,
-    )
-    observation = replace(
-        ObservationConfig(), policy=args.observation_policy,
-        scout_fps=args.hmve_scout_fps,
-        scout_total_pixel_tokens=args.hmve_scout_pixel_tokens,
-        maximum_corridors=args.hmve_maximum_corridors,
-    )
-    return PipelineConfig(
-        grounder=grounder, spatial_allocator=spatial_allocator, observation=observation,
-    )
-
-
-def _run(args: argparse.Namespace) -> int:
-    split = args.split or (
-        "test" if args.benchmark in {"omtg", "charades-sta", "tacos"}
-        else "val_2" if args.benchmark.startswith("activitynet") else "all"
-    )
-    samples = load_benchmark(args.benchmark, args.data, split, args.limit)
-    config = _config(args)
-    repository_root = Path(__file__).resolve().parents[3]
-    manifest = {
-        "schema": 7,
-        "benchmark": args.benchmark,
-        "data": str(args.data.resolve()),
-        "split": split,
-        "config": config.to_dict(),
-        "project_revision": git_revision(repository_root),
-        "hybrid_vtg_revision": git_revision(repository_root),
-        "spatial_policy": config.spatial_allocator.spatial_policy,
-        "observation_policy": config.observation.policy,
-        "allocator_constants": config.spatial_allocator.allocator_constants(),
-        "semvid_root": str(args.semvid_root.resolve()),
-        "semvid_revision": git_revision(args.semvid_root),
-    }
-    ensure_manifest(args.output.with_suffix(".manifest.json"), manifest)
-    existing = read_jsonl(args.output)
-    done = completed_ids(existing)
-    pending = [sample for sample in samples if sample.id not in done]
-    if not pending:
-        metrics = evaluate(existing)
-        metrics_path = args.output.with_suffix(".metrics.json")
-        if metrics_path.is_file():
-            previous = json.loads(metrics_path.read_text(encoding="utf-8"))
-            for key in (
-                "processed_this_invocation", "inference_wall_seconds",
-                "seconds_per_processed_sample", "samples_per_second",
-            ):
-                if key in previous:
-                    metrics[key] = previous[key]
-        metrics_path.write_text(
-            json.dumps(metrics, indent=2, sort_keys=True) + "\n", encoding="utf-8",
-        )
-        print(json.dumps(metrics, indent=2, sort_keys=True))
-        return 0
-    pipeline = HybridVTGPipeline(config, args.semvid_root)
-    inference_started = perf_counter()
-    processed = 0
-    for sample, record, error in pipeline.iter_results(pending):
-        if error is not None:
-            if args.fail_fast:
-                raise error
-            record = {
-                "id": sample.id,
-                "video": sample.video,
-                "query": sample.query,
-                "duration": sample.duration,
-                "targets": [list(value) for value in sample.targets],
-                "group": sample.group,
-                "cardinality": sample.cardinality,
-                "spatial_policy": config.spatial_allocator.spatial_policy,
-                "observation_policy": config.observation.policy,
-                "prediction": None,
-                "error": repr(error),
-            }
-        assert record is not None
-        append_jsonl(args.output, record)
-        processed += 1
-    inference_wall_seconds = perf_counter() - inference_started
-    records = read_jsonl(args.output)
-    metrics = evaluate(records)
-    metrics["processed_this_invocation"] = processed
-    metrics["inference_wall_seconds"] = inference_wall_seconds
-    metrics["seconds_per_processed_sample"] = inference_wall_seconds / processed if processed else 0.0
-    metrics["samples_per_second"] = processed / inference_wall_seconds if inference_wall_seconds else 0.0
-    metrics_path = args.output.with_suffix(".metrics.json")
-    metrics_path.write_text(json.dumps(metrics, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    print(json.dumps(metrics, indent=2, sort_keys=True))
-    return 0
+    return root
 
 
 def main() -> int:
-    args = _parser().parse_args()
-    if args.command == "doctor":
-        checks = inspect_runtime(args.semvid_root)
-        for name, passed, detail in checks:
-            print(f"[{'OK' if passed else 'FAIL'}] {name}: {detail}")
-        return 0 if all(passed for _, passed, _ in checks) else 1
-    if args.command == "evaluate":
-        print(json.dumps(evaluate(read_jsonl(args.input)), indent=2, sort_keys=True))
-        return 0
-    if args.command == "validate-optimization":
-        def throughput(path: Path) -> float:
-            metrics_path = path.with_suffix(".metrics.json")
-            if not metrics_path.is_file():
-                return 0.0
-            return float(json.loads(metrics_path.read_text(encoding="utf-8")).get("samples_per_second", 0.0))
-
-        result = compare_optimization_runs(
-            read_jsonl(args.baseline), read_jsonl(args.candidate),
-            minimum_samples=args.minimum_samples, minimum_speedup=args.minimum_speedup,
-            logit_tolerance=args.logit_tolerance,
-            baseline_throughput=throughput(args.baseline),
-            candidate_throughput=throughput(args.candidate),
-        )
-        print(json.dumps(result, indent=2, sort_keys=True))
-        return 0 if result["passed"] else 2
-    if args.command == "validate-tpsa-v3":
-        def metrics(path: Path) -> dict:
-            metrics_path = path.with_suffix(".metrics.json")
-            return (
-                json.loads(metrics_path.read_text(encoding="utf-8"))
-                if metrics_path.is_file() else evaluate(read_jsonl(path))
-            )
-
-        result = validate_tpsa_v3_gate(
-            read_jsonl(args.control), read_jsonl(args.candidate),
-            metrics(args.control), metrics(args.candidate),
-        )
-        print(json.dumps(result, indent=2, sort_keys=True))
-        return 0 if result["passed"] else 2
-    return _run(args)
+    args = parser().parse_args()
+    result = run_benchmark(
+        benchmark_name=args.benchmark,
+        data=args.data,
+        model_name=args.model,
+        method_name=args.method,
+        percentage=args.subset,
+        seed=args.seed,
+        checkpoint=args.checkpoint,
+        model_spec=args.model_spec,
+        feature_roots=tuple(args.feature_root),
+    )
+    print(json.dumps(result, indent=2, sort_keys=True))
+    return 0 if result["failed"] == 0 else 2
 
 
 if __name__ == "__main__":

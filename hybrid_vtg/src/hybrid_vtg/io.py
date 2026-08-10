@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
 from typing import Any, Iterable
@@ -20,6 +21,15 @@ def append_jsonl(path: Path, record: dict[str, Any]) -> None:
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(record, ensure_ascii=False) + "\n")
         handle.flush()
+        os.fsync(handle.fileno())
+
+
+def write_jsonl(path: Path, records: Iterable[dict[str, Any]], *, mode: str = "write") -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    file_mode = "w" if mode == "write" else "a"
+    with path.open(file_mode, encoding="utf-8") as handle:
+        for record in records:
+            handle.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
 
 
 def completed_ids(records: Iterable[dict[str, Any]]) -> set[str]:
@@ -30,8 +40,10 @@ def completed_ids(records: Iterable[dict[str, Any]]) -> set[str]:
 def git_revision(root: Path) -> str | None:
     try:
         return subprocess.run(
-            ["git", "-C", str(root), "rev-parse", "HEAD"], check=True,
-            capture_output=True, text=True,
+            ["git", "-C", str(root), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
         ).stdout.strip()
     except (OSError, subprocess.CalledProcessError):
         return None
@@ -45,3 +57,10 @@ def ensure_manifest(path: Path, value: dict[str, Any]) -> None:
             raise RuntimeError(f"run manifest differs from existing output: {path}")
         return
     path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def write_json(path: Path, value: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    temporary.replace(path)
