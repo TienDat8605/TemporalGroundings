@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from hybrid_vtg.downloads import (
+    SOURCES,
     _extract_tar,
     _extract_zip,
     _gdown_folder,
@@ -26,6 +27,11 @@ def test_download_layout_is_one_predictable_assets_tree(tmp_path: Path):
     assert paths["timelens2-4b"] == (tmp_path / "assets" / "checkpoints" / "timelens2-4b").resolve()
     assert paths["univtg"].name == "univtg-pretrained-clip-b32-4m"
     assert resolve_targets(()) == ("omtg", "tacos", "qvhighlights", "timelens2-4b", "univtg")
+
+
+def test_tacos_uses_videomind_compressed_release():
+    assert "yeliudev/VideoMind-Dataset" in SOURCES["tacos"]["annotation"]
+    assert "videos_3fps_480_noaudio.tar.gz" in SOURCES["tacos"]["videos"]
 
 
 def test_download_extractors_reject_parent_traversal(tmp_path: Path):

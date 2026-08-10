@@ -82,7 +82,7 @@ assets/
 ├── manifest.json
 ├── datasets/
 │   ├── omtg/             OMTGBench.tsv + videos/
-│   ├── tacos/            annotations/test.jsonl + videos/
+│   ├── tacos/            test annotations + compressed 3 FPS/480p videos
 │   └── qvhighlights/     annotations/highlight_test_release.jsonl + videos/
 └── checkpoints/
     ├── timelens2-4b/
@@ -94,13 +94,16 @@ after successful extraction to avoid retaining duplicate copies. Every
 completed target contains `.complete.json`; the UniVTG marker lists the exact
 downloaded `.ckpt` path to pass to `--checkpoint`.
 
-`--accept-licenses` confirms that you reviewed the upstream terms. In
-particular, TACoS uses the official MPII Cooking 2 videos, which are restricted
-to scientific use and may not be republished. QVHighlights annotations use
-CC BY-NC-SA 4.0. The script does not mirror or redistribute any dataset.
-Sources are the [OMTG Bench release](https://huggingface.co/datasets/insomnia7/omtg_bench),
+`--accept-licenses` confirms that you reviewed the upstream terms. TACoS uses
+VideoMind's compressed 3 FPS, 480p, no-audio release and matching test
+annotations; the archive is about 1.49 GB rather than the 30.2 GB original-video
+archive. The VideoMind repository declares BSD-3-Clause, while the underlying
+TACoS data retains its upstream terms. QVHighlights annotations use CC BY-NC-SA
+4.0. The script does not mirror or redistribute any dataset. Sources are the
+[OMTG Bench release](https://huggingface.co/datasets/insomnia7/omtg_bench),
 [QVHighlights/Moment-DETR](https://github.com/jayleicn/moment_detr),
-[TACoS and MPII Cooking 2](https://www.mpi-inf.mpg.de/departments/computer-vision-and-machine-learning/research/vision-and-language/tacos-multi-level-corpus),
+[VideoMind TACoS](https://huggingface.co/datasets/yeliudev/VideoMind-Dataset/tree/main/tacos),
+[TACoS](https://www.mpi-inf.mpg.de/departments/computer-vision-and-machine-learning/research/vision-and-language/tacos-multi-level-corpus),
 [TimeLens2](https://huggingface.co/MCG-NJU/TimeLens2-4B), and
 [UniVTG](https://github.com/showlab/UniVTG).
 

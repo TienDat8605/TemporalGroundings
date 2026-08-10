@@ -6,10 +6,8 @@ import importlib.util
 import inspect
 import json
 import os
-import shutil
 import stat
 import tarfile
-import tempfile
 import urllib.request
 import zipfile
 from collections.abc import Callable, Sequence
@@ -31,11 +29,17 @@ SOURCES = {
         "videos": "https://nlp.cs.unc.edu/data/jielei/qvh/qvhilights_videos.tar.gz",
     },
     "tacos": {
-        "annotation": ("https://drive.google.com/drive/folders/1aQ0mrXR7ZDfNiawqzQwgmzD3XNXUewDQ?usp=drive_link"),
-        "videos": "https://datasets.d2.mpi-inf.mpg.de/MPII-Cooking-2/MPII-Cooking-2-videos.tar.gz",
-        "terms": (
+        "annotation": (
+            "https://huggingface.co/datasets/yeliudev/VideoMind-Dataset/resolve/main/tacos/test.jsonl?download=true"
+        ),
+        "videos": (
+            "https://huggingface.co/datasets/yeliudev/VideoMind-Dataset/resolve/main/"
+            "tacos/videos_3fps_480_noaudio.tar.gz?download=true"
+        ),
+        "variant": "VideoMind 3 FPS, 480p, no audio",
+        "upstream": (
             "https://www.mpi-inf.mpg.de/departments/computer-vision-and-machine-learning/"
-            "research/human-activity-recognition/mpii-cooking-2-dataset"
+            "research/vision-and-language/tacos-multi-level-corpus"
         ),
     },
     "timelens2-4b": {"repository": "MCG-NJU/TimeLens2-4B"},
@@ -165,7 +169,7 @@ def _gdown_folder(url: str, destination: Path) -> list[Path]:
 def _preflight_dependencies(selected: Sequence[str]) -> None:
     if selected and importlib.util.find_spec("tqdm") is None:
         raise RuntimeError("downloads require: pip install -e '.[downloads]'")
-    if {"tacos", "univtg"}.intersection(selected) and importlib.util.find_spec("gdown") is None:
+    if "univtg" in selected and importlib.util.find_spec("gdown") is None:
         raise RuntimeError("Google Drive downloads require: pip install -e '.[downloads]'")
     if "timelens2-4b" in selected and importlib.util.find_spec("huggingface_hub") is None:
         raise RuntimeError("TimeLens2 downloads require: pip install -e '.[downloads]'")
@@ -218,22 +222,17 @@ def _download_qvhighlights(root: Path, destination: Path, _hf_token: str | None)
     return value
 
 
-def _download_tacos(root: Path, destination: Path, _hf_token: str | None) -> dict[str, Any]:
+def _download_tacos(root: Path, destination: Path, hf_token: str | None) -> dict[str, Any]:
     marker = destination / ".complete.json"
     if marker.is_file():
         return json.loads(marker.read_text(encoding="utf-8"))
-    with tempfile.TemporaryDirectory(prefix="hybrid-vtg-tacos-") as temporary:
-        metadata = Path(temporary) / "metadata"
-        _gdown_folder(SOURCES["tacos"]["annotation"], metadata)
-        candidates = sorted(metadata.rglob("test.jsonl"))
-        if not candidates:
-            candidates = sorted(path for path in metadata.rglob("*.jsonl") if "test" in path.name.lower())
-        if not candidates:
-            raise FileNotFoundError("the official UniVTG TACoS metadata folder contains no test JSONL")
-        annotation = destination / "annotations" / "test.jsonl"
-        annotation.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(candidates[0], annotation)
-    archive = _download_http(SOURCES["tacos"]["videos"], root / ".downloads" / "tacos-videos.tar.gz")
+    annotation = destination / "annotations" / "test.jsonl"
+    _download_http(SOURCES["tacos"]["annotation"], annotation, hf_token=hf_token)
+    archive = _download_http(
+        SOURCES["tacos"]["videos"],
+        root / ".downloads" / "tacos-videos-3fps-480p-noaudio.tar.gz",
+        hf_token=hf_token,
+    )
     _extract_tar(archive, destination / "videos")
     _require_videos(destination / "videos")
     value = _complete(destination, SOURCES["tacos"], terms_accepted=True)
