@@ -13,6 +13,7 @@ from hybrid_vtg.downloads import (
     _extract_zip,
     _gdown_folder,
     _http_headers,
+    _qvhighlights_video_paths,
     asset_paths,
     download_assets,
     resolve_targets,
@@ -32,6 +33,20 @@ def test_download_layout_is_one_predictable_assets_tree(tmp_path: Path):
 def test_tacos_uses_videomind_compressed_release():
     assert "yeliudev/VideoMind-Dataset" in SOURCES["tacos"]["annotation"]
     assert "videos_3fps_480_noaudio.tar.gz" in SOURCES["tacos"]["videos"]
+
+
+def test_qvhighlights_selects_only_unique_test_video_paths(tmp_path: Path):
+    annotation = tmp_path / "highlight_test_release.jsonl"
+    annotation.write_text(
+        '{"qid": 1, "vid": "Abc_60.0_210.0"}\n'
+        '{"qid": 2, "vid": "Abc_60.0_210.0"}\n'
+        '{"qid": 3, "vid": "-xyz_60.0_210.0"}\n',
+        encoding="utf-8",
+    )
+    assert _qvhighlights_video_paths(annotation) == [
+        "-/-xyz_60.0_210.0.mp4",
+        "a/Abc_60.0_210.0.mp4",
+    ]
 
 
 def test_download_extractors_reject_parent_traversal(tmp_path: Path):

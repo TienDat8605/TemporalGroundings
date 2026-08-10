@@ -83,7 +83,7 @@ assets/
 ├── datasets/
 │   ├── omtg/             OMTGBench.tsv + videos/
 │   ├── tacos/            test annotations + compressed 3 FPS/480p videos
-│   └── qvhighlights/     annotations/highlight_test_release.jsonl + videos/
+│   └── qvhighlights/     test annotation + its 1,529 test videos only
 └── checkpoints/
     ├── timelens2-4b/
     └── univtg-pretrained-clip-b32-4m/
@@ -102,6 +102,7 @@ TACoS data retains its upstream terms. QVHighlights annotations use CC BY-NC-SA
 4.0. The script does not mirror or redistribute any dataset. Sources are the
 [OMTG Bench release](https://huggingface.co/datasets/insomnia7/omtg_bench),
 [QVHighlights/Moment-DETR](https://github.com/jayleicn/moment_detr),
+[QVHighlights individual videos](https://huggingface.co/datasets/ayushsdev/qvhighlights-videos),
 [VideoMind TACoS](https://huggingface.co/datasets/yeliudev/VideoMind-Dataset/tree/main/tacos),
 [TACoS](https://www.mpi-inf.mpg.de/departments/computer-vision-and-machine-learning/research/vision-and-language/tacos-multi-level-corpus),
 [TimeLens2](https://huggingface.co/MCG-NJU/TimeLens2-4B), and
@@ -132,6 +133,11 @@ Only official test annotations are loaded:
 | `qvhighlights` | `highlight_test_release.jsonl` in the root, `annotations/`, or `metadata/` | Any subdirectory below `--data` |
 
 Video files are discovered recursively by stem. OMTG is evaluated as multi-interval grounding. TACoS reports single-result moment-retrieval metrics against all reference windows. Official QVHighlights test labels are hidden, so a 100% run creates a moment-retrieval submission without local metrics or saliency predictions.
+
+The QVHighlights downloader reads the official test annotation first, then
+selects exactly its 1,529 unique video IDs from the individual-video Hugging
+Face repository. This is about 17.75 GB and does not download train or
+validation videos; the old all-splits archive was about 134 GB.
 
 ### Models
 

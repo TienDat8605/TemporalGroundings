@@ -26,7 +26,8 @@ SOURCES = {
     },
     "qvhighlights": {
         "annotation": ("https://raw.githubusercontent.com/jayleicn/moment_detr/main/data/highlight_test_release.jsonl"),
-        "videos": "https://nlp.cs.unc.edu/data/jielei/qvh/qvhilights_videos.tar.gz",
+        "video_repository": "ayushsdev/qvhighlights-videos",
+        "selection": "video IDs referenced by highlight_test_release.jsonl only",
     },
     "tacos": {
         "annotation": (
@@ -171,8 +172,8 @@ def _preflight_dependencies(selected: Sequence[str]) -> None:
         raise RuntimeError("downloads require: pip install -e '.[downloads]'")
     if "univtg" in selected and importlib.util.find_spec("gdown") is None:
         raise RuntimeError("Google Drive downloads require: pip install -e '.[downloads]'")
-    if "timelens2-4b" in selected and importlib.util.find_spec("huggingface_hub") is None:
-        raise RuntimeError("TimeLens2 downloads require: pip install -e '.[downloads]'")
+    if {"qvhighlights", "timelens2-4b"}.intersection(selected) and importlib.util.find_spec("huggingface_hub") is None:
+        raise RuntimeError("Hugging Face downloads require: pip install -e '.[downloads]'")
 
 
 def _complete(destination: Path, source: dict[str, str], **extra: Any) -> dict[str, Any]:
@@ -205,21 +206,51 @@ def _download_omtg(root: Path, destination: Path, hf_token: str | None) -> dict[
     return value
 
 
-def _download_qvhighlights(root: Path, destination: Path, _hf_token: str | None) -> dict[str, Any]:
+def _qvhighlights_video_paths(annotation: Path) -> list[str]:
+    video_ids = set()
+    with annotation.open(encoding="utf-8") as handle:
+        for line_number, raw in enumerate(handle, 1):
+            if not raw.strip():
+                continue
+            record = json.loads(raw)
+            video_id = str(record.get("vid", "")).strip()
+            if not video_id or "/" in video_id or "\\" in video_id:
+                raise ValueError(f"invalid QVHighlights video ID on line {line_number}: {video_id!r}")
+            video_ids.add(video_id)
+    if not video_ids:
+        raise ValueError(f"QVHighlights test annotation is empty: {annotation}")
+    return [f"{video_id[0].lower()}/{video_id}.mp4" for video_id in sorted(video_ids)]
+
+
+def _download_qvhighlights(_root: Path, destination: Path, hf_token: str | None) -> dict[str, Any]:
     marker = destination / ".complete.json"
     if marker.is_file():
         return json.loads(marker.read_text(encoding="utf-8"))
     annotation = destination / "annotations" / "highlight_test_release.jsonl"
     _download_http(SOURCES["qvhighlights"]["annotation"], annotation)
-    archive = _download_http(
-        SOURCES["qvhighlights"]["videos"],
-        root / ".downloads" / "qvhighlights-videos.tar.gz",
+    video_paths = _qvhighlights_video_paths(annotation)
+
+    from huggingface_hub import snapshot_download
+
+    videos = destination / "videos"
+    print(
+        f"download: https://huggingface.co/datasets/{SOURCES['qvhighlights']['video_repository']}\n"
+        f"      -> {videos} ({len(video_paths)} test videos only)"
     )
-    _extract_tar(archive, destination / "videos")
-    _require_videos(destination / "videos")
-    value = _complete(destination, SOURCES["qvhighlights"])
-    archive.unlink()
-    return value
+    snapshot_download(
+        repo_id=SOURCES["qvhighlights"]["video_repository"],
+        repo_type="dataset",
+        local_dir=videos,
+        allow_patterns=video_paths,
+        token=hf_token,
+    )
+    _require_videos(videos)
+    downloaded = {path.stem for path in videos.rglob("*.mp4")}
+    expected = {Path(path).stem for path in video_paths}
+    missing = sorted(expected - downloaded)
+    if missing:
+        raise FileNotFoundError(f"QVHighlights test download is missing {len(missing)} videos: {missing[:5]}")
+    return _complete(destination, SOURCES["qvhighlights"], video_count=len(expected), split="test")
 
 
 def _download_tacos(root: Path, destination: Path, hf_token: str | None) -> dict[str, Any]:
