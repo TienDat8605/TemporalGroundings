@@ -54,13 +54,23 @@ def parser() -> argparse.ArgumentParser:
         action="store_true",
         help="confirm that you reviewed and accept every selected upstream license and dataset term",
     )
+    download.add_argument(
+        "--hf-login",
+        action="store_true",
+        help="log in to Hugging Face (uses HF_TOKEN when set, otherwise prompts securely)",
+    )
     return root
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = parser().parse_args(argv)
     if args.command == "download":
-        result = download_assets(args.root, args.targets, accept_licenses=args.accept_licenses)
+        result = download_assets(
+            args.root,
+            args.targets,
+            accept_licenses=args.accept_licenses,
+            hf_login=args.hf_login,
+        )
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
     result = run_benchmark(

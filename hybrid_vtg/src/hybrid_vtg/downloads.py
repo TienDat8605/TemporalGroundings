@@ -14,11 +14,11 @@ import zipfile
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from .io import write_json
 
 TARGETS = ("omtg", "tacos", "qvhighlights", "timelens2-4b", "univtg")
-DATASET_TARGETS = frozenset({"omtg", "tacos", "qvhighlights"})
 
 SOURCES = {
     "omtg": {
@@ -64,20 +64,43 @@ def resolve_targets(values: Sequence[str]) -> tuple[str, ...]:
     return tuple(value for value in TARGETS if value in selected)
 
 
-def _download_http(url: str, destination: Path) -> Path:
+def _http_headers(url: str, *, offset: int, hf_token: str | None) -> dict[str, str]:
+    headers = {"User-Agent": "hybrid-vtg/0.2"}
+    if offset:
+        headers["Range"] = f"bytes={offset}-"
+    hostname = (urlparse(url).hostname or "").lower()
+    if hf_token and (hostname == "huggingface.co" or hostname.endswith(".huggingface.co")):
+        headers["Authorization"] = f"Bearer {hf_token}"
+    return headers
+
+
+def _download_http(url: str, destination: Path, *, hf_token: str | None = None) -> Path:
+    from tqdm.auto import tqdm
+
     if destination.is_file():
         return destination
     destination.parent.mkdir(parents=True, exist_ok=True)
     partial = destination.with_suffix(destination.suffix + ".part")
     offset = partial.stat().st_size if partial.is_file() else 0
-    request = urllib.request.Request(url, headers={"User-Agent": "hybrid-vtg/0.2"})
-    if offset:
-        request.add_header("Range", f"bytes={offset}-")
+    request = urllib.request.Request(url, headers=_http_headers(url, offset=offset, hf_token=hf_token))
     print(f"download: {url}\n      -> {destination}")
     with urllib.request.urlopen(request) as response:
         append = offset > 0 and getattr(response, "status", None) == 206
+        initial = offset if append else 0
+        content_length = response.headers.get("Content-Length")
+        total = initial + int(content_length) if content_length else None
         with partial.open("ab" if append else "wb") as handle:
-            shutil.copyfileobj(response, handle, length=8 * 1024 * 1024)
+            with tqdm(
+                total=total,
+                initial=initial,
+                desc=destination.name,
+                unit="B",
+                unit_scale=True,
+                unit_divisor=1024,
+            ) as progress:
+                while chunk := response.read(1024 * 1024):
+                    handle.write(chunk)
+                    progress.update(len(chunk))
     partial.replace(destination)
     return destination
 
@@ -90,16 +113,22 @@ def _safe_path(root: Path, member: str) -> Path:
 
 
 def _extract_zip(archive: Path, destination: Path) -> None:
+    from tqdm.auto import tqdm
+
     destination.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(archive) as handle:
-        for member in handle.infolist():
+        members = handle.infolist()
+        for member in members:
             _safe_path(destination, member.filename)
             if stat.S_ISLNK(member.external_attr >> 16):
                 raise ValueError(f"unsupported archive member: {member.filename}")
-        handle.extractall(destination)
+        for member in tqdm(members, desc=f"extract {archive.name}", unit="file"):
+            handle.extract(member, destination)
 
 
 def _extract_tar(archive: Path, destination: Path) -> None:
+    from tqdm.auto import tqdm
+
     destination.mkdir(parents=True, exist_ok=True)
     with tarfile.open(archive) as handle:
         members = handle.getmembers()
@@ -107,7 +136,8 @@ def _extract_tar(archive: Path, destination: Path) -> None:
             _safe_path(destination, member.name)
             if member.issym() or member.islnk() or member.isdev():
                 raise ValueError(f"unsupported archive member: {member.name}")
-        handle.extractall(destination, members=members)
+        for member in tqdm(members, desc=f"extract {archive.name}", unit="file"):
+            handle.extract(member, destination)
 
 
 def _gdown_folder(url: str, destination: Path) -> list[Path]:
@@ -130,6 +160,8 @@ def _gdown_folder(url: str, destination: Path) -> list[Path]:
 
 
 def _preflight_dependencies(selected: Sequence[str]) -> None:
+    if selected and importlib.util.find_spec("tqdm") is None:
+        raise RuntimeError("downloads require: pip install -e '.[downloads]'")
     if {"tacos", "univtg"}.intersection(selected) and importlib.util.find_spec("gdown") is None:
         raise RuntimeError("Google Drive downloads require: pip install -e '.[downloads]'")
     if "timelens2-4b" in selected and importlib.util.find_spec("huggingface_hub") is None:
@@ -148,13 +180,17 @@ def _require_videos(destination: Path) -> None:
         raise FileNotFoundError(f"downloaded archive contains no supported videos under {destination}")
 
 
-def _download_omtg(root: Path, destination: Path) -> dict[str, Any]:
+def _download_omtg(root: Path, destination: Path, hf_token: str | None) -> dict[str, Any]:
     marker = destination / ".complete.json"
     if marker.is_file():
         return json.loads(marker.read_text(encoding="utf-8"))
     destination.mkdir(parents=True, exist_ok=True)
-    _download_http(SOURCES["omtg"]["annotation"], destination / "OMTGBench.tsv")
-    archive = _download_http(SOURCES["omtg"]["videos"], root / ".downloads" / "omtg-videos.zip")
+    _download_http(SOURCES["omtg"]["annotation"], destination / "OMTGBench.tsv", hf_token=hf_token)
+    archive = _download_http(
+        SOURCES["omtg"]["videos"],
+        root / ".downloads" / "omtg-videos.zip",
+        hf_token=hf_token,
+    )
     _extract_zip(archive, destination / "videos")
     _require_videos(destination / "videos")
     value = _complete(destination, SOURCES["omtg"])
@@ -162,7 +198,7 @@ def _download_omtg(root: Path, destination: Path) -> dict[str, Any]:
     return value
 
 
-def _download_qvhighlights(root: Path, destination: Path) -> dict[str, Any]:
+def _download_qvhighlights(root: Path, destination: Path, _hf_token: str | None) -> dict[str, Any]:
     marker = destination / ".complete.json"
     if marker.is_file():
         return json.loads(marker.read_text(encoding="utf-8"))
@@ -179,7 +215,7 @@ def _download_qvhighlights(root: Path, destination: Path) -> dict[str, Any]:
     return value
 
 
-def _download_tacos(root: Path, destination: Path) -> dict[str, Any]:
+def _download_tacos(root: Path, destination: Path, _hf_token: str | None) -> dict[str, Any]:
     marker = destination / ".complete.json"
     if marker.is_file():
         return json.loads(marker.read_text(encoding="utf-8"))
@@ -202,7 +238,7 @@ def _download_tacos(root: Path, destination: Path) -> dict[str, Any]:
     return value
 
 
-def _download_timelens2(destination: Path) -> dict[str, Any]:
+def _download_timelens2(_root: Path, destination: Path, hf_token: str | None) -> dict[str, Any]:
     marker = destination / ".complete.json"
     if marker.is_file():
         return json.loads(marker.read_text(encoding="utf-8"))
@@ -210,11 +246,15 @@ def _download_timelens2(destination: Path) -> dict[str, Any]:
 
     destination.mkdir(parents=True, exist_ok=True)
     print(f"download: https://huggingface.co/{SOURCES['timelens2-4b']['repository']}\n      -> {destination}")
-    snapshot_download(repo_id=SOURCES["timelens2-4b"]["repository"], local_dir=destination)
+    snapshot_download(
+        repo_id=SOURCES["timelens2-4b"]["repository"],
+        local_dir=destination,
+        token=hf_token,
+    )
     return _complete(destination, SOURCES["timelens2-4b"])
 
 
-def _download_univtg(destination: Path) -> dict[str, Any]:
+def _download_univtg(_root: Path, destination: Path, _hf_token: str | None) -> dict[str, Any]:
     marker = destination / ".complete.json"
     if marker.is_file():
         return json.loads(marker.read_text(encoding="utf-8"))
@@ -225,7 +265,7 @@ def _download_univtg(destination: Path) -> dict[str, Any]:
     return _complete(destination, SOURCES["univtg"], checkpoints=checkpoints)
 
 
-DOWNLOADERS: dict[str, Callable[[Path, Path], dict[str, Any]] | Callable[[Path], dict[str, Any]]] = {
+DOWNLOADERS: dict[str, Callable[[Path, Path, str | None], dict[str, Any]]] = {
     "omtg": _download_omtg,
     "tacos": _download_tacos,
     "qvhighlights": _download_qvhighlights,
@@ -234,20 +274,44 @@ DOWNLOADERS: dict[str, Callable[[Path, Path], dict[str, Any]] | Callable[[Path],
 }
 
 
-def download_assets(root: Path, targets: Sequence[str], *, accept_licenses: bool) -> dict[str, Any]:
+def _hugging_face_token(*, login_requested: bool) -> str | None:
+    installed = importlib.util.find_spec("huggingface_hub") is not None
+    if not installed:
+        if login_requested:
+            raise RuntimeError("Hugging Face login requires: pip install -e '.[downloads]'")
+        return os.environ.get("HF_TOKEN")
+
+    from huggingface_hub import get_token, login
+
+    if login_requested:
+        token = os.environ.get("HF_TOKEN")
+        if token:
+            login(token=token)
+        else:
+            login()
+    return get_token()
+
+
+def download_assets(
+    root: Path,
+    targets: Sequence[str],
+    *,
+    accept_licenses: bool,
+    hf_login: bool = False,
+) -> dict[str, Any]:
     selected = resolve_targets(targets)
     if not accept_licenses:
         raise ValueError("pass --accept-licenses after reviewing the source terms listed in README.md")
     _preflight_dependencies(selected)
+    from tqdm.auto import tqdm
+
+    hf_token = _hugging_face_token(login_requested=hf_login)
     root = root.expanduser().resolve()
     paths = asset_paths(root)
     completed = {}
-    for target in selected:
+    for target in tqdm(selected, desc="assets", unit="asset"):
         downloader = DOWNLOADERS[target]
-        if target in DATASET_TARGETS:
-            completed[target] = downloader(root, paths[target])
-        else:
-            completed[target] = downloader(paths[target])
+        completed[target] = downloader(root, paths[target], hf_token)
     summary = {
         "root": str(root),
         "targets": list(selected),

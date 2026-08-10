@@ -47,6 +47,21 @@ UniVTG CLIP-B/32 4M pretraining checkpoint:
 hybrid-vtg download --root ./assets --accept-licenses
 ```
 
+Downloads now show byte progress, transfer speed, ETA, extraction progress,
+and overall asset progress. Interrupted HTTP transfers resume from their
+existing `.part` file.
+
+For authenticated Hugging Face downloads, add `--hf-login`:
+
+```bash
+hybrid-vtg download --root ./assets --accept-licenses --hf-login
+```
+
+This uses `HF_TOKEN` when that environment variable is set; otherwise it opens
+Hugging Face's secure token prompt and saves the login in the standard local
+Hugging Face token store. Authentication can avoid anonymous rate limits for
+OMTG and TimeLens2 downloads. The token is never stored in `assets/manifest.json`.
+
 The equivalent repository script is:
 
 ```bash

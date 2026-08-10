@@ -5,7 +5,14 @@ from pathlib import Path
 
 import pytest
 
-from hybrid_vtg.downloads import _extract_tar, _extract_zip, asset_paths, download_assets, resolve_targets
+from hybrid_vtg.downloads import (
+    _extract_tar,
+    _extract_zip,
+    _http_headers,
+    asset_paths,
+    download_assets,
+    resolve_targets,
+)
 
 
 def test_download_layout_is_one_predictable_assets_tree(tmp_path: Path):
@@ -37,3 +44,13 @@ def test_download_extractors_reject_parent_traversal(tmp_path: Path):
 def test_download_requires_explicit_license_acceptance_before_network_access(tmp_path: Path):
     with pytest.raises(ValueError, match="accept-licenses"):
         download_assets(tmp_path / "assets", ("omtg",), accept_licenses=False)
+
+
+def test_hugging_face_token_is_only_sent_to_hugging_face():
+    headers = _http_headers("https://huggingface.co/org/repo/file", offset=12, hf_token="secret")
+    assert headers["Authorization"] == "Bearer secret"
+    assert headers["Range"] == "bytes=12-"
+
+    external = _http_headers("https://example.com/file", offset=0, hf_token="secret")
+    assert "Authorization" not in external
+    assert "Range" not in external
