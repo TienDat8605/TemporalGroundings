@@ -67,7 +67,14 @@ def run_benchmark(
     percentage = validate_percentage(percentage)
     load_builtin_plugins()
     benchmark = BENCHMARKS.create(benchmark_name)
-    samples = benchmark.load_test(data.resolve())
+    data = data.expanduser().resolve()
+    if not data.is_dir():
+        default = (Path.cwd() / "assets" / "datasets" / benchmark_name).resolve()
+        raise FileNotFoundError(
+            f"benchmark data directory does not exist: {data}. "
+            f"If you used the default downloader location, pass --data {default}"
+        )
+    samples = benchmark.load_test(data)
     ordered = ordered_samples(samples, seed)
     selected = subset_samples(samples, percentage, seed)
 
@@ -78,7 +85,7 @@ def run_benchmark(
         "schema": SCHEMA_VERSION,
         "benchmark": benchmark_name,
         "split": "test",
-        "data": str(data.resolve()),
+        "data": str(data),
         "model": model_name,
         "checkpoint": checkpoint,
         "model_spec": model_spec,

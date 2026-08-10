@@ -18,7 +18,11 @@ def parser() -> argparse.ArgumentParser:
     commands = root.add_subparsers(dest="command", required=True)
     run = commands.add_parser("run", help="run one test-only benchmark/model/method setting")
     run.add_argument("--benchmark", choices=BENCHMARKS.names(), required=True)
-    run.add_argument("--data", type=Path, required=True)
+    run.add_argument(
+        "--data",
+        type=Path,
+        help="benchmark directory; defaults to ./assets/datasets/<benchmark>",
+    )
     run.add_argument("--model", choices=MODELS.names(), required=True)
     run.add_argument("--method", choices=METHODS.names(), required=True)
     run.add_argument(
@@ -73,9 +77,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
+    data = args.data or Path("assets") / "datasets" / args.benchmark
     result = run_benchmark(
         benchmark_name=args.benchmark,
-        data=args.data,
+        data=data,
         model_name=args.model,
         method_name=args.method,
         percentage=args.subset,

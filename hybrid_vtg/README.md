@@ -116,12 +116,15 @@ TACoS data retains its upstream terms. QVHighlights annotations use CC BY-NC-SA
 ```bash
 hybrid-vtg run \
   --benchmark omtg \
-  --data /datasets/omtg \
   --model qwen3-vl-4b \
   --method coarse-to-fine-64 \
   --subset 10 \
   --seed 42
 ```
+
+When `--data` is omitted, it defaults to
+`./assets/datasets/<benchmark>`, matching `hybrid-vtg download --root ./assets`.
+Use `--data` only when the assets live elsewhere.
 
 `--subset` accepts any percentage from `0` through `100`, including decimals such as `12.5`. Sampling is over queries, not videos: IDs are sorted, shuffled with the supplied seed, then the first `ceil(N × percentage / 100)` queries are used. For the same dataset and seed, every smaller percentage is a prefix of every larger percentage. Re-running a larger percentage resumes the existing run by sample ID. A 0% run validates the dataset and writes empty metrics without loading a model.
 
@@ -167,12 +170,9 @@ The downloaded pretraining-only UniVTG checkpoint can be passed directly as
 ```bash
 hybrid-vtg run \
   --benchmark tacos \
-  --data /datasets/tacos \
   --model univtg \
-  --checkpoint /checkpoints/univtg_tacos/model_best.ckpt \
-  --model-spec slowfast-clip-b32 \
-  --feature-root /features/tacos/slowfast \
-  --feature-root /features/tacos/clip \
+  --checkpoint assets/checkpoints/univtg-pretrained-clip-b32-4m \
+  --model-spec clip-b32 \
   --method hmve \
   --subset 20 \
   --seed 42
