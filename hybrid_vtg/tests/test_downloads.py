@@ -14,6 +14,8 @@ from hybrid_vtg.downloads import (
     _gdown_folder,
     _http_headers,
     _qvhighlights_video_paths,
+    _retain_tacos_test_videos,
+    _tacos_test_video_ids,
     asset_paths,
     download_assets,
     resolve_targets,
@@ -33,6 +35,24 @@ def test_download_layout_is_one_predictable_assets_tree(tmp_path: Path):
 def test_tacos_uses_videomind_compressed_release():
     assert "yeliudev/VideoMind-Dataset" in SOURCES["tacos"]["annotation"]
     assert "videos_3fps_480_noaudio.tar.gz" in SOURCES["tacos"]["videos"]
+
+
+def test_tacos_retains_only_test_videos_and_handles_camera_postfix(tmp_path: Path):
+    annotation = tmp_path / "test.jsonl"
+    annotation.write_text('{"vid": "s30-d52"}\n{"vid": "s31-d21"}\n', encoding="utf-8")
+    videos = tmp_path / "videos"
+    videos.mkdir()
+    test_camera = videos / "s30-d52-cam-2.mp4"
+    test_plain = videos / "s31-d21.mp4"
+    train = videos / "s13-d21-cam-002.mp4"
+    for path in (test_camera, test_plain, train):
+        path.touch()
+
+    test_ids = _tacos_test_video_ids(annotation)
+    assert _retain_tacos_test_videos(videos, test_ids) == 2
+    assert test_camera.is_file()
+    assert test_plain.is_file()
+    assert not train.exists()
 
 
 def test_qvhighlights_selects_only_unique_test_video_paths(tmp_path: Path):

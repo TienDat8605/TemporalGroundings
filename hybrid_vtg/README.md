@@ -82,7 +82,7 @@ assets/
 ├── manifest.json
 ├── datasets/
 │   ├── omtg/             OMTGBench.tsv + videos/
-│   ├── tacos/            test annotations + compressed 3 FPS/480p videos
+│   ├── tacos/            test annotations + 25 compressed test videos
 │   └── qvhighlights/     test annotation + its 1,529 test videos only
 └── checkpoints/
     ├── timelens2-4b/
@@ -97,7 +97,9 @@ downloaded `.ckpt` path to pass to `--checkpoint`.
 `--accept-licenses` confirms that you reviewed the upstream terms. TACoS uses
 VideoMind's compressed 3 FPS, 480p, no-audio release and matching test
 annotations; the archive is about 1.49 GB rather than the 30.2 GB original-video
-archive. The VideoMind repository declares BSD-3-Clause, while the underlying
+archive. The archive contains all splits, so the downloader selectively extracts
+and retains only the 25 test videos. The VideoMind repository declares
+BSD-3-Clause, while the underlying
 TACoS data retains its upstream terms. QVHighlights annotations use CC BY-NC-SA
 4.0. The script does not mirror or redistribute any dataset. Sources are the
 [OMTG Bench release](https://huggingface.co/datasets/insomnia7/omtg_bench),
@@ -133,6 +135,12 @@ Only official test annotations are loaded:
 | `qvhighlights` | `highlight_test_release.jsonl` in the root, `annotations/`, or `metadata/` | Any subdirectory below `--data` |
 
 Video files are discovered recursively by stem. OMTG is evaluated as multi-interval grounding. TACoS reports single-result moment-retrieval metrics against all reference windows. Official QVHighlights test labels are hidden, so a 100% run creates a moment-retrieval submission without local metrics or saliency predictions.
+
+Prepared benchmark payloads are test-only: OMTG contains 320 test queries over
+287 benchmark videos; TACoS contains 4,001 test queries over 25 videos; and
+QVHighlights contains 1,542 test queries over 1,529 videos. The TACoS source
+archive is all-split, but non-test members are never extracted on a fresh run
+and are pruned from older completed downloads.
 
 The QVHighlights downloader reads the official test annotation first, then
 selects exactly its 1,529 unique video IDs from the individual-video Hugging
