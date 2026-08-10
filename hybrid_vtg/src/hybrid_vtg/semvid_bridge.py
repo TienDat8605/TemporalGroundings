@@ -10,7 +10,11 @@ from pathlib import Path
 from time import perf_counter
 from typing import Any, Sequence
 
-from .config import GrounderConfig, SpatialAllocatorConfig
+from .config import GrounderConfig, ObservationConfig, SpatialAllocatorConfig
+from .hmve import (
+    EvidenceUnit, estimate_vision_transformer_tflops, evidence_unit,
+    propose_corridors, query_token_embeddings, select_evidence,
+)
 from .timestamps import (
     consolidate_intervals,
     normalize_timestamp,
@@ -147,6 +151,18 @@ class PreparedGroundingBatch:
     preparation_seconds: float
     pinned_memory_bytes: int
     ready_at: float
+    hmve_scout_units: tuple[Any, ...] = ()
+    hmve_reference_tokens: int = 0
+
+
+@dataclass(frozen=True)
+class _HMVEInputUnit:
+    video: Any
+    metadata: Any
+    pass_id: int
+    absolute_time: float
+    source_observation: int
+    cache_index: int = -1
 
 
 class _FirstLogitsCapture:
@@ -169,6 +185,7 @@ class SemVIDGrounder:
         config: GrounderConfig,
         spatial_allocator: SpatialAllocatorConfig | None = None,
         semvid_root: Path | None = None,
+        observation: ObservationConfig | None = None,
     ) -> None:
         try:
             import torch
@@ -179,6 +196,9 @@ class SemVIDGrounder:
             raise RuntimeError("SemVID grounding requires a CUDA GPU; CPU-only routing remains available")
         root = semvid_root or default_semvid_root()
         allocator = spatial_allocator or SpatialAllocatorConfig()
+        observation = observation or ObservationConfig()
+        if observation.policy == "hmve" and config.batch_size != 1:
+            raise ValueError("HMVE Phase A supports Qwen batch size 1 only")
         _activate_upstream(root)
         policy = allocator.spatial_policy
         model_source = root / "src/models/models/modeling_qwen3_vl_semvid.py"
@@ -206,7 +226,7 @@ class SemVIDGrounder:
             "semantic_obj_ratio": 0.6,
             "semantic_mmr_lambda": allocator.mmr_lambda,
             "semantic_min_tokens_per_frame": 0,
-            "semantic_motion_query_beta": 0.5,
+            "semantic_motion_query_beta": allocator.motion_query_beta,
             "semantic_query_token_max": 4096 if policy.startswith("tpsa_") else 50,
             "ablation_uniform_allocation": policy == "uniform",
             "ablation_use_semantic_selection": "semvid",
@@ -214,14 +234,14 @@ class SemVIDGrounder:
             "tpsa_fps": config.fps,
             "tpsa_mmr_lambda": allocator.mmr_lambda,
             "tpsa_relevance_top_fraction": allocator.relevance_top_fraction,
-            "tpsa_boundary_quota_fraction": allocator.boundary_quota_fraction,
-            "tpsa_motion_neighborhood_radius": allocator.motion_neighborhood_radius,
+            "tpsa_auxiliary_fraction": allocator.auxiliary_fraction,
+            "tpsa_boundary_share": allocator.boundary_share,
+            "tpsa_motion_query_beta": allocator.motion_query_beta,
+            "tpsa_evidence_mad_multiplier": allocator.evidence_mad_multiplier,
             "tpsa_boundary_window_seconds": allocator.boundary_window_seconds,
             "tpsa_boundary_nms_seconds": allocator.boundary_nms_seconds,
             "tpsa_boundary_expansion_seconds": allocator.boundary_expansion_seconds,
             "tpsa_maximum_boundary_bands": allocator.maximum_boundary_bands,
-            "tpsa_query_core_fraction": allocator.query_core_fraction,
-            "tpsa_motion_bonus_fraction": allocator.motion_bonus_fraction,
             "attn_implementation": config.attention,
         }
         handler = TPSA_HANDLER if policy.startswith("tpsa_") else HANDLER
@@ -234,17 +254,17 @@ class SemVIDGrounder:
         self.model.eval().requires_grad_(False)
         self.config = config
         self.spatial_allocator = allocator
+        self.observation = observation
         self.torch = torch
         self._processor_lock = threading.Lock()
         self.generation_config = GenerationConfig(
             max_new_tokens=config.max_new_tokens, do_sample=False,
         )
 
-    def _prompt(self, sample: Sample, component: Component) -> list[dict[str, Any]]:
-        total_pixels = self.config.total_pixel_tokens * 16 * 16 * 4
-        minimum_pixels = self.config.minimum_pixel_tokens * 16 * 16 * 4
+    @staticmethod
+    def _instruction(sample: Sample) -> str:
         if sample.cardinality == "multi":
-            instruction = (
+            return (
                 f"Find every disjoint time interval where this event occurs: {sample.query!r}.\n"
                 f"Timestamps must be seconds within [0.000, {sample.duration:.3f}]. "
                 "Return only a JSON array of numeric pairs like "
@@ -253,21 +273,48 @@ class SemVIDGrounder:
                 "Return [] if the event never occurs, and do not omit repeated occurrences."
             )
         else:
-            instruction = (
+            return (
                 f"Localize the event described by this query in the video: {sample.query}\n"
                 f"Return only JSON timestamps within [0.000, {sample.duration:.3f}]: "
                 '{"start": number, "end": number}.'
             )
+
+    def _video_content(
+        self,
+        sample: Sample,
+        component: Component,
+        *,
+        fps: float,
+        total_pixel_tokens: int,
+    ) -> dict[str, Any]:
+        total_pixels = total_pixel_tokens * 16 * 16 * 4
+        minimum_pixels = self.config.minimum_pixel_tokens * 16 * 16 * 4
+        return {
+            "type": "video", "video": sample.video_path,
+            "video_start": component.start, "video_end": component.end,
+            "fps": fps, "total_pixels": total_pixels, "min_pixels": minimum_pixels,
+            "max_frames": self.config.max_frames,
+        }
+
+    def _prompt(self, sample: Sample, component: Component) -> list[dict[str, Any]]:
         return [{
             "role": "user",
-            "content": [{
-                "type": "video", "video": sample.video_path,
-                "video_start": component.start, "video_end": component.end,
-                "fps": self.config.fps,
-                "total_pixels": total_pixels, "min_pixels": minimum_pixels,
-                "max_frames": self.config.max_frames,
-            }, {"type": "text", "text": instruction}],
+            "content": [
+                self._video_content(
+                    sample, component, fps=self.config.fps,
+                    total_pixel_tokens=self.config.total_pixel_tokens,
+                ),
+                {"type": "text", "text": self._instruction(sample)},
+            ],
         }]
+
+    def _unit_prompt(self, sample: Sample, units: Sequence[_HMVEInputUnit]) -> list[dict[str, Any]]:
+        content = [
+            {"type": "video", "video": unit.video}
+            for unit in units
+        ]
+        content.append({"type": "text", "text": self._instruction(sample)})
+        return [{"role": "user", "content": content}]
 
     @staticmethod
     def _video_stats(video: Any) -> dict[str, int]:
@@ -279,6 +326,193 @@ class SemVIDGrounder:
             "decoded_pixels": shape[0] * shape[-2] * shape[-1],
         }
 
+    @staticmethod
+    def _metadata_value(metadata: Any, name: str) -> Any:
+        return getattr(metadata, name) if hasattr(metadata, name) else metadata[name]
+
+    def _split_hmve_units(
+        self,
+        video: Any,
+        metadata: Any,
+        *,
+        pass_id: int,
+        source_observation: int,
+    ) -> list[_HMVEInputUnit]:
+        from transformers.video_utils import VideoMetadata
+
+        temporal_patch_size = max(
+            int(getattr(getattr(self.model.visual, "patch_embed", None), "temporal_patch_size", 2)),
+            1,
+        )
+        indices = list(self._metadata_value(metadata, "frames_indices"))
+        fps = float(self._metadata_value(metadata, "fps"))
+        if len(indices) != int(video.shape[0]):
+            raise ValueError("HMVE decoded frames and absolute frame indices differ")
+        units = []
+        cache_index = 0
+        for start in range(0, len(indices), temporal_patch_size):
+            stop = min(start + temporal_patch_size, len(indices))
+            frames = video[start:stop]
+            unit_indices = indices[start:stop]
+            if stop - start < temporal_patch_size:
+                repeat = temporal_patch_size - (stop - start)
+                frames = self.torch.cat((frames, frames[-1:].repeat(repeat, 1, 1, 1)), dim=0)
+                unit_indices.extend([unit_indices[-1]] * repeat)
+            unit_metadata = VideoMetadata(
+                total_num_frames=int(self._metadata_value(metadata, "total_num_frames")),
+                fps=fps,
+                width=int(frames.shape[-1]),
+                height=int(frames.shape[-2]),
+                duration=float(self._metadata_value(metadata, "total_num_frames")) / fps,
+                video_backend=str(self._metadata_value(metadata, "video_backend")),
+                frames_indices=unit_indices,
+            )
+            units.append(_HMVEInputUnit(
+                video=frames,
+                metadata=unit_metadata,
+                pass_id=pass_id,
+                absolute_time=sum(unit_indices) / len(unit_indices) / fps,
+                source_observation=source_observation,
+                cache_index=cache_index if pass_id == 0 else -1,
+            ))
+            cache_index += 1
+        return units
+
+    def _process_hmve_units(
+        self,
+        sample: Sample,
+        units: Sequence[_HMVEInputUnit],
+    ) -> dict[str, Any]:
+        prompt = self._unit_prompt(sample, units)
+        text = _render_generation_prompt(
+            self.processor, prompt, self.config.force_stop_thinking,
+        )
+        inputs = self.processor(
+            text=[text],
+            images=None,
+            videos=[unit.video for unit in units],
+            video_metadata=[unit.metadata for unit in units],
+            return_tensors="pt",
+            padding=True,
+            padding_side="left",
+            add_special_tokens=False,
+            do_resize=False,
+            do_sample_frames=False,
+        )
+        return dict(inputs)
+
+    def _reference_visual_tokens(self, sample: Sample) -> int:
+        """Estimate the dense one-pass Qwen token count without decoding the timeline."""
+        import decord
+        from qwen_vl_utils.vision_process import (
+            FRAME_FACTOR, VIDEO_MAX_TOKEN_NUM, smart_nframes, smart_resize,
+        )
+
+        reader = decord.VideoReader(sample.video_path, num_threads=1)
+        total_frames = len(reader)
+        source_fps = float(reader.get_avg_fps())
+        height, width = [int(value) for value in reader[0].shape[:2]]
+        frames = smart_nframes(
+            {"fps": self.config.fps, "max_frames": self.config.max_frames},
+            total_frames=total_frames,
+            video_fps=source_fps,
+        )
+        image_factor = 16 * int(self.model.visual.spatial_merge_size)
+        minimum_pixels = self.config.minimum_pixel_tokens * image_factor * image_factor
+        total_pixels = self.config.total_pixel_tokens * image_factor * image_factor
+        maximum_pixels = max(
+            min(VIDEO_MAX_TOKEN_NUM * image_factor * image_factor, total_pixels / frames * FRAME_FACTOR),
+            int(minimum_pixels * 1.05),
+        )
+        resized_height, resized_width = smart_resize(
+            height, width, factor=image_factor,
+            min_pixels=minimum_pixels, max_pixels=maximum_pixels,
+        )
+        temporal_patch_size = max(
+            int(getattr(getattr(self.model.visual, "patch_embed", None), "temporal_patch_size", 2)),
+            1,
+        )
+        temporal = frames // temporal_patch_size
+        merged_height = resized_height // image_factor
+        merged_width = resized_width // image_factor
+        return temporal * merged_height * merged_width
+
+    def _prepare_hmve_batch(
+        self,
+        requests: Sequence[GroundingRequest],
+        *,
+        pin_memory: bool,
+        pinned_memory_limit_bytes: int | None,
+        started: float,
+    ) -> PreparedGroundingBatch:
+        if len(requests) != 1:
+            raise ValueError("HMVE Phase A supports one request at a time")
+        try:
+            import qwen_vl_utils
+        except ImportError as error:
+            raise RuntimeError("qwen-vl-utils is required by HMVE") from error
+        request = requests[0]
+        scout_prompt = [{
+            "role": "user",
+            "content": [
+                self._video_content(
+                    request.sample,
+                    request.component,
+                    fps=self.observation.scout_fps,
+                    total_pixel_tokens=self.observation.scout_total_pixel_tokens,
+                ),
+                {"type": "text", "text": self._instruction(request.sample)},
+            ],
+        }]
+        _, decoded, _ = qwen_vl_utils.process_vision_info(
+            scout_prompt,
+            image_patch_size=16,
+            return_video_kwargs=True,
+            return_video_metadata=True,
+        )
+        if not decoded or len(decoded) != 1:
+            raise RuntimeError("HMVE scout must decode exactly one full-timeline observation")
+        scout_video, scout_metadata = decoded[0]
+        scout_units = self._split_hmve_units(
+            scout_video,
+            scout_metadata,
+            pass_id=0,
+            source_observation=0,
+        )
+        with self._processor_lock:
+            inputs = self._process_hmve_units(request.sample, scout_units)
+            query_tokens = self.processor.tokenizer(
+                [request.sample.query], padding=True, truncation=True,
+                return_tensors="pt", add_special_tokens=True,
+            )
+        inputs["query_ids"] = query_tokens["input_ids"]
+        inputs["query_attention_mask"] = query_tokens.get("attention_mask")
+        pinned_memory_bytes = 0
+        tensor_bytes = sum(
+            value.numel() * value.element_size()
+            for value in inputs.values()
+            if self.torch.is_tensor(value) and value.device.type == "cpu"
+        )
+        should_pin = pin_memory and (
+            pinned_memory_limit_bytes is None or tensor_bytes <= pinned_memory_limit_bytes
+        )
+        if should_pin:
+            for key, value in tuple(inputs.items()):
+                if self.torch.is_tensor(value) and value.device.type == "cpu":
+                    pinned_memory_bytes += value.numel() * value.element_size()
+                    inputs[key] = value.pin_memory()
+        return PreparedGroundingBatch(
+            requests=tuple(requests),
+            inputs=inputs,
+            prompt_length=int(inputs["input_ids"].shape[-1]),
+            input_stats=(self._video_stats(scout_video),),
+            preparation_seconds=perf_counter() - started,
+            pinned_memory_bytes=pinned_memory_bytes,
+            ready_at=perf_counter(),
+            hmve_scout_units=tuple(scout_units),
+            hmve_reference_tokens=self._reference_visual_tokens(request.sample),
+        )
+
     def prepare_batch(
         self, requests: Sequence[GroundingRequest], *, pin_memory: bool = False,
         pinned_memory_limit_bytes: int | None = None,
@@ -289,6 +523,13 @@ class SemVIDGrounder:
         if len(requests) > self.config.batch_size:
             raise ValueError(f"grounding batch exceeds configured size {self.config.batch_size}")
         started = perf_counter()
+        if self.observation.policy == "hmve":
+            return self._prepare_hmve_batch(
+                requests,
+                pin_memory=pin_memory,
+                pinned_memory_limit_bytes=pinned_memory_limit_bytes,
+                started=started,
+            )
         try:
             import qwen_vl_utils
         except ImportError as error:
@@ -347,6 +588,368 @@ class SemVIDGrounder:
             ready_at=perf_counter(),
         )
 
+    def _decode_hmve_corridors(
+        self,
+        request: GroundingRequest,
+        corridors: Sequence[Any],
+    ) -> list[_HMVEInputUnit]:
+        try:
+            import qwen_vl_utils
+        except ImportError as error:
+            raise RuntimeError("qwen-vl-utils is required by HMVE") from error
+        total_duration = sum(float(value.end - value.start) for value in corridors)
+        content = []
+        for corridor in corridors:
+            fraction = (corridor.end - corridor.start) / max(total_duration, 1e-6)
+            pixel_tokens = max(
+                self.config.minimum_pixel_tokens,
+                int(round(self.config.total_pixel_tokens * fraction)),
+            )
+            item = self._video_content(
+                request.sample,
+                Component(corridor.start, corridor.end, corridor.score),
+                fps=self.config.fps,
+                total_pixel_tokens=pixel_tokens,
+            )
+            item["max_frames"] = max(2, int(round(self.config.max_frames * fraction)))
+            content.append(item)
+        content.append({"type": "text", "text": self._instruction(request.sample)})
+        prompt = [{"role": "user", "content": content}]
+        _, decoded, _ = qwen_vl_utils.process_vision_info(
+            prompt,
+            image_patch_size=16,
+            return_video_kwargs=True,
+            return_video_metadata=True,
+        )
+        if not decoded or len(decoded) != len(corridors):
+            raise RuntimeError("HMVE detailed pass did not decode every selected corridor")
+        units = []
+        for observation_index, (video, metadata) in enumerate(decoded):
+            units.extend(self._split_hmve_units(
+                video,
+                metadata,
+                pass_id=1,
+                source_observation=observation_index,
+            ))
+        return units
+
+    def _video_unit_positions(
+        self,
+        input_ids: Any,
+        attention_mask: Any,
+    ) -> list[Any]:
+        ids = input_ids[0]
+        valid = attention_mask[0].bool()
+        starts = self.torch.nonzero(
+            (ids == self.model.config.vision_start_token_id) & valid,
+            as_tuple=False,
+        ).flatten().tolist()
+        ends = self.torch.nonzero(
+            (ids == self.model.config.vision_end_token_id) & valid,
+            as_tuple=False,
+        ).flatten().tolist()
+        if len(starts) != len(ends):
+            raise ValueError("HMVE vision marker count mismatch")
+        positions = []
+        for start, end in zip(starts, ends):
+            span = self.torch.arange(start + 1, end, device=ids.device)
+            chosen = span[ids[span] == self.model.config.video_token_id]
+            if chosen.numel():
+                positions.append(chosen)
+        return positions
+
+    def _hmve_generate(
+        self,
+        prepared: PreparedGroundingBatch,
+        scout_inputs: dict[str, Any],
+        generation_kwargs: dict[str, Any],
+    ) -> tuple[Any, dict[str, Any], int, float, float]:
+        request = prepared.requests[0]
+        device = scout_inputs["input_ids"].device
+        controller_started = perf_counter()
+        self.model.last_tpsa_stats_batch = []
+
+        self.torch.cuda.synchronize()
+        scout_encoder_started = perf_counter()
+        scout_embeds, _, _ = self.model.model.get_video_features(
+            scout_inputs["pixel_values_videos"],
+            scout_inputs["video_grid_thw"],
+            return_token_scores=True,
+        )
+        self.torch.cuda.synchronize()
+        scout_encoder_seconds = perf_counter() - scout_encoder_started
+        query_embeddings = query_token_embeddings(
+            self.model.get_input_embeddings(),
+            scout_inputs["query_ids"],
+            scout_inputs.get("query_attention_mask"),
+        )
+        scout_strength = []
+        for embeddings in scout_embeds:
+            relevance = evidence_unit(
+                pass_id=0,
+                absolute_time=0.0,
+                grid_height=1,
+                grid_width=int(embeddings.shape[0]),
+                source_height=1,
+                source_width=int(embeddings.shape[0]),
+                embeddings=embeddings,
+                query_embeddings=query_embeddings,
+                source_observation=0,
+            ).query_relevance
+            top = max(1, int(round(relevance.numel() * 0.10)))
+            scout_strength.append(relevance.topk(top).values.mean())
+        times = self.torch.tensor(
+            [unit.absolute_time for unit in prepared.hmve_scout_units],
+            device=device,
+            dtype=self.torch.float32,
+        )
+        relevance_curve = self.torch.stack(scout_strength).float()
+        detail_tokens_per_second = prepared.hmve_reference_tokens / max(request.sample.duration, 1e-6)
+        target_tokens = min(
+            prepared.hmve_reference_tokens,
+            int(round(
+                self.spatial_allocator.retention_ratio * prepared.hmve_reference_tokens
+            )),
+        )
+        if target_tokens < len(prepared.hmve_scout_units):
+            raise ValueError(
+                "HMVE exact final budget is smaller than the required scout-anchor count: "
+                f"{target_tokens} tokens for {len(prepared.hmve_scout_units)} units. "
+                "Reduce --hmve-scout-fps or increase --retention-ratio."
+            )
+        minimum_detailed_seconds = (
+            target_tokens * self.observation.detailed_budget_fraction
+            / max(detail_tokens_per_second, 1e-6)
+        )
+        corridors = propose_corridors(
+            times,
+            relevance_curve,
+            request.sample.duration,
+            maximum_corridors=self.observation.maximum_corridors,
+            minimum_seconds=self.observation.minimum_corridor_seconds,
+            margin_seconds=self.observation.corridor_margin_seconds,
+            nms_seconds=self.observation.corridor_nms_seconds,
+            minimum_total_seconds=minimum_detailed_seconds,
+        )
+        detailed_units = self._decode_hmve_corridors(request, corridors)
+        final_units = sorted(
+            [*prepared.hmve_scout_units, *detailed_units],
+            key=lambda value: (
+                value.absolute_time, value.pass_id, value.source_observation, value.cache_index,
+            ),
+        )
+        with self._processor_lock:
+            final_inputs = self._process_hmve_units(request.sample, final_units)
+        final_inputs = {
+            key: value.to(device) if self.torch.is_tensor(value) else value
+            for key, value in final_inputs.items()
+        }
+        grids = final_inputs["video_grid_thw"]
+        pixels = final_inputs["pixel_values_videos"]
+        raw_sizes = [int(value.prod().item()) for value in grids]
+        pixel_parts = []
+        offset = 0
+        for size in raw_sizes:
+            pixel_parts.append(pixels[offset:offset + size])
+            offset += size
+        if offset != int(pixels.shape[0]):
+            raise RuntimeError("HMVE pixel/grid accounting mismatch")
+        detailed_positions = [index for index, unit in enumerate(final_units) if unit.pass_id == 1]
+        detailed_pixels = self.torch.cat([pixel_parts[index] for index in detailed_positions], dim=0)
+        detailed_grids = grids[detailed_positions]
+
+        self.torch.cuda.synchronize()
+        detailed_encoder_started = perf_counter()
+        detailed_embeds, _, _ = self.model.model.get_video_features(
+            detailed_pixels,
+            detailed_grids,
+            return_token_scores=True,
+        )
+        self.torch.cuda.synchronize()
+        detailed_encoder_seconds = perf_counter() - detailed_encoder_started
+        detailed_iterator = iter(detailed_embeds)
+        evidence: list[EvidenceUnit] = []
+        for unit_index, unit in enumerate(final_units):
+            embeddings = (
+                scout_embeds[unit.cache_index]
+                if unit.pass_id == 0 else next(detailed_iterator)
+            )
+            merge = int(self.model.visual.spatial_merge_size)
+            grid_height = int(grids[unit_index, 1].item()) // merge
+            grid_width = int(grids[unit_index, 2].item()) // merge
+            if grid_height * grid_width != int(embeddings.shape[0]):
+                raise RuntimeError("HMVE projected-token grid mismatch")
+            evidence.append(evidence_unit(
+                pass_id=unit.pass_id,
+                absolute_time=unit.absolute_time,
+                grid_height=grid_height,
+                grid_width=grid_width,
+                source_height=int(unit.video.shape[-2]),
+                source_width=int(unit.video.shape[-1]),
+                embeddings=embeddings,
+                query_embeddings=query_embeddings,
+                source_observation=unit.source_observation,
+            ))
+        selection = select_evidence(
+            evidence,
+            target_tokens,
+            deduplication_similarity=self.observation.deduplication_similarity,
+        )
+
+        input_ids = final_inputs["input_ids"]
+        attention_mask = final_inputs["attention_mask"]
+        unit_positions = self._video_unit_positions(input_ids, attention_mask)
+        if len(unit_positions) != len(final_units):
+            raise RuntimeError(
+                f"HMVE prompt contains {len(unit_positions)} units, expected {len(final_units)}"
+            )
+        inputs_embeds = self.model.get_input_embeddings()(input_ids)
+        visual_mask = self.torch.zeros_like(attention_mask, dtype=self.torch.bool)
+        selected_visual_positions = []
+        for unit_index, (positions, embeddings, local_indices) in enumerate(zip(
+            unit_positions, [value.embeddings for value in evidence], selection.local_indices,
+        )):
+            if positions.numel() != embeddings.shape[0]:
+                raise RuntimeError("HMVE prompt placeholders do not match projected evidence")
+            inputs_embeds[0, positions] = embeddings.to(inputs_embeds.dtype)
+            visual_mask[0, positions] = True
+            if local_indices.numel():
+                selected_visual_positions.append(positions[local_indices])
+        selected_visual = self.torch.cat(selected_visual_positions).sort().values
+        keep_visual = self.torch.zeros_like(attention_mask, dtype=self.torch.bool)
+        keep_visual[0, selected_visual] = True
+        keep = attention_mask.bool() & (~visual_mask | keep_visual)
+        keep_indices = self.torch.nonzero(keep[0], as_tuple=False).flatten()
+        original_positions, _ = self.model.model.get_rope_index(
+            input_ids,
+            image_grid_thw=None,
+            video_grid_thw=grids,
+            attention_mask=attention_mask,
+        )
+        compact_ids = input_ids[:, keep_indices]
+        compact_embeds = inputs_embeds[:, keep_indices]
+        compact_attention = attention_mask[:, keep_indices]
+        compact_positions = original_positions[:, :, keep_indices]
+        compact_length = int(compact_ids.shape[-1])
+        self.model.model.rope_deltas = (
+            compact_positions.max(dim=0).values.max(dim=-1, keepdim=True).values
+            + 1 - compact_length
+        )
+        controller_wall_seconds = perf_counter() - controller_started
+        controller_seconds = max(
+            0.0,
+            controller_wall_seconds - scout_encoder_seconds - detailed_encoder_seconds,
+        )
+
+        self.torch.cuda.synchronize()
+        generation_started = perf_counter()
+        generated = self.model.generate(
+            input_ids=compact_ids,
+            inputs_embeds=compact_embeds,
+            attention_mask=compact_attention,
+            position_ids=compact_positions,
+            generation_config=self.generation_config,
+            use_model_defaults=False,
+            **generation_kwargs,
+        )
+        self.torch.cuda.synchronize()
+        generation_seconds = perf_counter() - generation_started
+
+        scout_frames = sum(int(unit.video.shape[0]) for unit in prepared.hmve_scout_units)
+        detailed_frames = sum(int(unit.video.shape[0]) for unit in detailed_units)
+        scout_pixels = sum(
+            int(unit.video.shape[0] * unit.video.shape[-2] * unit.video.shape[-1])
+            for unit in prepared.hmve_scout_units
+        )
+        detailed_pixels_count = sum(
+            int(unit.video.shape[0] * unit.video.shape[-2] * unit.video.shape[-1])
+            for unit in detailed_units
+        )
+        created_by_pass = {
+            0: sum(value.token_count for value in evidence if value.pass_id == 0),
+            1: sum(value.token_count for value in evidence if value.pass_id == 1),
+        }
+        vision_config = self.model.config.vision_config
+        pass_tflops = {
+            "0": estimate_vision_transformer_tflops(
+                vision_config, scout_inputs["video_grid_thw"],
+            ),
+            "1": estimate_vision_transformer_tflops(vision_config, detailed_grids),
+        }
+        stats = {
+            "orig_video_tokens": prepared.hmve_reference_tokens,
+            "kept_video_tokens": target_tokens,
+            "target_retained_tokens": target_tokens,
+            "actual_retained_tokens": selection.actual_tokens,
+            "original_visual_tokens": prepared.hmve_reference_tokens,
+            "effective_retention_ratio": target_tokens / max(prepared.hmve_reference_tokens, 1),
+            "orig_seq_len": int(input_ids.shape[-1]),
+            "new_seq_len": compact_length,
+            "per_frame_allocation": [
+                int(selection.local_indices[index].numel())
+                for index, value in enumerate(evidence) if value.pass_id == 0
+            ],
+            "prototype_tokens": selection.anchor_tokens,
+            "start_boundary_tokens": 0,
+            "end_boundary_tokens": 0,
+            "adaptive_tokens": selection.actual_tokens - selection.anchor_tokens,
+            "hmve": {
+                "observation_policy": "hmve",
+                "encoder_calls": 2,
+                "llm_generations": 1,
+                "corridors": [
+                    {"start": value.start, "end": value.end, "score": value.score}
+                    for value in corridors
+                ],
+                "passes": [
+                    {
+                        "pass_id": 0,
+                        "decoded_frames": scout_frames,
+                        "decoded_pixels": scout_pixels,
+                        "created_tokens": created_by_pass[0],
+                        "retained_tokens": selection.retained_by_pass.get(0, 0),
+                        "encoder_seconds": scout_encoder_seconds,
+                        "raw_patch_tokens": int(
+                            scout_inputs["video_grid_thw"].prod(dim=-1).sum().item()
+                        ),
+                        "vision_transformer_core_tflops_estimate": pass_tflops["0"],
+                    },
+                    {
+                        "pass_id": 1,
+                        "decoded_frames": detailed_frames,
+                        "decoded_pixels": detailed_pixels_count,
+                        "created_tokens": created_by_pass[1],
+                        "retained_tokens": selection.retained_by_pass.get(1, 0),
+                        "encoder_seconds": detailed_encoder_seconds,
+                        "raw_patch_tokens": int(detailed_grids.prod(dim=-1).sum().item()),
+                        "vision_transformer_core_tflops_estimate": pass_tflops["1"],
+                    },
+                ],
+                "created_tokens": sum(created_by_pass.values()),
+                "retained_tokens": selection.actual_tokens,
+                "global_anchor_tokens": selection.anchor_tokens,
+                "redundant_coarse_tokens": selection.redundant_coarse_tokens,
+                "cache_reused_scout_units": len(prepared.hmve_scout_units),
+                "absolute_timestamps_preserved": True,
+                "original_position_ids_preserved": True,
+                "controller_seconds": controller_seconds,
+                "vision_flops_estimate_kind": "full-attention transformer core; excludes patch embed and merger",
+            },
+            "decoded_frames": scout_frames + detailed_frames,
+            "decoded_pixels": scout_pixels + detailed_pixels_count,
+            "vision_encoder_seconds": scout_encoder_seconds + detailed_encoder_seconds,
+        }
+        self.model.fastvid_last_stats = stats
+        self.model.fastvid_last_stats_batch = [stats]
+        self.model.last_hmve_stats_batch = [stats]
+        accounting_inputs = {
+            "input_ids": compact_ids,
+            "attention_mask": compact_attention,
+        }
+        return generated, accounting_inputs, compact_length, (
+            scout_encoder_seconds + detailed_encoder_seconds
+        ), generation_seconds
+
     def ground_prepared(
         self, prepared: PreparedGroundingBatch,
     ) -> list[GroundingPrediction | Exception]:
@@ -360,33 +963,42 @@ class SemVIDGrounder:
         }
         self.torch.cuda.synchronize()
         transfer_seconds = perf_counter() - transfer_started
-        vision_started = [0.0]
-        vision_seconds = [0.0]
-
-        def before_vision(*_args: Any) -> None:
-            self.torch.cuda.synchronize()
-            vision_started[0] = perf_counter()
-
-        def after_vision(*_args: Any) -> None:
-            self.torch.cuda.synchronize()
-            vision_seconds[0] += perf_counter() - vision_started[0]
-
-        pre_hook = self.model.visual.register_forward_pre_hook(before_vision)
-        post_hook = self.model.visual.register_forward_hook(after_vision)
-        generation_started = perf_counter()
         logits_capture = _FirstLogitsCapture() if self.config.capture_validation_logits else None
         generation_kwargs = {"logits_processor": [logits_capture]} if logits_capture is not None else {}
-        try:
+        if self.observation.policy == "hmve":
             with self.torch.inference_mode():
-                generated = self.model.generate(
-                    **inputs, generation_config=self.generation_config, use_model_defaults=False,
-                    **generation_kwargs,
+                generated, inputs, prompt_length, hmve_vision_seconds, generation_seconds = (
+                    self._hmve_generate(prepared, inputs, generation_kwargs)
                 )
-        finally:
-            pre_hook.remove()
-            post_hook.remove()
-        generation_seconds = perf_counter() - generation_started
-        prompt_length = prepared.prompt_length
+            vision_seconds = [hmve_vision_seconds]
+        else:
+            vision_started = [0.0]
+            vision_seconds = [0.0]
+
+            def before_vision(*_args: Any) -> None:
+                self.torch.cuda.synchronize()
+                vision_started[0] = perf_counter()
+
+            def after_vision(*_args: Any) -> None:
+                self.torch.cuda.synchronize()
+                vision_seconds[0] += perf_counter() - vision_started[0]
+
+            pre_hook = self.model.visual.register_forward_pre_hook(before_vision)
+            post_hook = self.model.visual.register_forward_hook(after_vision)
+            generation_started = perf_counter()
+            try:
+                with self.torch.inference_mode():
+                    generated = self.model.generate(
+                        **inputs,
+                        generation_config=self.generation_config,
+                        use_model_defaults=False,
+                        **generation_kwargs,
+                    )
+            finally:
+                pre_hook.remove()
+                post_hook.remove()
+            generation_seconds = perf_counter() - generation_started
+            prompt_length = prepared.prompt_length
         prediction_ids = generated[:, prompt_length:] if generated.shape[-1] > prompt_length else generated
         with self._processor_lock:
             texts = self.processor.batch_decode(
@@ -422,7 +1034,11 @@ class SemVIDGrounder:
             )
             semvid_stats.update(allocator_stats)
             grid = inputs.get("video_grid_thw")
-            if self.torch.is_tensor(grid) and batch_index < grid.shape[0]:
+            if (
+                self.observation.policy == "single_pass"
+                and self.torch.is_tensor(grid)
+                and batch_index < grid.shape[0]
+            ):
                 merge = int(getattr(self.model.visual, "spatial_merge_size", 1))
                 dense_visual_tokens = int(grid[batch_index].prod().item()) // (merge * merge)
                 grid_frames = int(grid[batch_index, 0].item())
@@ -442,15 +1058,18 @@ class SemVIDGrounder:
                 int(valid_tokens[batch_index].sum().item())
                 if self.torch.is_tensor(valid_tokens) else prompt_length
             )
-            token_roles = _token_role_counts(self.model, batch_index, allocator_stats)
+            role_stats = semvid_stats if self.observation.policy == "hmve" else allocator_stats
+            token_roles = _token_role_counts(self.model, batch_index, role_stats)
             per_frame_allocation = _per_frame_allocation(
                 self.model,
                 batch_index,
                 grid_frames,
                 grid_patches,
-                allocator_stats,
+                role_stats,
                 self.spatial_allocator.spatial_policy,
             )
+            original_prefill_length = int(semvid_stats.get("orig_seq_len", row_valid_tokens))
+            compact_prefill_length = int(semvid_stats.get("new_seq_len", row_valid_tokens))
             telemetry = {
                 **prepared.input_stats[batch_index],
                 "input_preparation_seconds": prepared.preparation_seconds / len(prepared.requests),
@@ -466,10 +1085,10 @@ class SemVIDGrounder:
                 "qwen_batch_size": len(prepared.requests),
                 "batch_padding_tokens": prompt_length - row_valid_tokens,
                 "pinned_memory_bytes": prepared.pinned_memory_bytes,
-                "prefill_tokens_before_pruning": row_valid_tokens,
-                "prefill_tokens_after_pruning": int(semvid_stats.get("new_seq_len", row_valid_tokens)),
-                "original_prefill_length": row_valid_tokens,
-                "compact_prefill_length": int(semvid_stats.get("new_seq_len", row_valid_tokens)),
+                "prefill_tokens_before_pruning": original_prefill_length,
+                "prefill_tokens_after_pruning": compact_prefill_length,
+                "original_prefill_length": original_prefill_length,
+                "compact_prefill_length": compact_prefill_length,
                 "target_retained_tokens": int(semvid_stats.get(
                     "target_retained_tokens", semvid_stats.get("kept_video_tokens", 0)
                 )),
@@ -490,6 +1109,55 @@ class SemVIDGrounder:
                 "motion_allocation_seconds": float(semvid_stats.get("motion_allocation_seconds", 0.0)),
                 "boundary_allocation_seconds": float(semvid_stats.get("boundary_allocation_seconds", 0.0)),
                 "selection_seconds": float(semvid_stats.get("selection_seconds", 0.0)),
+                "query_only_overlap_tokens": int(
+                    semvid_stats.get("query_only_overlap_tokens", 0)
+                ),
+                "query_only_overlap_fraction": float(
+                    semvid_stats.get("query_only_overlap_fraction", 0.0)
+                ),
+                "query_only_nonprototype_overlap_tokens": int(
+                    semvid_stats.get("query_only_nonprototype_overlap_tokens", 0)
+                ),
+                "query_only_nonprototype_overlap_fraction": float(
+                    semvid_stats.get("query_only_nonprototype_overlap_fraction", 0.0)
+                ),
+                "attempted_replacements": int(semvid_stats.get("attempted_replacements", 0)),
+                "actual_replacements": int(semvid_stats.get("actual_replacements", 0)),
+                "attempted_motion_replacements": int(
+                    semvid_stats.get("attempted_motion_replacements", 0)
+                ),
+                "actual_motion_replacements": int(
+                    semvid_stats.get("actual_motion_replacements", 0)
+                ),
+                "attempted_boundary_replacements": int(
+                    semvid_stats.get("attempted_boundary_replacements", 0)
+                ),
+                "actual_boundary_replacements": int(
+                    semvid_stats.get("actual_boundary_replacements", 0)
+                ),
+                "motion_gated_frames": semvid_stats.get("motion_gated_frames", []),
+                "motion_gated_frame_count": int(
+                    semvid_stats.get("motion_gated_frame_count", 0)
+                ),
+                "rejected_boundary_bands": {
+                    "start": int(semvid_stats.get("rejected_start_boundary_bands", 0)),
+                    "end": int(semvid_stats.get("rejected_end_boundary_bands", 0)),
+                },
+                "boundary_evidence": {
+                    "start": semvid_stats.get("start_evidence", {}),
+                    "end": semvid_stats.get("end_evidence", {}),
+                },
+                "auxiliary_quota": int(semvid_stats.get("auxiliary_quota", 0)),
+                "quota_returned_to_query": int(
+                    semvid_stats.get("quota_returned_to_query", 0)
+                ),
+                "decoded_frames": int(semvid_stats.get(
+                    "decoded_frames", prepared.input_stats[batch_index].get("decoded_frames", 0),
+                )),
+                "decoded_pixels": int(semvid_stats.get(
+                    "decoded_pixels", prepared.input_stats[batch_index].get("decoded_pixels", 0),
+                )),
+                "hmve": semvid_stats.get("hmve"),
                 "generated_tokens": int(prediction_ids.shape[-1]),
                 "first_token_topk": (
                     first_token_topk[batch_index] if batch_index < len(first_token_topk) else None

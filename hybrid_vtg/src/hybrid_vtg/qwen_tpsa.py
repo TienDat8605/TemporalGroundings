@@ -20,14 +20,14 @@ class Qwen3VLForConditionalGenerationTPSA(Qwen3VLForConditionalGenerationSemVID)
             retention_ratio=float(getattr(config, "semantic_retention_ratio", 0.125)),
             mmr_lambda=float(getattr(config, "tpsa_mmr_lambda", 0.9)),
             relevance_top_fraction=float(getattr(config, "tpsa_relevance_top_fraction", 0.10)),
-            boundary_quota_fraction=float(getattr(config, "tpsa_boundary_quota_fraction", 0.10)),
-            motion_neighborhood_radius=int(getattr(config, "tpsa_motion_neighborhood_radius", 2)),
+            auxiliary_fraction=float(getattr(config, "tpsa_auxiliary_fraction", 0.10)),
+            boundary_share=float(getattr(config, "tpsa_boundary_share", 0.50)),
+            motion_query_beta=float(getattr(config, "tpsa_motion_query_beta", 0.50)),
+            evidence_mad_multiplier=float(getattr(config, "tpsa_evidence_mad_multiplier", 2.0)),
             boundary_window_seconds=float(getattr(config, "tpsa_boundary_window_seconds", 1.0)),
             boundary_nms_seconds=float(getattr(config, "tpsa_boundary_nms_seconds", 4.0)),
             boundary_expansion_seconds=float(getattr(config, "tpsa_boundary_expansion_seconds", 1.0)),
             maximum_boundary_bands=int(getattr(config, "tpsa_maximum_boundary_bands", 4)),
-            query_core_fraction=float(getattr(config, "tpsa_query_core_fraction", 0.80)),
-            motion_bonus_fraction=float(getattr(config, "tpsa_motion_bonus_fraction", 0.10)),
         )
         self.tpsa_allocator = TimelinePreservingSpatialAllocator(allocator_config)
         self.tpsa_fps = float(getattr(config, "tpsa_fps", 2.0))

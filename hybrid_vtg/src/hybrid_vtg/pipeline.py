@@ -30,6 +30,7 @@ class HybridVTGPipeline:
             config.grounder,
             config.spatial_allocator,
             semvid_root,
+            config.observation,
         )
 
     @staticmethod
@@ -158,6 +159,7 @@ class HybridVTGPipeline:
             "group": sample.group,
             "cardinality": sample.cardinality,
             "spatial_policy": self.config.spatial_allocator.spatial_policy,
+            "observation_policy": self.config.observation.policy,
             "prediction": prediction.to_dict(),
             "efficiency": {
                 "target_retained_tokens": int(telemetry.get("target_retained_tokens", retained)),
@@ -167,6 +169,20 @@ class HybridVTGPipeline:
                 "per_frame_allocation": telemetry.get("per_frame_allocation"),
                 "token_role_counts": prediction.token_roles,
                 "selected_boundary_bands": telemetry.get("selected_boundary_bands"),
+                "tpsa_audit": {
+                    key: telemetry.get(key)
+                    for key in (
+                        "query_only_overlap_tokens", "query_only_overlap_fraction",
+                        "query_only_nonprototype_overlap_tokens",
+                        "query_only_nonprototype_overlap_fraction", "attempted_replacements",
+                        "actual_replacements", "attempted_motion_replacements",
+                        "actual_motion_replacements", "attempted_boundary_replacements",
+                        "actual_boundary_replacements", "motion_gated_frames",
+                        "motion_gated_frame_count", "rejected_boundary_bands",
+                        "boundary_evidence", "auxiliary_quota", "quota_returned_to_query",
+                    )
+                },
+                "hmve": telemetry.get("hmve"),
                 "allocator_timing_seconds": allocator_timing,
                 "decoded_frames": int(telemetry.get("decoded_frames", 0)),
                 "decoded_pixels": int(telemetry.get("decoded_pixels", 0)),

@@ -1,6 +1,6 @@
 # Hierarchical Multi-Pass Visual Evidence Accumulation
 
-- **Status:** research proposal; not yet implemented
+- **Status:** Phase A implemented in `hybrid_vtg`; Phases B--D remain proposals
 - **Working name:** HMVE (Hierarchical Multi-Pass Visual Encoder)
 - **Primary benchmark:** OMTG Bench at 12.5% final visual-token retention
 **Model contract:** frozen Qwen3-VL vision encoder and frozen LLM; training-free

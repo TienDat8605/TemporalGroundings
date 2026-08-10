@@ -9,6 +9,7 @@ from typing import Any
 SPATIAL_POLICIES = (
     "dense", "semvid", "uniform", "tpsa_query", "tpsa_motion", "tpsa_boundary",
 )
+OBSERVATION_POLICIES = ("single_pass", "hmve")
 
 
 @dataclass(frozen=True)
@@ -52,14 +53,14 @@ class SpatialAllocatorConfig:
     retention_ratio: float = 0.125
     mmr_lambda: float = 0.9
     relevance_top_fraction: float = 0.10
-    boundary_quota_fraction: float = 0.10
-    motion_neighborhood_radius: int = 2
+    auxiliary_fraction: float = 0.10
+    boundary_share: float = 0.50
+    motion_query_beta: float = 0.50
+    evidence_mad_multiplier: float = 2.0
     boundary_window_seconds: float = 1.0
     boundary_nms_seconds: float = 4.0
     boundary_expansion_seconds: float = 1.0
     maximum_boundary_bands: int = 4
-    query_core_fraction: float = 0.80
-    motion_bonus_fraction: float = 0.10
 
     def __post_init__(self) -> None:
         if self.spatial_policy not in SPATIAL_POLICIES:
@@ -70,10 +71,14 @@ class SpatialAllocatorConfig:
             raise ValueError("MMR lambda must be in [0, 1]")
         if not 0 < self.relevance_top_fraction <= 1:
             raise ValueError("relevance top fraction must be in (0, 1]")
-        if not 0 <= self.boundary_quota_fraction <= 0.5:
-            raise ValueError("boundary quota fraction must be in [0, 0.5]")
-        if self.motion_neighborhood_radius < 0:
-            raise ValueError("motion neighborhood radius must be non-negative")
+        if not 0 <= self.auxiliary_fraction <= 0.10:
+            raise ValueError("auxiliary fraction must be in [0, 0.10]")
+        if not 0 <= self.boundary_share <= 1:
+            raise ValueError("boundary share must be in [0, 1]")
+        if not 0 <= self.motion_query_beta <= 1:
+            raise ValueError("motion/query beta must be in [0, 1]")
+        if self.evidence_mad_multiplier < 0:
+            raise ValueError("evidence MAD multiplier must be non-negative")
         if min(
             self.boundary_window_seconds,
             self.boundary_nms_seconds,
@@ -84,21 +89,49 @@ class SpatialAllocatorConfig:
             raise ValueError("boundary window must be positive")
         if self.maximum_boundary_bands <= 0:
             raise ValueError("maximum boundary bands must be positive")
-        if not 0 <= self.query_core_fraction <= 1:
-            raise ValueError("query core fraction must be in [0, 1]")
-        if not 0 <= self.motion_bonus_fraction <= 1:
-            raise ValueError("motion bonus fraction must be in [0, 1]")
-        if self.query_core_fraction + 2 * self.boundary_quota_fraction > 1 + 1e-8:
-            raise ValueError("query core and two boundary quotas must not exceed the token budget")
 
     def allocator_constants(self) -> dict[str, Any]:
         return asdict(self)
 
 
 @dataclass(frozen=True)
+class ObservationConfig:
+    policy: str = "single_pass"
+    scout_fps: float = 0.5
+    scout_total_pixel_tokens: int = 2048
+    maximum_corridors: int = 4
+    corridor_margin_seconds: float = 4.0
+    minimum_corridor_seconds: float = 8.0
+    corridor_nms_seconds: float = 8.0
+    detailed_budget_fraction: float = 0.80
+    deduplication_similarity: float = 0.98
+
+    def __post_init__(self) -> None:
+        if self.policy not in OBSERVATION_POLICIES:
+            raise ValueError(f"observation policy must be one of {OBSERVATION_POLICIES}")
+        if self.scout_fps <= 0 or self.scout_total_pixel_tokens <= 0:
+            raise ValueError("HMVE scout FPS and pixel-token budget must be positive")
+        if self.maximum_corridors <= 0:
+            raise ValueError("HMVE must retain at least one candidate corridor")
+        if min(
+            self.corridor_margin_seconds,
+            self.minimum_corridor_seconds,
+            self.corridor_nms_seconds,
+        ) < 0:
+            raise ValueError("HMVE corridor time constants must be non-negative")
+        if self.minimum_corridor_seconds == 0:
+            raise ValueError("HMVE minimum corridor duration must be positive")
+        if not 0 <= self.detailed_budget_fraction <= 1:
+            raise ValueError("HMVE detailed budget fraction must be in [0, 1]")
+        if not -1 <= self.deduplication_similarity <= 1:
+            raise ValueError("HMVE deduplication similarity must be in [-1, 1]")
+
+
+@dataclass(frozen=True)
 class PipelineConfig:
     grounder: GrounderConfig = field(default_factory=GrounderConfig)
     spatial_allocator: SpatialAllocatorConfig = field(default_factory=SpatialAllocatorConfig)
+    observation: ObservationConfig = field(default_factory=ObservationConfig)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

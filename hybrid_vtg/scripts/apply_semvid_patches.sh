@@ -6,6 +6,7 @@ semvid_root="${SEMVID_ROOT:-$repo_root/SemVID}"
 patch_files=(
   "$repo_root/hybrid_vtg/patches/semvid-qwen-microbatch.patch"
   "$repo_root/hybrid_vtg/patches/semvid-tpsa-selection-hook.patch"
+  "$repo_root/hybrid_vtg/patches/semvid-hmve-positions.patch"
 )
 
 for patch_file in "${patch_files[@]}"; do

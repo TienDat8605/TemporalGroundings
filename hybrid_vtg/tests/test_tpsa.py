@@ -52,24 +52,26 @@ def test_flat_evidence_transfers_boundary_quota_and_allocates_uniformly():
     assert int(result.frame_allocation.max() - result.frame_allocation.min()) <= 1
 
 
-def test_directional_boundary_quota_is_assigned_exactly_when_bands_exist():
-    tokens = torch.zeros(12, 4, 4)
+def test_strong_directional_transitions_retain_both_sides():
+    tokens = torch.zeros(12, 20, 4)
     tokens[:4, :, 0] = -1
     tokens[4:9, :, 0] = 1
     tokens[9:, :, 0] = -1
-    for patch in range(4):
+    for patch in range(20):
         tokens[:, patch, patch % 3 + 1] = 0.1 * (patch + 1)
     result = _allocator("tpsa_boundary", 0.75)(
-        tokens, 2, 2, torch.tensor([[1.0, 0.0, 0.0, 0.0]]), fps=1.0,
+        tokens, 4, 5, torch.tensor([[1.0, 0.0, 0.0, 0.0]]), fps=1.0,
     )
     remaining = result.target_tokens - tokens.shape[0]
-    quota = int(remaining * 0.10)
-    assert result.start_indices.numel() == quota
-    assert result.end_indices.numel() == quota
+    boundary_quota = int(int(remaining * 0.10) * 0.50)
+    assert result.start_indices.numel() + result.end_indices.numel() == boundary_quota
+    assert result.start_indices.numel() >= 2
+    assert result.end_indices.numel() >= 2
     assert result.start_bands[0].center_frame == 4
     assert result.end_bands[0].center_frame == 9
-    start_frames = result.start_indices // tokens.shape[1]
-    end_frames = result.end_indices // tokens.shape[1]
+    retained_frames = result.keep_indices // tokens.shape[1]
+    start_frames = retained_frames[(retained_frames >= 3) & (retained_frames <= 5)]
+    end_frames = retained_frames[(retained_frames >= 8) & (retained_frames <= 10)]
     assert bool((start_frames < 4).any()) and bool((start_frames >= 4).any())
     assert bool((end_frames < 9).any()) and bool((end_frames >= 9).any())
 
@@ -110,7 +112,7 @@ def test_directional_start_rise_end_fall_and_one_second_expansion():
 
 
 def test_four_second_nms_and_four_band_cap():
-    evidence = torch.zeros(30)
+    evidence = torch.full((30,), 0.1)
     evidence[[2, 4, 8, 12, 16, 20, 24]] = torch.tensor([0.8, 1.0, 0.9, 0.85, 0.8, 0.75, 0.7])
     bands = select_boundary_bands(evidence, "start", 1.0, 4.0, 1.0, 4)
     assert len(bands) == 4
@@ -133,29 +135,13 @@ def test_local_state_change_exceeds_static_background():
     assert float(novelty[:, 4].max()) > float(novelty[:, 0].min())
 
 
-def test_local_object_translation_produces_motion_evidence():
-    height = width = 5
-    generator = torch.Generator().manual_seed(23)
-    first = torch.randn(height * width, 16, generator=generator)
+def test_motion_uses_adjacent_same_cell_feature_difference():
+    first = torch.zeros(4, 3)
     second = first.clone()
-    source, destination = 2 * width + 1, 2 * width + 2
-    second[destination] = first[source]
-    second[source] = torch.randn(16, generator=generator)
-    novelty = feature_transition_maps(torch.stack((first, second)), height, width, radius=2)
-    assert float(novelty[0, source]) > float(novelty[0].median())
-    assert float(novelty[1, destination]) > float(novelty[1].median())
-
-
-def test_global_translation_is_camera_compensated_away_from_edges():
-    height = width = 5
-    base = torch.eye(height * width)
-    shifted = torch.zeros_like(base)
-    for row in range(height):
-        for column in range(width - 1):
-            shifted[row * width + column + 1] = base[row * width + column]
-    novelty = feature_transition_maps(torch.stack((base, shifted)), height, width, radius=2)
-    interior = novelty.reshape(2, height, width)[:, :, 1:]
-    assert float((interior == 0).float().mean()) >= 0.5
+    second[2, 1] = 3.0
+    novelty = feature_transition_maps(torch.stack((first, second)), 2, 2)
+    assert torch.equal(novelty[:, 2], torch.tensor([3.0, 3.0]))
+    assert torch.count_nonzero(novelty[:, [0, 1, 3]]) == 0
 
 
 def test_motion_magnitude_is_comparable_across_the_complete_video():
@@ -165,17 +151,73 @@ def test_motion_magnitude_is_comparable_across_the_complete_video():
     novelty = feature_transition_maps(video, 3, 3)
     frame_strength = novelty.topk(2, dim=1).values.mean(dim=1)
     assert float(frame_strength[1]) > float(frame_strength[0])
-    assert float(frame_strength[2]) > float(frame_strength[3])
+    assert float(frame_strength[2]) == float(frame_strength[3])
 
 
-def test_motion_and_boundary_policies_protect_query_core():
+def test_auxiliary_policies_keep_at_least_ninety_percent_query_overlap():
     tokens = _tokens(frames=10, height=3, width=4)
     query = tokens[3, :2].clone()
     for policy in ("tpsa_motion", "tpsa_boundary"):
         result = _allocator(policy, 0.25)(tokens, 3, 4, query, fps=1.0)
         remaining = result.target_tokens - tokens.shape[0]
-        assert result.query_core_indices.numel() == round(remaining * 0.8)
-        assert result.stats()["protected_query_tokens"] == round(remaining * 0.8)
+        overlap = result.stats()["query_only_nonprototype_overlap_tokens"]
+        assert overlap >= remaining - int(remaining * 0.10)
+        assert result.stats()["query_only_nonprototype_overlap_fraction"] >= 0.90
+
+
+def test_query_policy_indices_are_bit_exact_v2_control():
+    tokens = _tokens()
+    query = tokens[3, :2].clone()
+    result = _allocator("tpsa_query", 0.25)(tokens, 3, 4, query, fps=2.0)
+    assert result.keep_indices.tolist() == [
+        1, 2, 10, 17, 18, 19, 20, 23, 26, 28, 36, 37,
+        38, 43, 44, 47, 52, 62, 67, 69, 71, 75, 77, 86,
+    ]
+
+
+def test_motion_preserves_exact_query_frame_allocation():
+    tokens = _tokens(frames=10)
+    query = tokens[3, :2].clone()
+    baseline = _allocator("tpsa_query", 0.5)(tokens, 3, 4, query, fps=1.0)
+    motion = _allocator("tpsa_motion", 0.5)(tokens, 3, 4, query, fps=1.0)
+    assert torch.equal(motion.frame_allocation, baseline.frame_allocation)
+
+
+@pytest.mark.parametrize("scale", (0.0, 1e-7))
+def test_static_or_weak_motion_falls_back_exactly_to_query(scale):
+    frame = _tokens(frames=1, height=3, width=4)[0]
+    offsets = torch.arange(6, dtype=frame.dtype)[:, None, None] * scale
+    tokens = frame.unsqueeze(0).repeat(6, 1, 1) + offsets
+    query = frame[:2].clone()
+    baseline = _allocator("tpsa_query", 0.5)(tokens, 3, 4, query, fps=1.0)
+    motion = _allocator("tpsa_motion", 0.5)(tokens, 3, 4, query, fps=1.0)
+    assert torch.equal(motion.keep_indices, baseline.keep_indices)
+    assert motion.stats()["actual_motion_replacements"] == 0
+    assert motion.stats()["motion_gated_frame_count"] == tokens.shape[0]
+
+
+def test_query_negative_background_change_cannot_enter_motion_selection():
+    tokens = torch.zeros(6, 8, 3)
+    tokens[:, :, 0] = 1.0
+    tokens[:, :, 1] = torch.arange(8).float() / 20
+    tokens[:, 7, 0] = -100.0
+    tokens[3:, 7, 2] = 100.0
+    query = torch.tensor([[1.0, 0.0, 0.0]])
+    baseline = _allocator("tpsa_query", 0.5)(tokens, 2, 4, query, fps=1.0)
+    motion = _allocator("tpsa_motion", 0.5)(tokens, 2, 4, query, fps=1.0)
+    changed = torch.arange(6) * 8 + 7
+    assert not bool(torch.isin(changed, baseline.keep_indices).any())
+    assert not bool(torch.isin(changed, motion.keep_indices).any())
+
+
+def test_boundary_noise_receives_no_quota():
+    evidence = torch.full((20,), 0.01)
+    assert select_boundary_bands(evidence, "start", 1.0, 4.0, 1.0, 4) == ()
+    frame = _tokens(frames=1, height=3, width=4)[0]
+    tokens = frame.unsqueeze(0).repeat(8, 1, 1)
+    result = _allocator("tpsa_boundary", 0.5)(tokens, 3, 4, frame[:2], fps=1.0)
+    assert result.actual_boundary_replacements == 0
+    assert result.quota_returned_to_query == result.auxiliary_quota
 
 
 def test_effective_temporal_fps_accounts_for_qwen_tubelets():

@@ -9,11 +9,14 @@ from pathlib import Path
 from time import perf_counter
 
 from .benchmarks import load_benchmark
-from .config import SPATIAL_POLICIES, GrounderConfig, PipelineConfig, SpatialAllocatorConfig
+from .config import (
+    OBSERVATION_POLICIES, SPATIAL_POLICIES, GrounderConfig, ObservationConfig,
+    PipelineConfig, SpatialAllocatorConfig,
+)
 from .doctor import inspect_runtime
 from .io import append_jsonl, completed_ids, ensure_manifest, git_revision, read_jsonl
 from .metrics import evaluate
-from .optimization_validation import compare_optimization_runs
+from .optimization_validation import compare_optimization_runs, validate_tpsa_v3_gate
 from .pipeline import HybridVTGPipeline
 from .semvid_bridge import default_semvid_root
 
@@ -36,6 +39,18 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--semvid-root", type=Path, default=default_semvid_root())
     run.add_argument("--limit", type=int, default=0)
     run.add_argument("--spatial-policy", choices=SPATIAL_POLICIES, default="semvid")
+    run.add_argument(
+        "--observation-policy", choices=OBSERVATION_POLICIES,
+        default=ObservationConfig.policy,
+    )
+    run.add_argument("--hmve-scout-fps", type=float, default=ObservationConfig.scout_fps)
+    run.add_argument(
+        "--hmve-scout-pixel-tokens", type=int,
+        default=ObservationConfig.scout_total_pixel_tokens,
+    )
+    run.add_argument(
+        "--hmve-maximum-corridors", type=int, default=ObservationConfig.maximum_corridors,
+    )
     run.add_argument("--model", default=GrounderConfig.model)
     run.add_argument("--expert-fps", type=float, default=GrounderConfig.fps)
     run.add_argument("--retention-ratio", type=float, default=SpatialAllocatorConfig.retention_ratio)
@@ -68,6 +83,11 @@ def _parser() -> argparse.ArgumentParser:
     validate.add_argument("--minimum-samples", type=int, default=32)
     validate.add_argument("--minimum-speedup", type=float, default=0.0)
     validate.add_argument("--logit-tolerance", type=float, default=0.05)
+    tpsa_gate = commands.add_parser(
+        "validate-tpsa-v3", help="apply the one-shot OMTG-64 TPSA v3 decision gate",
+    )
+    tpsa_gate.add_argument("--control", type=Path, required=True)
+    tpsa_gate.add_argument("--candidate", type=Path, required=True)
     return parser
 
 
@@ -90,7 +110,15 @@ def _config(args: argparse.Namespace) -> PipelineConfig:
         SpatialAllocatorConfig(), spatial_policy=args.spatial_policy,
         retention_ratio=args.retention_ratio,
     )
-    return PipelineConfig(grounder=grounder, spatial_allocator=spatial_allocator)
+    observation = replace(
+        ObservationConfig(), policy=args.observation_policy,
+        scout_fps=args.hmve_scout_fps,
+        scout_total_pixel_tokens=args.hmve_scout_pixel_tokens,
+        maximum_corridors=args.hmve_maximum_corridors,
+    )
+    return PipelineConfig(
+        grounder=grounder, spatial_allocator=spatial_allocator, observation=observation,
+    )
 
 
 def _run(args: argparse.Namespace) -> int:
@@ -102,7 +130,7 @@ def _run(args: argparse.Namespace) -> int:
     config = _config(args)
     repository_root = Path(__file__).resolve().parents[3]
     manifest = {
-        "schema": 5,
+        "schema": 7,
         "benchmark": args.benchmark,
         "data": str(args.data.resolve()),
         "split": split,
@@ -110,6 +138,7 @@ def _run(args: argparse.Namespace) -> int:
         "project_revision": git_revision(repository_root),
         "hybrid_vtg_revision": git_revision(repository_root),
         "spatial_policy": config.spatial_allocator.spatial_policy,
+        "observation_policy": config.observation.policy,
         "allocator_constants": config.spatial_allocator.allocator_constants(),
         "semvid_root": str(args.semvid_root.resolve()),
         "semvid_revision": git_revision(args.semvid_root),
@@ -150,6 +179,7 @@ def _run(args: argparse.Namespace) -> int:
                 "group": sample.group,
                 "cardinality": sample.cardinality,
                 "spatial_policy": config.spatial_allocator.spatial_policy,
+                "observation_policy": config.observation.policy,
                 "prediction": None,
                 "error": repr(error),
             }
@@ -192,6 +222,20 @@ def main() -> int:
             logit_tolerance=args.logit_tolerance,
             baseline_throughput=throughput(args.baseline),
             candidate_throughput=throughput(args.candidate),
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if result["passed"] else 2
+    if args.command == "validate-tpsa-v3":
+        def metrics(path: Path) -> dict:
+            metrics_path = path.with_suffix(".metrics.json")
+            return (
+                json.loads(metrics_path.read_text(encoding="utf-8"))
+                if metrics_path.is_file() else evaluate(read_jsonl(path))
+            )
+
+        result = validate_tpsa_v3_gate(
+            read_jsonl(args.control), read_jsonl(args.candidate),
+            metrics(args.control), metrics(args.candidate),
         )
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0 if result["passed"] else 2

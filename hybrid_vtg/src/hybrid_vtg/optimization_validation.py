@@ -8,6 +8,18 @@ from typing import Any, Sequence
 from .metrics import evaluate
 
 
+TPSA_V3_GATE = {
+    "samples": 64,
+    "EtF1_floor": 38.5851,
+    "tF1@0.7_floor": 42.9489,
+    "tIoU_floor": 57.8862,
+    "minimum_primary_gain": 1.0,
+    "C-Acc_floor": 48.4375,
+    "parse_rate_floor": 1.0,
+    "latency_ceiling_seconds": 6.754,
+}
+
+
 def _records_by_id(records: Sequence[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     return {str(record["id"]): record for record in records}
 
@@ -138,6 +150,80 @@ def compare_optimization_runs(
         "oom_fallbacks": oom_fallbacks,
         "equivalence_pass": equivalence_pass,
         "performance_pass": performance_pass,
+    }
+
+
+def validate_tpsa_v3_gate(
+    control: Sequence[dict[str, Any]],
+    candidate: Sequence[dict[str, Any]],
+    control_metrics: dict[str, Any] | None = None,
+    candidate_metrics: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Apply the single predeclared OMTG-64 gate for repaired TPSA boundary."""
+    control_metrics = dict(control_metrics or evaluate(control))
+    candidate_metrics = dict(candidate_metrics or evaluate(candidate))
+    control_by_id = _records_by_id(control)
+    candidate_by_id = _records_by_id(candidate)
+    same_ids = set(control_by_id) == set(candidate_by_id)
+    ids = sorted(set(control_by_id) & set(candidate_by_id))
+    equal_compute = same_ids
+    for sample_id in ids:
+        control_efficiency = control_by_id[sample_id].get("efficiency", {})
+        candidate_efficiency = candidate_by_id[sample_id].get("efficiency", {})
+        control_frames = control_efficiency.get("decoded_frames")
+        candidate_frames = candidate_efficiency.get("decoded_frames")
+        control_tokens = control_efficiency.get("actual_retained_tokens")
+        candidate_tokens = candidate_efficiency.get("actual_retained_tokens")
+        equal_compute = equal_compute and (
+            control_frames is not None
+            and control_tokens is not None
+            and control_frames == candidate_frames
+            and control_tokens == candidate_tokens
+        )
+    primary = ("EtF1", "tF1@0.7", "tIoU")
+    floors = {
+        name: float(candidate_metrics.get(name, float("-inf")))
+        >= float(TPSA_V3_GATE[f"{name}_floor"])
+        for name in primary
+    }
+    deltas = {
+        name: float(candidate_metrics.get(name, float("-inf")))
+        - float(control_metrics.get(name, float("inf")))
+        for name in primary
+    }
+    primary_gain = max(deltas.values(), default=float("-inf"))
+    latency = float(candidate_metrics.get(
+        "mean_end_to_end_seconds", _mean_total_seconds(candidate),
+    ))
+    checks = {
+        "exactly_64_samples": (
+            len(control) == len(candidate) == len(ids) == TPSA_V3_GATE["samples"]
+        ),
+        "same_sample_ids": same_ids,
+        "declared_policies": (
+            all(row.get("spatial_policy") == "tpsa_query" for row in control)
+            and all(row.get("spatial_policy") == "tpsa_boundary" for row in candidate)
+        ),
+        "primary_metric_floors": all(floors.values()),
+        "one_point_primary_gain": primary_gain >= TPSA_V3_GATE["minimum_primary_gain"],
+        "cardinality_floor": float(candidate_metrics.get("C-Acc", float("-inf")))
+        >= TPSA_V3_GATE["C-Acc_floor"],
+        "parse_rate": float(candidate_metrics.get("parse_rate", 0.0))
+        >= TPSA_V3_GATE["parse_rate_floor"],
+        "equal_frames_and_retained_tokens": equal_compute,
+        "latency_ceiling": 0 < latency <= TPSA_V3_GATE["latency_ceiling_seconds"],
+    }
+    return {
+        "passed": all(checks.values()),
+        "checks": checks,
+        "thresholds": dict(TPSA_V3_GATE),
+        "matched_samples": len(ids),
+        "metric_floors": floors,
+        "primary_deltas": deltas,
+        "largest_primary_gain": primary_gain,
+        "candidate_mean_end_to_end_seconds": latency,
+        "control_metrics": control_metrics,
+        "candidate_metrics": candidate_metrics,
     }
 
 
