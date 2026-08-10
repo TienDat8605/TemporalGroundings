@@ -19,7 +19,10 @@ def _cv2():
     try:
         import cv2
     except ImportError as error:
-        raise RuntimeError("opencv-python is required for video decoding") from error
+        raise RuntimeError(
+            "headless OpenCV is required for video decoding; reinstall with "
+            "pip install --force-reinstall opencv-python-headless"
+        ) from error
     return cv2
 
 

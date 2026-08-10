@@ -69,7 +69,7 @@ def content_windows(video_path: Path, duration: float) -> tuple[list[Window], st
     try:
         from scenedetect import ContentDetector, SceneManager, open_video
 
-        video = open_video(str(video_path))
+        video = open_video(str(video_path), backend="opencv")
         manager = SceneManager()
         manager.add_detector(ContentDetector(threshold=27.0))
         manager.detect_scenes(video, show_progress=False, frame_skip=4)

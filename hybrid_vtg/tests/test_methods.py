@@ -6,6 +6,7 @@ from hybrid_vtg.contracts import GroundingContext, ModelBackend, Prediction, Sam
 from hybrid_vtg.methods.coarse_to_fine_64 import (
     FRAME_BUDGET,
     Window,
+    content_windows,
     distribute_frames,
     strict_budget,
     uniform_windows,
@@ -28,6 +29,22 @@ def test_single_window_is_a_64_frame_bypass():
     assert routed == [Window(0.0, 10.0)]
     # The method bypasses routing for this case; strict_budget itself remains valid.
     assert policy["router_frames"] + policy["local_budget"] == 64
+
+
+def test_coarse_to_fine_requests_headless_opencv_scene_backend(monkeypatch):
+    import scenedetect
+
+    received = {}
+
+    def fake_open_video(path, *, backend):
+        received.update(path=path, backend=backend)
+        raise RuntimeError("stop after backend selection")
+
+    monkeypatch.setattr(scenedetect, "open_video", fake_open_video)
+    windows, policy = content_windows(Path("video.mp4"), 90.0)
+    assert received == {"path": "video.mp4", "backend": "opencv"}
+    assert windows == uniform_windows(90.0)
+    assert policy == "uniform-fallback"
 
 
 def test_tpsa_retains_exact_budget_and_timeline_coverage():

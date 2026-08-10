@@ -30,6 +30,16 @@ source .venv/bin/activate
 pip install -e '.[downloads,test]'
 ```
 
+Video decoding and PySceneDetect use the headless OpenCV wheel and do not need
+`libGL.so.1`. If a GUI OpenCV wheel was previously installed in the environment,
+remove the conflict once and reinstall the project:
+
+```bash
+pip uninstall -y opencv-python opencv-contrib-python opencv-contrib-python-headless opencv-python-headless
+pip install --force-reinstall 'opencv-python-headless>=4.9,<5'
+pip install -e '.[downloads,test]'
+```
+
 Raw SlowFast extraction for a SlowFast + CLIP UniVTG checkpoint is optional:
 
 ```bash
