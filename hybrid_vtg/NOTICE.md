@@ -12,7 +12,13 @@ The `coarse-to-fine-64` method is a clean reimplementation of the `embedding-win
 
 ## SemVID
 
-No SemVID source code, selector, model subclass, prompt template, or runtime dependency is included. The compact Qwen prefill adapter was informed by SemVID's Apache-2.0 model-integration approach: it preserves caller-provided position IDs during the first generation step after selected visual embeddings are inserted. See <https://github.com/JiaqiLi404/SemVID> and its Apache-2.0 license for the upstream project.
+`src/hybrid_vtg/models/pruning.py` contains a modified, standalone adaptation of the semantic-oriented Qwen3-VL token selector from the official SemVID project, revision `432a76928817cdfba7d04c460ac475482cd7c3a4`. The adaptation retains SemVID's context/object/motion roles, query-conditioned frame allocation, multi-token object coverage, MMR diversity, and motion scoring, while adding variable per-timestamp capacities and integration with Hybrid VTG's evidence contract. It does not require the SemVID checkout at runtime. SemVID is Copyright 2026 Open Visual-Pruning Suite Authors and is distributed under Apache License 2.0; see `LICENSES/SemVID-Apache-2.0.txt` and <https://github.com/JiaqiLi404/SemVID>.
+
+The compact Qwen prefill adapter also follows SemVID's model-integration approach by preserving caller-provided position IDs during the first generation step after selected visual embeddings are inserted.
+
+## Mage-VL
+
+The encoder-stage policy is a clean-room, training-free adaptation of Mage-VL's dense-anchor/sparse-update principle. It does not include Mage-VL source code, weights, codec tokenizer, or Mage-ViT architecture. It uses decoded-frame optical flow and motion-compensated residuals as a replaceable importance provider, keeps complete Qwen merger cells, and preserves Qwen's original rotary coordinates. See <https://arxiv.org/abs/2607.24904>.
 
 ## Models and data
 

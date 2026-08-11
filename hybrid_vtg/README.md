@@ -14,11 +14,36 @@ TPSA-query means **query-aware evidence selection after the video encoder**. It 
 
 ### `hmve`
 
-HMVE means **hierarchical multi-view evidence**. It makes exactly three visual observation passes: a 0.5 FPS full-video scout, 1 FPS query-relevant corridor refinement, and the densest 2 FPS observation around relevance rises and falls that may indicate event boundaries. Each pass is batched into one encoder call. Evidence from all three passes is merged by absolute timestamp, near-duplicates are removed, one real scout anchor per temporal location is protected, and the compact pack is used for exactly one final prediction. Spatial crops and in-encoder pruning remain future extensions.
+HMVE means **hierarchical multi-view evidence**. It makes exactly three visual observation passes: a 0.5 FPS full-video scout, 1 FPS query-relevant corridor refinement, and the densest 3 FPS observation around relevance rises and falls that may indicate event boundaries. Each pass is batched into one encoder call. Evidence from all three passes is merged by absolute timestamp, near-duplicates are removed, one real scout anchor per temporal location is protected, and the compact pack is used for exactly one final prediction.
 
-## SemVID relationship
+## Independent visual-token pruning
 
-SemVID is no longer a runtime dependency, submodule, baseline, selector, prompt template, or policy source. Hybrid VTG keeps only one low-level implementation lesson from it: when already-encoded Qwen visual embeddings are inserted into a compact multimodal prefill, explicit first-step `position_ids` must survive `prepare_inputs_for_generation`. This is needed because TPSA-query and HMVE pass selected encoder outputs rather than asking the standard processor to encode an untouched video prompt. The three selection methods were reimplemented around the contracts in this repository and do not call SemVID code.
+Qwen and TimeLens2 expose two separate, optional pruning points. Both are disabled by default, so existing runs keep their original behavior.
+
+- `mage` is an **encoder-stage** policy. It computes camera-compensated optical flow and a motion-compensated luminance residual from the decoded frames, resizes that importance map to Qwen's processed patch grid, and keeps complete `spatial_merge_size²` patch groups before a configurable vision-transformer block. Periodic dense temporal anchors preserve context; non-anchor cells compete globally by motion/residual importance. The default layer `0` therefore skips all vision-transformer blocks for removed patches, though patch embedding itself remains dense.
+- `semvid` is a **post-encoder** policy adapted from the official Apache-2.0 SemVID Qwen3-VL selector. It allocates a query-and-motion-weighted budget over timestamps, then keeps context prototypes, query-aware diverse object tokens, and motion tokens. It runs immediately before compact language-model prefill.
+
+The Mage policy imports Mage-VL's dense-anchor/sparse-update idea, but it is not the paper's trained Mage-ViT and currently uses decoded-frame optical flow/residual maps rather than exported codec motion vectors. This distinction matters: Qwen was not trained on Mage-ViT's sparse codec-token format. The implementation instead retains complete Qwen merger cells and their original rotary coordinates.
+
+Retention values are fractions of the original dense Qwen evidence count. At least one cell per temporal unit is always kept for coherence, so extremely small ratios can be raised to that floor. When both policies are enabled, `--post-retention` must not exceed `--encoder-retention`.
+
+Example: keep 50% of merger cells before vision block 0, then let SemVID reduce the final evidence to 12.5% of the original dense count:
+
+```bash
+hybrid-vtg run \
+  --benchmark omtg \
+  --model qwen3-vl-4b \
+  --method hmve \
+  --subset 10 \
+  --seed 42 \
+  --encoder-pruning mage \
+  --encoder-retention 0.5 \
+  --encoder-prune-layer 0 \
+  --post-pruning semvid \
+  --post-retention 0.125
+```
+
+Use either policy alone by omitting the other policy's two arguments. The old generic `--prune-ratio` and `--prune-layer` interface has been removed. Pruned configurations receive distinct result directories such as `qwen3-vl-4b--enc-mage-r0.5-l0--post-semvid-r0.125`, preventing them from being mixed with dense baselines.
 
 ## Install
 
@@ -165,7 +190,7 @@ request per video. The old all-splits archive was about 134 GB.
 
 | CLI name | Default checkpoint | Notes |
 |---|---|---|
-| `qwen3-vl-4b` | `Qwen/Qwen3-VL-4B-Instruct` | Direct Transformers adapter; no SemVID checkout |
+| `qwen3-vl-4b` | `Qwen/Qwen3-VL-4B-Instruct` | Direct Transformers adapter with optional Mage-style and SemVID policies |
 | `timelens2-4b` | `MCG-NJU/TimeLens2-4B` | Official Apache-2.0 checkpoint; local downloader path is `assets/checkpoints/timelens2-4b` |
 | `univtg` | none | Pass a `.ckpt` file or a directory containing exactly one `.ckpt`; the downloader directory works directly |
 

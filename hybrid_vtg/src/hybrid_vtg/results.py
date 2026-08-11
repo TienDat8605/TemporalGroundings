@@ -22,7 +22,7 @@ def refresh_results_index(root: Path) -> None:
             rows.append(
                 {
                     "benchmark": manifest["benchmark"],
-                    "model": manifest["model"],
+                    "model": manifest.get("result_model", manifest["model"]),
                     "method": manifest["method"],
                     "seed": manifest["seed"],
                     "subset": metrics_path.stem.removeprefix("p"),

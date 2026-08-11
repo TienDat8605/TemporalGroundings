@@ -1,7 +1,9 @@
 from pathlib import Path
 
+import pytest
+
 from hybrid_vtg.contracts import Sample
-from hybrid_vtg.runner import _evaluation_summary
+from hybrid_vtg.runner import _evaluation_summary, _pruning_variant, _validate_pruning_configuration
 
 
 class RecordingBenchmark:
@@ -35,3 +37,18 @@ def test_partial_run_marks_failed_samples_as_empty_predictions():
     assert summary["successful"] == 1
     assert summary["failed"] == 1
     assert benchmark.records[1]["prediction"]["spans"] == []
+
+
+def test_pruning_configurations_get_independent_result_directories():
+    assert _pruning_variant("qwen", "none", 1.0, 0, "none", 1.0) == "qwen"
+    assert (
+        _pruning_variant("qwen", "mage", 0.5, 0, "semvid", 0.125)
+        == "qwen--enc-mage-r0.5-l0--post-semvid-r0.125"
+    )
+
+
+def test_pruning_configuration_is_validated_before_a_run():
+    with pytest.raises(ValueError, match="encoder retention requires"):
+        _validate_pruning_configuration("qwen", "none", 0.5, 0, "none", 1.0)
+    with pytest.raises(ValueError, match="Qwen-based"):
+        _validate_pruning_configuration("univtg", "mage", 0.5, 0, "none", 1.0)

@@ -269,21 +269,3 @@ def test_hmve_reserves_detail_capacity_for_bounded_temporal_models():
 def test_hmve_default_pass_rates_end_at_three_fps():
     method = HMVE()
     assert (method.scout_fps, method.detail_fps, method.boundary_fps) == (0.5, 1.0, 3.0)
-
-
-def test_vision_prune_indices_preserve_merge_cells():
-    import torch
-
-    from hybrid_vtg.models.qwen import _prune_indices
-
-    grid = torch.tensor([[2, 4, 4]])  # 2 frames, 4x4 patches, merge=2 -> 2x2 cells
-    survive, new_grid = _prune_indices(grid, 2, 0.5)
-    # 2 frames * 2x2 cells * 4 tokens = 16 tokens; keep even cell rows -> 8 tokens.
-    assert len(survive) == 16
-    assert new_grid == [[2, 2, 4]]
-    # Every surviving token belongs to a whole 2x2 cell (4 consecutive tokens).
-    assert all(survive[i : i + 4] == list(range(survive[i], survive[i] + 4)) for i in range(0, 16, 4))
-
-    survive, new_grid = _prune_indices(grid, 2, 0.25)
-    assert len(survive) == 8
-    assert new_grid == [[2, 2, 2]]

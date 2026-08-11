@@ -38,16 +38,34 @@ def parser() -> argparse.ArgumentParser:
         help="discard cached predictions and re-evaluate every selected sample",
     )
     run.add_argument(
-        "--prune-ratio",
-        type=float,
-        default=0.0,
-        help="in-encoder spatial pruning: fraction of merge cells retained (0.5 or 0.25); 0 disables",
+        "--encoder-pruning",
+        choices=("none", "mage"),
+        default="none",
+        help="vision-encoder pruning policy; mage uses motion/residual-guided complete cells",
     )
     run.add_argument(
-        "--prune-layer",
+        "--encoder-retention",
+        type=float,
+        default=1.0,
+        help="fraction of dense Qwen merger cells retained inside the vision encoder",
+    )
+    run.add_argument(
+        "--encoder-prune-layer",
         type=int,
-        default=12,
-        help="vision block index after which in-encoder pruning is applied",
+        default=0,
+        help="vision block index before which Mage-style selection is applied",
+    )
+    run.add_argument(
+        "--post-pruning",
+        choices=("none", "semvid"),
+        default="none",
+        help="post-encoder pruning policy applied immediately before model prediction",
+    )
+    run.add_argument(
+        "--post-retention",
+        type=float,
+        default=1.0,
+        help="final visual-token fraction relative to the original dense encoder output",
     )
     run.add_argument("--checkpoint", help="optional override; required for UniVTG")
     run.add_argument(
@@ -106,8 +124,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         model_spec=args.model_spec,
         feature_roots=tuple(args.feature_root),
         rerun=args.rerun,
-        prune_ratio=args.prune_ratio,
-        prune_layer=args.prune_layer,
+        encoder_pruning=args.encoder_pruning,
+        encoder_retention=args.encoder_retention,
+        encoder_prune_layer=args.encoder_prune_layer,
+        post_pruning=args.post_pruning,
+        post_retention=args.post_retention,
     )
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0 if result["failed"] == 0 else 2

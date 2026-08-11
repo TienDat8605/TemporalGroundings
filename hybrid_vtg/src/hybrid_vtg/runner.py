@@ -18,6 +18,46 @@ from .sampling import SAMPLER_SCHEMA, ordered_samples, percentage_key, subset_sa
 SCHEMA_VERSION = 1
 
 
+def _pruning_variant(
+    model: str,
+    encoder_pruning: str,
+    encoder_retention: float,
+    encoder_prune_layer: int,
+    post_pruning: str,
+    post_retention: float,
+) -> str:
+    parts = [model]
+    if encoder_pruning != "none":
+        parts.append(f"enc-{encoder_pruning}-r{encoder_retention:g}-l{encoder_prune_layer}")
+    if post_pruning != "none":
+        parts.append(f"post-{post_pruning}-r{post_retention:g}")
+    return "--".join(parts)
+
+
+def _validate_pruning_configuration(
+    model: str,
+    encoder_pruning: str,
+    encoder_retention: float,
+    encoder_prune_layer: int,
+    post_pruning: str,
+    post_retention: float,
+) -> None:
+    if encoder_pruning not in {"none", "mage"} or post_pruning not in {"none", "semvid"}:
+        raise ValueError("unknown pruning policy")
+    if not 0 < encoder_retention <= 1 or not 0 < post_retention <= 1:
+        raise ValueError("pruning retention ratios must be in (0, 1]")
+    if encoder_prune_layer < 0:
+        raise ValueError("encoder prune layer must be non-negative")
+    if encoder_pruning == "none" and encoder_retention != 1.0:
+        raise ValueError("encoder retention requires --encoder-pruning mage")
+    if post_pruning == "none" and post_retention != 1.0:
+        raise ValueError("post retention requires --post-pruning semvid")
+    if encoder_pruning == "mage" and post_pruning == "semvid" and post_retention > encoder_retention:
+        raise ValueError("post retention cannot exceed encoder retention when both policies are enabled")
+    if model == "univtg" and (encoder_pruning != "none" or post_pruning != "none"):
+        raise ValueError("Mage and SemVID pruning are available only for Qwen-based models")
+
+
 def _record(sample: Sample, prediction: Prediction, seconds: float) -> dict[str, Any]:
     return {
         "id": sample.id,
@@ -111,10 +151,21 @@ def run_benchmark(
     model_spec: str | None = None,
     feature_roots: tuple[Path, ...] = (),
     rerun: bool = False,
-    prune_ratio: float = 0.0,
-    prune_layer: int = 12,
+    encoder_pruning: str = "none",
+    encoder_retention: float = 1.0,
+    encoder_prune_layer: int = 0,
+    post_pruning: str = "none",
+    post_retention: float = 1.0,
 ) -> dict[str, Any]:
     percentage = validate_percentage(percentage)
+    _validate_pruning_configuration(
+        model_name,
+        encoder_pruning,
+        encoder_retention,
+        encoder_prune_layer,
+        post_pruning,
+        post_retention,
+    )
     load_builtin_plugins()
     benchmark = BENCHMARKS.create(benchmark_name)
     data = data.expanduser().resolve()
@@ -130,7 +181,15 @@ def run_benchmark(
 
     project_root = Path(__file__).resolve().parents[2]
     results_root = project_root / "results"
-    run_dir = run_directory(results_root, benchmark_name, model_name, method_name, seed)
+    output_model = _pruning_variant(
+        model_name,
+        encoder_pruning,
+        encoder_retention,
+        encoder_prune_layer,
+        post_pruning,
+        post_retention,
+    )
+    run_dir = run_directory(results_root, benchmark_name, output_model, method_name, seed)
     print(f"run directory: {run_dir}", flush=True)
     manifest = {
         "schema": SCHEMA_VERSION,
@@ -150,6 +209,15 @@ def run_benchmark(
         "batch_size": 1,
         "training_free": True,
     }
+    if output_model != model_name:
+        manifest["result_model"] = output_model
+        manifest["pruning"] = {
+            "encoder_policy": encoder_pruning,
+            "encoder_retention": encoder_retention,
+            "encoder_layer": encoder_prune_layer,
+            "post_policy": post_pruning,
+            "post_retention": post_retention,
+        }
     ensure_manifest(run_dir / "manifest.json", manifest)
 
     predictions_path = run_dir / "predictions.jsonl"
@@ -172,8 +240,11 @@ def run_benchmark(
             checkpoint=checkpoint,
             model_spec=model_spec,
             feature_roots=feature_roots,
-            prune_ratio=prune_ratio,
-            prune_layer=prune_layer,
+            encoder_pruning=encoder_pruning,
+            encoder_retention=encoder_retention,
+            encoder_prune_layer=encoder_prune_layer,
+            post_pruning=post_pruning,
+            post_retention=post_retention,
         )
         method.validate_model(model)
         progress = tqdm(pending, desc=f"{benchmark_name}/{model_name}/{method_name}", unit="sample")
@@ -208,7 +279,7 @@ def run_benchmark(
     if (summary["metrics"] is None or percentage == 100) and summary["failed"] == 0:
         submission = benchmark.export_submission(
             values,
-            results_root / "submissions" / benchmark_name / model_name / method_name / f"seed-{seed}.jsonl",
+            results_root / "submissions" / benchmark_name / output_model / method_name / f"seed-{seed}.jsonl",
         )
         if submission is not None:
             summary["submission"] = str(submission)
