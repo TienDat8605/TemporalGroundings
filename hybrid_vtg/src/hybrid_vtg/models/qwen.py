@@ -368,6 +368,7 @@ class QwenEvidenceBackend(ModelBackend):
             return (
                 f"The event '{sample.query}' may occur MULTIPLE times in this video. "
                 f"List EVERY occurrence as its own [start, end] pair, in chronological order. "
+                "Keep nearby but distinct occurrences as separate pairs; do not merge them. "
                 f"Use seconds relative to this evidence window, from 0 to {context.duration:.3f}. "
                 "Return ONLY a JSON array of [start, end] pairs, e.g. [[1.0, 3.0], [7.5, 9.0]]. "
                 f"Do NOT return the whole video as a single pair like [0, {context.duration:.3f}]. "

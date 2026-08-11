@@ -516,19 +516,31 @@ class UniTimeEvidenceBackend(ModelBackend):
     @staticmethod
     def _instruction(sample: Sample, *, coarse: bool = False) -> str:
         if coarse:
+            if sample.cardinality == "multi":
+                return (
+                    "This sequence is interleaved with timestamps and visual features. "
+                    "Identify EVERY coarse timestamp whose segment contains the query. "
+                    "Return ONLY a JSON array of timestamp numbers in chronological order, "
+                    "for example [0.0, 32.0, 96.0]. Return [] if it never occurs."
+                )
             return (
                 "This sequence is interleaved with timestamps and visual features. "
-                "Identify the specific timestamp or timestamps where the query appears."
+                "Identify the coarse timestamp whose segment best contains the query. "
+                "Return ONLY a JSON array containing that timestamp, for example [32.0]."
             )
         if sample.cardinality == "multi":
             return (
                 "This sequence is interleaved with timestamps and visual features. "
-                "Identify every temporal window where the query occurs and answer with "
-                "one start/end pair per occurrence."
+                "Identify EVERY separate temporal window where the query occurs. "
+                "Keep nearby but distinct occurrences as separate pairs; do not merge them. "
+                "Return ONLY a strict JSON array with one [start, end] pair per occurrence "
+                "in chronological order, for example [[1.0, 3.0], [7.5, 9.0]]. "
+                "Use the displayed timestamp seconds and return [] if it never occurs."
             )
         return (
             "This sequence is interleaved with timestamps and visual features. "
-            "Identify the temporal window where the query occurs."
+            "Identify the temporal window where the query occurs. Return ONLY a strict "
+            "JSON array containing one [start, end] pair, or [] if it never occurs."
         )
 
     def _evidence_prompt(

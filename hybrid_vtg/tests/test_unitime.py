@@ -84,6 +84,29 @@ def test_qwen3_adaptive_capability_does_not_change_its_budget(tmp_path):
     assert backend.maximum_evidence_units is None
 
 
+def test_multi_occurrence_prompts_keep_nearby_events_separate():
+    sample = Sample(
+        "multi",
+        "omtg",
+        Path(__file__),
+        100.0,
+        "event",
+        group="omtg",
+        cardinality="multi",
+    )
+    qwen_prompt = QwenEvidenceBackend._prompt(sample, GroundingContext(0.0, 100.0))
+    unitime_prompt = UniTimeEvidenceBackend._instruction(sample)
+    coarse_prompt = UniTimeEvidenceBackend._instruction(sample, coarse=True)
+
+    assert "EVERY occurrence" in qwen_prompt
+    assert "do not merge" in qwen_prompt
+    assert "EVERY separate temporal window" in unitime_prompt
+    assert "strict JSON" in unitime_prompt
+    assert "do not merge" in unitime_prompt
+    assert "EVERY coarse timestamp" in coarse_prompt
+    assert "JSON array" in coarse_prompt
+
+
 def test_qwen2_mage_wrapper_prunes_before_vision_block():
     class Block(torch.nn.Module):
         def __init__(self):
