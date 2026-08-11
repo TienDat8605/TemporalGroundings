@@ -8,7 +8,10 @@ from collections.abc import Iterable, Sequence
 
 from .contracts import ScoredSpan
 
-_PAIR = re.compile(r"(-?\d+(?:\.\d+)?)\s*(?:,|-|to)\s*(-?\d+(?:\.\d+)?)")
+_PAIR = re.compile(
+    r"(-?\d+(?:\.\d+)?)\s*(?:seconds?\s*)?(?:,|-|to)\s*(-?\d+(?:\.\d+)?)",
+    re.IGNORECASE,
+)
 
 
 def parse_spans(text: str) -> tuple[ScoredSpan, ...]:

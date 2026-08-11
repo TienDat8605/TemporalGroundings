@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from hybrid_vtg.contracts import Sample
-from hybrid_vtg.runner import _evaluation_summary, _pruning_variant, _validate_pruning_configuration
+from hybrid_vtg.runner import _evaluation_summary, _pruning_variant, _validate_pruning_configuration, run_benchmark
 
 
 class RecordingBenchmark:
@@ -52,3 +52,16 @@ def test_pruning_configuration_is_validated_before_a_run():
         _validate_pruning_configuration("qwen", "none", 0.5, 0, "none", 1.0)
     with pytest.raises(ValueError, match="Qwen-based"):
         _validate_pruning_configuration("univtg", "mage", 0.5, 0, "none", 1.0)
+
+
+def test_adaptive_corridor_count_is_validated_before_loading_data(tmp_path):
+    with pytest.raises(ValueError, match="between 1 and 8"):
+        run_benchmark(
+            benchmark_name="omtg",
+            data=tmp_path,
+            model_name="unitime",
+            method_name="unitime-adaptive",
+            percentage=1,
+            seed=1,
+            corridor_top_k=9,
+        )

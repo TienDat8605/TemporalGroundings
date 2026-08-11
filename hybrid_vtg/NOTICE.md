@@ -20,6 +20,10 @@ The compact Qwen prefill adapter also follows SemVID's model-integration approac
 
 The encoder-stage policy is a clean-room, training-free adaptation of Mage-VL's dense-anchor/sparse-update principle. It does not include Mage-VL source code, weights, codec tokenizer, or Mage-ViT architecture. It uses decoded-frame optical flow and motion-compensated residuals as a replaceable importance provider, keeps complete Qwen merger cells, and preserves Qwen's original rotary coordinates. See <https://arxiv.org/abs/2607.24904>.
 
+## UniTime
+
+`src/hybrid_vtg/models/unitime.py`, `unitime-fixed`, and `unitime-adaptive` are clean-room implementations of the timestamp-interleaved and coarse-to-fine inference design described by UniTime. They use standard Transformers and PEFT APIs and do not copy or require the UniTime source tree. `unitime-fixed` preserves frozen fixed-segment coarse retrieval; `unitime-adaptive` replaces that retrieval with HMVE top-k corridors. Both may optionally use the independent Mage and SemVID policies. The public `zeqianli/UniTime` adapter is downloaded from Hugging Face at runtime and retains its upstream terms. The UniTime GitHub repository did not expose a license file when this integration was implemented, so no source was copied. See <https://github.com/Lzq5/UniTime>, <https://huggingface.co/zeqianli/UniTime>, and <https://arxiv.org/abs/2506.18883>.
+
 ## Models and data
 
 The optional downloader retrieves, but does not redistribute, upstream assets. Qwen, CLIP, PyTorchVideo pretrained weights, UniVTG checkpoints, TimeLens2 checkpoints, OMTG, TACoS, and QVHighlights retain their independent licenses and dataset/source-video terms. TACoS is retrieved from VideoMind's BSD-3-Clause dataset repository using its 3 FPS, 480p, no-audio variant; the underlying TACoS video data remains limited to scientific use by MPII and may not be republished. QVHighlights test annotations come from Moment-DETR, and their referenced videos are retrieved as the test-only `jwnt4/qvhighlights-test` archive; the underlying QVHighlights terms remain CC BY-NC-SA 4.0.

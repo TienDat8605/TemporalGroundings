@@ -23,7 +23,7 @@ def refresh_results_index(root: Path) -> None:
                 {
                     "benchmark": manifest["benchmark"],
                     "model": manifest.get("result_model", manifest["model"]),
-                    "method": manifest["method"],
+                    "method": manifest.get("result_method", manifest["method"]),
                     "seed": manifest["seed"],
                     "subset": metrics_path.stem.removeprefix("p"),
                     "requested": metrics.get("requested", 0),

@@ -5,12 +5,13 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "hybrid-vtg"
 version = "0.2.0"
-description = "Extensible training-free video temporal grounding benchmarks"
+description = "Extensible frozen-model video temporal grounding benchmarks"
 requires-python = ">=3.10"
 dependencies = [
   "accelerate>=1.0",
   "numpy>=1.26,<3",
   "opencv-python-headless>=4.9,<5",
+  "peft>=0.18,<1",
   "Pillow>=10",
   "qwen-vl-utils>=0.0.14",
   "scenedetect[opencv-headless]>=0.6.4,<0.7",

@@ -85,12 +85,17 @@ class TemporalEvidence:
         import torch
 
         index = torch.as_tensor(indices, device=self.embeddings.device, dtype=torch.long)
+        selected = index.cpu().tolist()
+        metadata = {**self.metadata, "selected_indices": selected}
+        coordinates = self.metadata.get("cell_coordinates")
+        if isinstance(coordinates, list) and len(coordinates) == self.size:
+            metadata["cell_coordinates"] = [coordinates[int(value)] for value in selected]
         return TemporalEvidence(
             embeddings=self.embeddings.index_select(0, index),
-            timestamps=tuple(self.timestamps[int(value)] for value in index.cpu().tolist()),
+            timestamps=tuple(self.timestamps[int(value)] for value in selected),
             source_frames=self.source_frames,
-            metadata={**self.metadata, "selected_indices": index.cpu().tolist()},
-            roles=tuple(self.roles[int(value)] for value in index.cpu().tolist()) if self.roles else (),
+            metadata=metadata,
+            roles=tuple(self.roles[int(value)] for value in selected) if self.roles else (),
         )
 
     @classmethod
@@ -103,11 +108,21 @@ class TemporalEvidence:
         timestamps = tuple(time for value in values for time in value.timestamps)
         roles = tuple(role for value in values for role in value.roles) if all(value.roles for value in values) else ()
         order = sorted(range(len(timestamps)), key=lambda index: (timestamps[index], index))
+        coordinates = []
+        for value in values:
+            part = value.metadata.get("cell_coordinates")
+            if not isinstance(part, list) or len(part) != value.size:
+                coordinates = []
+                break
+            coordinates.extend(part)
+        metadata = {"parts": [value.metadata for value in values]}
+        if coordinates:
+            metadata["cell_coordinates"] = coordinates
         merged = cls(
             embeddings=embeddings,
             timestamps=timestamps,
             source_frames=sum(value.source_frames for value in values),
-            metadata={"parts": [value.metadata for value in values]},
+            metadata=metadata,
             roles=roles,
         )
         return merged.select(order)

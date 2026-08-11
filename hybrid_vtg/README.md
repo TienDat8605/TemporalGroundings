@@ -1,6 +1,6 @@
 # Hybrid VTG
 
-Hybrid VTG is a small, training-free benchmark runner for video temporal grounding. One command selects exactly one method, one frozen model backend, and one official test split. The package intentionally keeps only three experimental methods.
+Hybrid VTG is a small benchmark runner for frozen-model video temporal grounding. One command selects exactly one method, one frozen model backend, and one official test split. Most methods are fully training-free; UniTime experiments use its already-trained public adapter without any additional optimization.
 
 ## Core ideas
 
@@ -15,6 +15,12 @@ TPSA-query means **query-aware evidence selection after the video encoder**. It 
 ### `hmve`
 
 HMVE means **hierarchical multi-view evidence**. It makes exactly three visual observation passes: a 0.5 FPS full-video scout, 1 FPS query-relevant corridor refinement, and the densest 3 FPS observation around relevance rises and falls that may indicate event boundaries. Each pass is batched into one encoder call. Evidence from all three passes is merged by absolute timestamp, near-duplicates are removed, one real scout anchor per temporal location is protected, and the compact pack is used for exactly one final prediction.
+
+### `unitime-fixed` and `unitime-adaptive`
+
+These methods use the public UniTime LoRA on its original frozen Qwen2-VL-7B base. `unitime-fixed` is a clean-room structural baseline: videos longer than 64 seconds receive one trained coarse timestamp-retrieval call over fixed 32-second groups, followed by one fine grounding call. It preserves UniTime's timestamp-interleaved hierarchy but uses this project's processor-compatible, grid-aligned frame scaling instead of upstream long-video post-encoder interpolation. `unitime-adaptive` replaces the fixed single corridor with a training-free HMVE scout, top-k query-relevant corridors, and high-rate boundary observations, then performs one timestamp-interleaved UniTime generation. `--corridor-top-k` accepts one through eight retained corridors and defaults to four.
+
+UniTime itself is trained. These integrations are **post-hoc training-free**: the released adapter and base model remain frozen and this project performs no additional optimization. The fixed method is the controlled dense baseline for evaluating the adaptive method; use the upstream implementation when an exact reproduction of published UniTime numbers is required.
 
 ## Independent visual-token pruning
 
@@ -43,17 +49,65 @@ hybrid-vtg run \
   --post-retention 0.125
 ```
 
+The same independent policies work with frozen UniTime. The following compares adaptive top-four routing while keeping 50% of Qwen2 vision cells and 25% of the original dense evidence at language prefill:
+
+```bash
+hybrid-vtg run \
+  --benchmark tacos \
+  --model unitime \
+  --method unitime-adaptive \
+  --corridor-top-k 4 \
+  --subset 10 \
+  --seed 42 \
+  --encoder-pruning mage \
+  --encoder-retention 0.5 \
+  --post-pruning semvid \
+  --post-retention 0.25
+```
+
+Run the frozen fixed-segment baseline without pruning first:
+
+```bash
+hybrid-vtg run \
+  --benchmark tacos \
+  --model unitime \
+  --method unitime-fixed \
+  --subset 10 \
+  --seed 42
+```
+
+The UniTime backend caches grid-aligned post-encoder features by video identity, timestamps, checkpoints, and pruning configuration. It uses an explicit 16,384-cell adaptive budget, retains original sparse MRoPE coordinates, and snaps generated boundaries to timestamps shown in the prompt. `--checkpoint` overrides the default `zeqianli/UniTime` adapter; `--base-checkpoint` overrides its default `Qwen/Qwen2-VL-7B-Instruct` base.
+
 Use either policy alone by omitting the other policy's two arguments. The old generic `--prune-ratio` and `--prune-layer` interface has been removed. Pruned configurations receive distinct result directories such as `qwen3-vl-4b--enc-mage-r0.5-l0--post-semvid-r0.125`, preventing them from being mixed with dense baselines.
 
 ## Install
 
-From this directory:
+Python 3.10 or newer is required. For GPU runs, install the PyTorch build that
+matches the machine's CUDA driver first, following the PyTorch installation
+selector. Then, from this directory:
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
 pip install -e '.[downloads,test]'
 ```
+
+The base installation already contains everything needed by Qwen3-VL and
+UniTime; there is no separate UniTime requirements file:
+
+| Dependency | Purpose |
+|---|---|
+| `torch>=2.4`, `torchvision>=0.19` | Model execution and visual preprocessing |
+| `transformers>=4.57,<5` | Qwen2-VL/Qwen3-VL models, processors, and generation |
+| `peft>=0.18,<1` | Loading the released UniTime LoRA adapter without training |
+| `accelerate>=1.0` | Automatic device placement for the 4B/7B backends |
+| `Pillow`, `opencv-python-headless`, `numpy` | Frame decoding, resizing, motion, and residual maps |
+
+`.[downloads]` adds `huggingface-hub` and `gdown`; `.[test]` adds `pytest` and
+`ruff`; `.[univtg-video]` adds PyTorchVideo only for raw SlowFast extraction.
+The dependency resolver has been checked against the declared ranges. A fresh
+virtual environment is recommended because unrelated scientific packages in a
+shared environment can impose conflicting NumPy, protobuf, or OpenCV pins.
 
 Video decoding and PySceneDetect use the headless OpenCV wheel and do not need
 `libGL.so.1`. If a GUI OpenCV wheel was previously installed in the environment,
@@ -71,7 +125,11 @@ Raw SlowFast extraction for a SlowFast + CLIP UniVTG checkpoint is optional:
 pip install -e '.[univtg-video]'
 ```
 
-CUDA is strongly recommended for the 4B generative models. Model weights are downloaded by Transformers unless `--checkpoint` names a local directory.
+CUDA is strongly recommended for the 4B and 7B generative models. UniTime loads
+both `Qwen/Qwen2-VL-7B-Instruct` and the `zeqianli/UniTime` PEFT adapter; model
+weights are downloaded from Hugging Face unless the checkpoint flags name local
+directories. Use `--base-checkpoint` for the Qwen2-VL base and `--checkpoint`
+for the adapter.
 
 ## Download datasets and checkpoints
 
@@ -192,6 +250,7 @@ request per video. The old all-splits archive was about 134 GB.
 |---|---|---|
 | `qwen3-vl-4b` | `Qwen/Qwen3-VL-4B-Instruct` | Direct Transformers adapter with optional Mage-style and SemVID policies |
 | `timelens2-4b` | `MCG-NJU/TimeLens2-4B` | Official Apache-2.0 checkpoint; local downloader path is `assets/checkpoints/timelens2-4b` |
+| `unitime` | `zeqianli/UniTime` adapter on `Qwen/Qwen2-VL-7B-Instruct` | Frozen reference/adaptive backend with optional Mage and SemVID policies |
 | `univtg` | none | Pass a `.ckpt` file or a directory containing exactly one `.ckpt`; the downloader directory works directly |
 
 UniVTG checkpoint shapes configure the inference network, so pretraining-only, omnibus, and downstream moment-retrieval checkpoints are accepted when their feature stack is supported. Choose `--model-spec clip-b16`, `clip-b32`, or `slowfast-clip-b32` if checkpoint metadata is missing.

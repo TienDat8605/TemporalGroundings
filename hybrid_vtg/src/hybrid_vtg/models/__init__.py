@@ -8,6 +8,7 @@ from typing import Any
 
 def register_models(registry: Any) -> None:
     from .qwen import QwenEvidenceBackend
+    from .unitime import UniTimeEvidenceBackend
     from .univtg import UniVTGBackend
 
     registry.register(
@@ -34,6 +35,23 @@ def register_models(registry: Any) -> None:
                 checkpoint or "MCG-NJU/TimeLens2-4B",
                 Path(cache_dir),
                 name="timelens2-4b",
+                encoder_pruning=encoder_pruning,
+                encoder_retention=encoder_retention,
+                encoder_prune_layer=encoder_prune_layer,
+                post_pruning=post_pruning,
+                post_retention=post_retention,
+            )
+        ),
+    )
+    registry.register(
+        "unitime",
+        lambda cache_dir, checkpoint=None, base_checkpoint=None, model_spec=None, feature_roots=(),
+        encoder_pruning="none", encoder_retention=1.0, encoder_prune_layer=0, post_pruning="none",
+        post_retention=1.0: (
+            UniTimeEvidenceBackend(
+                checkpoint or "zeqianli/UniTime",
+                Path(cache_dir),
+                base_checkpoint=base_checkpoint or "Qwen/Qwen2-VL-7B-Instruct",
                 encoder_pruning=encoder_pruning,
                 encoder_retention=encoder_retention,
                 encoder_prune_layer=encoder_prune_layer,

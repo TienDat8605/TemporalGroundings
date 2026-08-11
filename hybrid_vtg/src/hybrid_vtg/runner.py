@@ -148,9 +148,11 @@ def run_benchmark(
     percentage: float,
     seed: int,
     checkpoint: str | None = None,
+    base_checkpoint: str | None = None,
     model_spec: str | None = None,
     feature_roots: tuple[Path, ...] = (),
     rerun: bool = False,
+    corridor_top_k: int = 4,
     encoder_pruning: str = "none",
     encoder_retention: float = 1.0,
     encoder_prune_layer: int = 0,
@@ -158,6 +160,10 @@ def run_benchmark(
     post_retention: float = 1.0,
 ) -> dict[str, Any]:
     percentage = validate_percentage(percentage)
+    if not 1 <= corridor_top_k <= 8:
+        raise ValueError("corridor top-k must be between 1 and 8")
+    if base_checkpoint is not None and model_name != "unitime":
+        raise ValueError("base checkpoint override is available only for UniTime")
     _validate_pruning_configuration(
         model_name,
         encoder_pruning,
@@ -189,7 +195,8 @@ def run_benchmark(
         post_pruning,
         post_retention,
     )
-    run_dir = run_directory(results_root, benchmark_name, output_model, method_name, seed)
+    output_method = f"{method_name}-k{corridor_top_k}" if method_name == "unitime-adaptive" else method_name
+    run_dir = run_directory(results_root, benchmark_name, output_model, output_method, seed)
     print(f"run directory: {run_dir}", flush=True)
     manifest = {
         "schema": SCHEMA_VERSION,
@@ -207,8 +214,16 @@ def run_benchmark(
         "project_revision": git_revision(project_root.parent),
         "python": platform.python_version(),
         "batch_size": 1,
-        "training_free": True,
+        "training_free": model_name != "unitime",
     }
+    if model_name == "unitime":
+        manifest["checkpoint"] = checkpoint or "zeqianli/UniTime"
+        manifest["base_checkpoint"] = base_checkpoint or "Qwen/Qwen2-VL-7B-Instruct"
+        manifest["post_hoc_training_free"] = True
+        manifest["upstream_trained_adapter"] = True
+    if output_method != method_name:
+        manifest["result_method"] = output_method
+        manifest["method_options"] = {"corridor_top_k": corridor_top_k}
     if output_model != model_name:
         manifest["result_model"] = output_model
         manifest["pruning"] = {
@@ -230,12 +245,15 @@ def run_benchmark(
     done = {str(record["id"]) for record in existing}
     pending = [sample for sample in selected if sample.id not in done]
     if pending:
-        method = METHODS.create(method_name)
+        method = (
+            METHODS.create(method_name, top_k=corridor_top_k)
+            if method_name == "unitime-adaptive"
+            else METHODS.create(method_name)
+        )
         # Batch CPU-only preprocessing (e.g. scene detection) runs before the model
         # backend is loaded, so it never competes with GPU memory.
         method.prepare(pending, run_dir / "prepare")
-        model = MODELS.create(
-            model_name,
+        model_options = dict(
             cache_dir=results_root / "cache",
             checkpoint=checkpoint,
             model_spec=model_spec,
@@ -246,8 +264,11 @@ def run_benchmark(
             post_pruning=post_pruning,
             post_retention=post_retention,
         )
+        if model_name == "unitime":
+            model_options["base_checkpoint"] = base_checkpoint
+        model = MODELS.create(model_name, **model_options)
         method.validate_model(model)
-        progress = tqdm(pending, desc=f"{benchmark_name}/{model_name}/{method_name}", unit="sample")
+        progress = tqdm(pending, desc=f"{benchmark_name}/{model_name}/{output_method}", unit="sample")
         for sample in progress:
             started = perf_counter()
             try:
@@ -279,7 +300,7 @@ def run_benchmark(
     if (summary["metrics"] is None or percentage == 100) and summary["failed"] == 0:
         submission = benchmark.export_submission(
             values,
-            results_root / "submissions" / benchmark_name / output_model / method_name / f"seed-{seed}.jsonl",
+            results_root / "submissions" / benchmark_name / output_model / output_method / f"seed-{seed}.jsonl",
         )
         if submission is not None:
             summary["submission"] = str(submission)

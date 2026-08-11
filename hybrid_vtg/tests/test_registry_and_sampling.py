@@ -14,8 +14,14 @@ def sample(index: int) -> Sample:
 
 def test_builtin_surface_is_exactly_the_requested_matrix():
     load_builtin_plugins()
-    assert METHODS.names() == ("coarse-to-fine-64", "hmve", "tpsa-query")
-    assert MODELS.names() == ("qwen3-vl-4b", "timelens2-4b", "univtg")
+    assert METHODS.names() == (
+        "coarse-to-fine-64",
+        "hmve",
+        "tpsa-query",
+        "unitime-adaptive",
+        "unitime-fixed",
+    )
+    assert MODELS.names() == ("qwen3-vl-4b", "timelens2-4b", "unitime", "univtg")
     assert BENCHMARKS.names() == ("omtg", "qvhighlights", "tacos")
 
 
@@ -51,9 +57,21 @@ def test_any_percentage_from_zero_through_one_hundred_is_supported():
 
 
 def test_temporal_evidence_selection_and_merge_keep_timestamps():
-    first = TemporalEvidence(torch.arange(6).reshape(3, 2), (0.0, 1.0, 2.0), 3)
-    second = TemporalEvidence(torch.arange(4).reshape(2, 2), (0.5, 1.5), 2)
+    first = TemporalEvidence(
+        torch.arange(6).reshape(3, 2),
+        (0.0, 1.0, 2.0),
+        3,
+        {"cell_coordinates": [[0, 0, index] for index in range(3)]},
+    )
+    second = TemporalEvidence(
+        torch.arange(4).reshape(2, 2),
+        (0.5, 1.5),
+        2,
+        {"cell_coordinates": [[0, 1, index] for index in range(2)]},
+    )
     selected = first.select([2, 0])
     assert selected.timestamps == (2.0, 0.0)
+    assert selected.metadata["cell_coordinates"] == [[0, 0, 2], [0, 0, 0]]
     merged = TemporalEvidence.concatenate([first, second])
     assert merged.timestamps == (0.0, 0.5, 1.0, 1.5, 2.0)
+    assert len(merged.metadata["cell_coordinates"]) == merged.size
