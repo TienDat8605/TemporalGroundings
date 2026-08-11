@@ -5,14 +5,14 @@ from hybrid_vtg.results import refresh_results_index, run_directory
 
 
 def test_result_layout_and_generated_note(tmp_path: Path):
-    run = run_directory(tmp_path, "omtg", "qwen3-vl-4b", "tpsa-query", 42)
+    run = run_directory(tmp_path, "omtg", "qwen3-vl-4b", "coarse-to-fine-64", 42)
     run.mkdir(parents=True)
     (run / "manifest.json").write_text(
         json.dumps(
             {
                 "benchmark": "omtg",
                 "model": "qwen3-vl-4b",
-                "method": "tpsa-query",
+                "method": "coarse-to-fine-64",
                 "seed": 42,
             }
         )
@@ -32,7 +32,7 @@ def test_result_layout_and_generated_note(tmp_path: Path):
     assert (tmp_path / "index.csv").is_file()
     note = (tmp_path / "RESULTS.md").read_text()
     assert "31/32" in note
-    assert "tpsa-query" in note
+    assert "coarse-to-fine-64" in note
 
 
 def test_pruned_result_uses_its_configuration_name(tmp_path: Path):

@@ -35,7 +35,70 @@ def adaptive_frame_size(width: int, height: int, target_cells: int) -> tuple[int
 
 
 class _CompactQwen2Mixin:
-    """Keep explicit sparse MRoPE coordinates during the generation prefill."""
+    """Keep sparse MRoPE and avoid full-vocabulary logits for every prefill token."""
+
+    def forward(
+        self,
+        input_ids=None,
+        attention_mask=None,
+        position_ids=None,
+        past_key_values=None,
+        inputs_embeds=None,
+        labels=None,
+        use_cache=None,
+        output_attentions=None,
+        output_hidden_states=None,
+        pixel_values=None,
+        pixel_values_videos=None,
+        image_grid_thw=None,
+        video_grid_thw=None,
+        rope_deltas=None,
+        cache_position=None,
+        logits_to_keep: int = 0,
+        **kwargs: Any,
+    ):
+        """Backport Qwen3's selective-logits inference path to Qwen2-VL.
+
+        Transformers 4.57 applies Qwen2-VL's language head to the complete
+        prefill. At 16,384 tokens that allocates about 5.09 GB solely for BF16
+        logits. Generation needs only the final position, so temporarily slice
+        the hidden states entering the frozen head when requested.
+        """
+        if logits_to_keep < 0:
+            raise ValueError("logits_to_keep must be non-negative")
+        if labels is not None and logits_to_keep:
+            raise ValueError("selective logits are available only for frozen inference")
+        forwarded = {
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+            "position_ids": position_ids,
+            "past_key_values": past_key_values,
+            "inputs_embeds": inputs_embeds,
+            "labels": labels,
+            "use_cache": use_cache,
+            "output_attentions": output_attentions,
+            "output_hidden_states": output_hidden_states,
+            "pixel_values": pixel_values,
+            "pixel_values_videos": pixel_values_videos,
+            "image_grid_thw": image_grid_thw,
+            "video_grid_thw": video_grid_thw,
+            "rope_deltas": rope_deltas,
+            "cache_position": cache_position,
+            **kwargs,
+        }
+        if not logits_to_keep:
+            return super().forward(**forwarded)
+
+        original_forward = self.lm_head.forward
+
+        def compact_head(hidden_states):
+            return original_forward(hidden_states[:, -logits_to_keep:, :])
+
+        self.lm_head.forward = compact_head
+        try:
+            return super().forward(**forwarded)
+        finally:
+            self.lm_head.forward = original_forward
 
     def prepare_inputs_for_generation(
         self,
@@ -550,6 +613,7 @@ class UniTimeEvidenceBackend(ModelBackend):
                 max_new_tokens=32,
                 do_sample=False,
                 use_cache=True,
+                logits_to_keep=1,
             )
         output_ids = generated[:, input_ids.shape[1] :] if generated.shape[1] > input_ids.shape[1] else generated
         return processor.batch_decode(output_ids, skip_special_tokens=True)[0]

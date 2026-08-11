@@ -8,10 +8,6 @@ Hybrid VTG is a small benchmark runner for frozen-model video temporal grounding
 
 This is the fixed-budget strategy reconstructed from the TimeLens2 `embedding-window-local` experiment. Content changes divide a long video into 20–60 second windows; a Qwen3-VL embedding model ranks those windows against the query; the chosen windows are grounded locally and mapped back to global time. Router frames plus grounder frames never exceed **64**. A short one-window video bypasses routing and gives all 64 frames to the grounder.
 
-### `tpsa-query`
-
-TPSA-query means **query-aware evidence selection after the video encoder**. It encodes a uniform full-timeline sample, scores every encoded visual unit against the text query, and retains an exact 12.5% evidence budget by default. The selection combines high-relevance units with deterministic endpoint and temporal-band anchors, so a strong local match cannot erase the rest of the timeline. Selected evidence stays in chronological order and is passed to one final prediction call.
-
 ### `hmve`
 
 HMVE means **hierarchical multi-view evidence**. It makes exactly three visual observation passes: a 0.5 FPS full-video scout, 1 FPS query-relevant corridor refinement, and the densest 3 FPS observation around relevance rises and falls that may indicate event boundaries. Each pass is batched into one encoder call. Evidence from all three passes is merged by absolute timestamp, near-duplicates are removed, one real scout anchor per temporal location is protected, and the compact pack is used for exactly one final prediction.
@@ -49,32 +45,9 @@ hybrid-vtg run \
   --post-retention 0.125
 ```
 
-The same independent policies work with frozen UniTime. The following compares adaptive top-four routing while keeping 50% of Qwen2 vision cells and 25% of the original dense evidence at language prefill:
-
-```bash
-hybrid-vtg run \
-  --benchmark tacos \
-  --model unitime \
-  --method unitime-adaptive \
-  --corridor-top-k 4 \
-  --subset 10 \
-  --seed 42 \
-  --encoder-pruning mage \
-  --encoder-retention 0.5 \
-  --post-pruning semvid \
-  --post-retention 0.25
-```
-
-Run the frozen fixed-segment baseline without pruning first:
-
-```bash
-hybrid-vtg run \
-  --benchmark tacos \
-  --model unitime \
-  --method unitime-fixed \
-  --subset 10 \
-  --seed 42
-```
+The same policies work independently with frozen UniTime. See
+[Run UniTime experiments](#run-unitime-experiments) for the complete baseline,
+Mage, SemVID, and adaptive command matrix.
 
 The UniTime backend caches grid-aligned post-encoder features by video identity, timestamps, checkpoints, and pruning configuration. It uses an explicit 16,384-cell adaptive budget, retains original sparse MRoPE coordinates, and snaps generated boundaries to timestamps shown in the prompt. `--checkpoint` overrides the default `zeqianli/UniTime` adapter; `--base-checkpoint` overrides its default `Qwen/Qwen2-VL-7B-Instruct` base.
 
@@ -130,6 +103,124 @@ both `Qwen/Qwen2-VL-7B-Instruct` and the `zeqianli/UniTime` PEFT adapter; model
 weights are downloaded from Hugging Face unless the checkpoint flags name local
 directories. Use `--base-checkpoint` for the Qwen2-VL base and `--checkpoint`
 for the adapter.
+
+## Run UniTime experiments
+
+The CLI separates the model from the inference method:
+
+- `--model unitime` loads frozen Qwen2-VL-7B plus the released UniTime LoRA.
+- `--method unitime-fixed` uses fixed 32-second coarse segments.
+- `--method unitime-adaptive` replaces fixed coarse retrieval with HMVE top-k corridors.
+- Mage and SemVID are model options and can be applied to either method.
+
+Prepare OMTG and authenticate with Hugging Face if needed:
+
+```bash
+hybrid-vtg download omtg --root ./assets --accept-licenses --hf-login
+```
+
+The examples below use 10% of OMTG with seed 42. Change `--subset 10` to
+`--subset 100` for the complete test split.
+
+### 1. UniTime adaptive, no spatial pruning
+
+```bash
+hybrid-vtg run \
+  --benchmark omtg \
+  --data ./assets/datasets/omtg \
+  --model unitime \
+  --method unitime-adaptive \
+  --corridor-top-k 4 \
+  --subset 10 \
+  --seed 42
+```
+
+### 2. Fixed UniTime with Mage encoder pruning
+
+```bash
+hybrid-vtg run \
+  --benchmark omtg \
+  --data ./assets/datasets/omtg \
+  --model unitime \
+  --method unitime-fixed \
+  --subset 10 \
+  --seed 42 \
+  --encoder-pruning mage \
+  --encoder-retention 0.5 \
+  --encoder-prune-layer 0
+```
+
+### 3. Fixed UniTime with SemVID post-encoder pruning
+
+```bash
+hybrid-vtg run \
+  --benchmark omtg \
+  --data ./assets/datasets/omtg \
+  --model unitime \
+  --method unitime-fixed \
+  --subset 10 \
+  --seed 42 \
+  --post-pruning semvid \
+  --post-retention 0.125
+```
+
+### 4. UniTime adaptive with Mage encoder pruning
+
+```bash
+hybrid-vtg run \
+  --benchmark omtg \
+  --data ./assets/datasets/omtg \
+  --model unitime \
+  --method unitime-adaptive \
+  --corridor-top-k 4 \
+  --subset 10 \
+  --seed 42 \
+  --encoder-pruning mage \
+  --encoder-retention 0.5 \
+  --encoder-prune-layer 0
+```
+
+### 5. UniTime adaptive with SemVID post-encoder pruning
+
+```bash
+hybrid-vtg run \
+  --benchmark omtg \
+  --data ./assets/datasets/omtg \
+  --model unitime \
+  --method unitime-adaptive \
+  --corridor-top-k 4 \
+  --subset 10 \
+  --seed 42 \
+  --post-pruning semvid \
+  --post-retention 0.125
+```
+
+For the dense fixed control, use `--method unitime-fixed` without pruning
+arguments. The backend computes only the final-token logits during generation,
+avoiding the approximately 5.09 GB full-prefill logits allocation at the
+16,384-token budget. A 24 GB GPU is still close to the practical limit for a
+BF16 7B model; SemVID at 12.5% is the lowest-memory configuration above.
+
+The first run downloads `Qwen/Qwen2-VL-7B-Instruct` and `zeqianli/UniTime` into
+the Hugging Face cache. To use local weights, pass the base and adapter
+separately:
+
+```bash
+hybrid-vtg run \
+  --benchmark omtg \
+  --model unitime \
+  --method unitime-adaptive \
+  --base-checkpoint /path/to/Qwen2-VL-7B-Instruct \
+  --checkpoint /path/to/UniTime-adapter \
+  --corridor-top-k 4 \
+  --subset 10 \
+  --seed 42
+```
+
+Runs are resumable and stored under
+`results/runs/omtg/<model-variant>/<method-variant>/seed-42/`. Pruning settings
+are part of `<model-variant>`, and adaptive top-k is part of `<method-variant>`,
+so these five experiments cannot overwrite one another.
 
 ## Download datasets and checkpoints
 

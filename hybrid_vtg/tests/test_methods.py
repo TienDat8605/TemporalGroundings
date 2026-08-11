@@ -14,7 +14,6 @@ from hybrid_vtg.methods.coarse_to_fine_64 import (
     uniform_windows,
 )
 from hybrid_vtg.methods.hmve import HMVE, pack_evidence, propose_boundary_bands, propose_corridors
-from hybrid_vtg.methods.tpsa_query import TPSAQuery
 from hybrid_vtg.models.qwen import QwenEvidenceBackend
 
 
@@ -110,16 +109,6 @@ def test_coarse_to_fine_router_uses_sentence_transformer_encode(monkeypatch, tmp
         ["video"],
     ]
     assert all(call[1]["normalize_embeddings"] for call in calls)
-
-
-def test_tpsa_retains_exact_budget_and_timeline_coverage():
-    timestamps = tuple(float(index // 4) for index in range(40))
-    scores = torch.linspace(0, 1, 40)
-    indices = TPSAQuery.select_indices(scores, timestamps, 8)
-    assert indices.numel() == 8
-    assert indices.tolist() == sorted(indices.tolist())
-    assert min(timestamps[index] for index in indices) <= 2.0
-    assert max(timestamps[index] for index in indices) >= 8.0
 
 
 def test_hmve_corridors_are_query_ranked_and_separated():

@@ -10,6 +10,7 @@ from hybrid_vtg.methods.unitime_fixed import UniTimeFixed
 from hybrid_vtg.models.pruning import mage_cell_plan
 from hybrid_vtg.models.unitime import (
     UniTimeEvidenceBackend,
+    _CompactQwen2Mixin,
     _install_mage_qwen2_vision_pruning,
     adaptive_frame_size,
     compact_mrope_positions,
@@ -39,6 +40,28 @@ def test_compact_mrope_preserves_relative_time_inside_coarse_segment():
     values = torch.tensor([[1, 99, 99, 2]])
     positions = compact_mrope_positions(values, 99, [[[5, 0, 0], [6, 0, 0]]])
     assert positions[0, 0, 1:3].tolist() == [1, 2]
+
+
+def test_qwen2_generation_computes_only_requested_logits():
+    class FullLogitsModel(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.lm_head = torch.nn.Linear(4, 7, bias=False)
+
+        def forward(self, inputs_embeds=None, **kwargs):
+            del kwargs
+            hidden_states = inputs_embeds
+            return self.lm_head(hidden_states)
+
+    class CompactModel(_CompactQwen2Mixin, FullLogitsModel):
+        pass
+
+    model = CompactModel()
+    hidden = torch.ones(1, 16, 4)
+    assert model(inputs_embeds=hidden).shape == (1, 16, 7)
+    assert model(inputs_embeds=hidden, logits_to_keep=1).shape == (1, 1, 7)
+    # The temporary inference hook must not alter later full-forward calls.
+    assert model(inputs_embeds=hidden).shape == (1, 16, 7)
 
 
 def test_adaptive_frame_size_respects_merger_cell_budget_and_aspect():

@@ -17,7 +17,6 @@ def test_builtin_surface_is_exactly_the_requested_matrix():
     assert METHODS.names() == (
         "coarse-to-fine-64",
         "hmve",
-        "tpsa-query",
         "unitime-adaptive",
         "unitime-fixed",
     )
