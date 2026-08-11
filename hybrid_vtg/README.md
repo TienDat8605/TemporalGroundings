@@ -209,6 +209,11 @@ SemVID. These are ablations, not UniTime reproductions: the UniTime LoRA is
 compatible with Qwen2-VL-7B only and cannot be loaded into Qwen3-VL-4B.
 Qwen3 keeps its existing processor-dependent evidence budget.
 
+OMTG generation allows up to 256 new tokens so the model can enumerate many
+separate occurrences; other benchmarks retain the 32-token limit. Predictions
+are never joined merely because their timestamps are close. Postprocessing only
+clips invalid boundaries and suppresses near-identical spans above 0.8 IoU.
+
 ```bash
 # Base Qwen2-VL-7B, 4,096-cell budget, adaptive routing, and Mage
 hybrid-vtg run --benchmark omtg --model qwen2-vl-7b \

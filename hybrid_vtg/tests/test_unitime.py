@@ -8,7 +8,7 @@ from hybrid_vtg.contracts import GroundingContext, ModelBackend, Prediction, Sam
 from hybrid_vtg.methods.unitime_adaptive import UniTimeAdaptive
 from hybrid_vtg.methods.unitime_fixed import UniTimeFixed
 from hybrid_vtg.models.pruning import mage_cell_plan
-from hybrid_vtg.models.qwen import QwenEvidenceBackend
+from hybrid_vtg.models.qwen import QwenEvidenceBackend, _generation_token_budget
 from hybrid_vtg.models.unitime import (
     UniTimeEvidenceBackend,
     _CompactQwen2Mixin,
@@ -16,7 +16,7 @@ from hybrid_vtg.models.unitime import (
     adaptive_frame_size,
     compact_mrope_positions,
 )
-from hybrid_vtg.postprocess import parse_spans
+from hybrid_vtg.postprocess import consolidate_spans, parse_spans
 
 
 def test_compact_mrope_preserves_sparse_row_and_column_coordinates():
@@ -261,3 +261,18 @@ def test_unitime_coarse_prediction_expands_through_last_selected_segment(monkeyp
 def test_unitime_sentence_style_output_is_parsed():
     spans = parse_spans("From 15.0 seconds to 18.5 seconds.")
     assert [(span.start, span.end) for span in spans] == [(15.0, 18.5)]
+
+
+def test_omtg_gets_larger_generation_budget_only():
+    omtg = Sample("1", "v", Path(__file__), 10.0, "event", group="omtg", cardinality="multi")
+    tacos = Sample("2", "v", Path(__file__), 10.0, "event", group="tacos")
+    assert _generation_token_budget(omtg) == 256
+    assert _generation_token_budget(tacos) == 32
+
+
+def test_close_occurrences_are_not_merged():
+    spans = consolidate_spans(
+        (ScoredSpan(10.0, 15.0), ScoredSpan(17.0, 22.0)),
+        duration=30.0,
+    )
+    assert [(span.start, span.end) for span in spans] == [(10.0, 15.0), (17.0, 22.0)]

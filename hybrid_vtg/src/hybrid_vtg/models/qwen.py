@@ -19,6 +19,11 @@ from ..postprocess import consolidate_spans, parse_spans
 from .pruning import mage_cell_plan, motion_residual_importance, semvid_select
 
 
+def _generation_token_budget(sample: Sample) -> int:
+    """Allow OMTG to enumerate many occurrences without slowing other benchmarks."""
+    return 256 if sample.group == "omtg" else 32
+
+
 def _dense_evidence_units(metadata: dict[str, Any], fallback: int) -> int:
     """Recover the dense encoder count through method-level concatenation."""
     value = metadata.get("dense_evidence_units")
@@ -433,13 +438,14 @@ class QwenEvidenceBackend(ModelBackend):
             evidence,
             context,
         )
+        max_new_tokens = _generation_token_budget(sample)
         with torch.inference_mode():
             generated = model.generate(
                 input_ids=input_ids,
                 inputs_embeds=inputs_embeds,
                 attention_mask=attention,
                 position_ids=position_ids,
-                max_new_tokens=256,
+                max_new_tokens=max_new_tokens,
                 do_sample=False,
                 use_cache=True,
             )
@@ -464,6 +470,7 @@ class QwenEvidenceBackend(ModelBackend):
                 "encoder_retention_ratio": self.encoder_retention,
                 "post_pruning": self.post_pruning,
                 "post_retention_ratio": self.post_retention,
+                "max_new_tokens": max_new_tokens,
                 "semvid": {
                     key: value for key, value in evidence.metadata.items() if key.startswith("semvid_")
                 },

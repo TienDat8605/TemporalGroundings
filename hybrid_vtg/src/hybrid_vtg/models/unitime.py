@@ -13,7 +13,7 @@ from ..contracts import GroundingContext, ModelBackend, Prediction, Sample, Scor
 from ..media import extract_frames
 from ..postprocess import consolidate_spans, parse_spans
 from .pruning import mage_cell_plan, motion_residual_importance, semvid_select
-from .qwen import _dense_evidence_units
+from .qwen import _dense_evidence_units, _generation_token_budget
 
 VISION_START_TOKEN = "<|vision_start|>"
 VISION_END_TOKEN = "<|vision_end|>"
@@ -613,7 +613,7 @@ class UniTimeEvidenceBackend(ModelBackend):
             dense_evidence_units=_dense_evidence_units(evidence.metadata, evidence.size),
         )
 
-    def _generate(self, input_ids, attention, inputs_embeds, positions) -> str:
+    def _generate(self, input_ids, attention, inputs_embeds, positions, max_new_tokens: int = 32) -> str:
         import torch
 
         model, _, processor = self._load()
@@ -623,7 +623,7 @@ class UniTimeEvidenceBackend(ModelBackend):
                 inputs_embeds=inputs_embeds,
                 attention_mask=attention,
                 position_ids=positions,
-                max_new_tokens=32,
+                max_new_tokens=max_new_tokens,
                 do_sample=False,
                 use_cache=True,
                 logits_to_keep=1,
@@ -651,7 +651,8 @@ class UniTimeEvidenceBackend(ModelBackend):
             segment_seconds=segment_seconds,
         )
         prompt_finished = perf_counter()
-        raw = self._generate(input_ids, attention, inputs_embeds, positions)
+        max_new_tokens = _generation_token_budget(sample)
+        raw = self._generate(input_ids, attention, inputs_embeds, positions, max_new_tokens)
         generation_finished = perf_counter()
         values = [float(value) for value in re.findall(r"-?\d+(?:\.\d+)?", raw)]
         selected = []
@@ -691,6 +692,7 @@ class UniTimeEvidenceBackend(ModelBackend):
             "coarse_post_prune_seconds": pruning_finished - pruning_started,
             "coarse_prompt_seconds": prompt_finished - prompt_started,
             "coarse_generation_seconds": generation_finished - prompt_finished,
+            "coarse_max_new_tokens": max_new_tokens,
         }
 
     def predict(self, sample: Sample, evidence: TemporalEvidence, context: GroundingContext) -> Prediction:
@@ -700,7 +702,8 @@ class UniTimeEvidenceBackend(ModelBackend):
         pruning_finished = perf_counter()
         input_ids, attention, inputs_embeds, positions, _ = self._evidence_prompt(sample, evidence)
         prompt_finished = perf_counter()
-        raw = self._generate(input_ids, attention, inputs_embeds, positions)
+        max_new_tokens = _generation_token_budget(sample)
+        raw = self._generate(input_ids, attention, inputs_embeds, positions, max_new_tokens)
         generation_finished = perf_counter()
         candidates = parse_spans(raw)
         visible = sorted(set(evidence.timestamps))
@@ -730,6 +733,7 @@ class UniTimeEvidenceBackend(ModelBackend):
                 "encoder_retention_ratio": self.encoder_retention,
                 "post_pruning": self.post_pruning,
                 "post_retention_ratio": self.post_retention,
+                "max_new_tokens": max_new_tokens,
                 "semvid": {key: value for key, value in evidence.metadata.items() if key.startswith("semvid_")},
                 "timestamp_interleaved": True,
                 "timestamp_snapping": True,

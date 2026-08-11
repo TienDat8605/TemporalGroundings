@@ -59,21 +59,8 @@ def consolidate_spans(
     duration: float,
     *,
     duplicate_iou: float = 0.8,
-    merge_gap: float = 3.0,
 ) -> tuple[ScoredSpan, ...]:
+    """Clip spans and suppress near-duplicates without joining occurrences."""
     clipped = [value for span in spans if (value := span.clipped(duration)) is not None]
-    deduplicated = list(temporal_nms(clipped, duplicate_iou))
-    merged: list[ScoredSpan] = []
-    for span in sorted(deduplicated, key=lambda value: (value.start, value.end)):
-        if merged and span.start <= merged[-1].end + merge_gap:
-            previous = merged[-1]
-            merged[-1] = ScoredSpan(
-                previous.start,
-                max(previous.end, span.end),
-                max(previous.score, span.score),
-            )
-        else:
-            merged.append(span)
-    # A final NMS pass drops any spans that still overlap after merging (e.g. a
-    # dense sweep of adjacent chunks that merge into a few near-identical spans).
-    return temporal_nms(merged, duplicate_iou)
+    deduplicated = temporal_nms(clipped, duplicate_iou)
+    return tuple(sorted(deduplicated, key=lambda value: (value.start, value.end)))
