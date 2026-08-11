@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from hybrid_vtg.contracts import Sample
+from hybrid_vtg.io import ensure_manifest
 from hybrid_vtg.runner import _evaluation_summary, _pruning_variant, _validate_pruning_configuration, run_benchmark
 
 
@@ -65,3 +66,14 @@ def test_adaptive_corridor_count_is_validated_before_loading_data(tmp_path):
             seed=1,
             corridor_top_k=9,
         )
+
+
+def test_manifest_mismatch_requires_rerun(tmp_path):
+    path = tmp_path / "manifest.json"
+    ensure_manifest(path, {"revision": "old"})
+
+    with pytest.raises(RuntimeError, match="manifest differs"):
+        ensure_manifest(path, {"revision": "new"})
+
+    ensure_manifest(path, {"revision": "new"}, replace=True)
+    assert path.read_text(encoding="utf-8") == '{\n  "revision": "new"\n}\n'

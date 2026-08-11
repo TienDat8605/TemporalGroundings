@@ -242,7 +242,9 @@ def run_benchmark(
             "post_policy": post_pruning,
             "post_retention": post_retention,
         }
-    ensure_manifest(run_dir / "manifest.json", manifest)
+    # A rerun intentionally replaces results produced by an older revision or
+    # configuration. Normal resume mode still rejects incompatible manifests.
+    ensure_manifest(run_dir / "manifest.json", manifest, replace=rerun)
 
     predictions_path = run_dir / "predictions.jsonl"
     if rerun:

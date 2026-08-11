@@ -49,14 +49,15 @@ def git_revision(root: Path) -> str | None:
         return None
 
 
-def ensure_manifest(path: Path, value: dict[str, Any]) -> None:
+def ensure_manifest(path: Path, value: dict[str, Any], *, replace: bool = False) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.is_file():
         existing = json.loads(path.read_text(encoding="utf-8"))
-        if existing != value:
+        if existing != value and not replace:
             raise RuntimeError(f"run manifest differs from existing output: {path}")
-        return
-    path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        if existing == value:
+            return
+    write_json(path, value)
 
 
 def write_json(path: Path, value: Any) -> None:
