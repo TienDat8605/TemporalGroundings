@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
@@ -23,7 +25,33 @@ def _cv2():
             "headless OpenCV is required for video decoding; reinstall with "
             "pip install --force-reinstall opencv-python-headless"
         ) from error
+    # ffmpeg's h264 decoder inside OpenCV prints "mmco: unref short failure" to stderr when
+    # seeking some h264 streams. The frames still decode correctly, so silence the noise.
+    try:
+        cv2.utils.logging.setLogLevel(cv2.utils.logging.LOG_LEVEL_ERROR)
+    except (AttributeError, NameError):
+        pass
     return cv2
+
+
+@contextlib.contextmanager
+def _silence_decoder_stderr():
+    """Suppress libavcodec's direct stderr warnings (e.g. "mmco: unref short failure").
+
+    OpenCV's own logging channel is silenced in ``_cv2``, but ffmpeg/libavcodec writes these
+    seek-time warnings straight to file descriptor 2, bypassing OpenCV entirely. They are
+    harmless (frames still decode), so we redirect stderr to /dev/null for the duration of a
+    decode loop. Real failures still raise ``RuntimeError`` from the caller.
+    """
+    saved = os.dup(2)
+    devnull = os.open(os.devnull, os.O_WRONLY)
+    try:
+        os.dup2(devnull, 2)
+        yield
+    finally:
+        os.dup2(saved, 2)
+        os.close(devnull)
+        os.close(saved)
 
 
 def probe_video(path: Path) -> VideoInfo:
@@ -33,9 +61,12 @@ def probe_video(path: Path) -> VideoInfo:
     capture = cv2.VideoCapture(str(path))
     if not capture.isOpened():
         raise RuntimeError(f"cannot open video: {path}")
-    fps = float(capture.get(cv2.CAP_PROP_FPS))
-    frames = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
-    capture.release()
+    try:
+        with _silence_decoder_stderr():
+            fps = float(capture.get(cv2.CAP_PROP_FPS))
+            frames = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
+    finally:
+        capture.release()
     if fps <= 0 or frames <= 0:
         raise RuntimeError(f"invalid video metadata for {path}: fps={fps}, frames={frames}")
     return VideoInfo(frames / fps, fps, frames)
@@ -77,17 +108,18 @@ def extract_frames(
     if not capture.isOpened():
         raise RuntimeError(f"cannot open video: {video_path}")
     try:
-        for timestamp, path in missing:
-            capture.set(cv2.CAP_PROP_POS_MSEC, float(timestamp) * 1000.0)
-            ok, frame = capture.read()
-            if not ok:
-                raise RuntimeError(f"cannot decode {video_path} at {timestamp:.3f}s")
-            height, width = frame.shape[:2]
-            if width > maximum_width:
-                scale = maximum_width / width
-                frame = cv2.resize(frame, (maximum_width, max(2, round(height * scale))))
-            if not cv2.imwrite(str(path), frame, [cv2.IMWRITE_JPEG_QUALITY, 90]):
-                raise RuntimeError(f"cannot write cached frame: {path}")
+        with _silence_decoder_stderr():
+            for timestamp, path in missing:
+                capture.set(cv2.CAP_PROP_POS_MSEC, float(timestamp) * 1000.0)
+                ok, frame = capture.read()
+                if not ok:
+                    raise RuntimeError(f"cannot decode {video_path} at {timestamp:.3f}s")
+                height, width = frame.shape[:2]
+                if width > maximum_width:
+                    scale = maximum_width / width
+                    frame = cv2.resize(frame, (maximum_width, max(2, round(height * scale))))
+                if not cv2.imwrite(str(path), frame, [cv2.IMWRITE_JPEG_QUALITY, 90]):
+                    raise RuntimeError(f"cannot write cached frame: {path}")
     finally:
         capture.release()
     return paths

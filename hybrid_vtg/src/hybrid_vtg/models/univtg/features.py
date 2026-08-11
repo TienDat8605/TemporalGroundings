@@ -20,6 +20,8 @@ class UniVTGFeatures:
         self._clip_model = None
         self._clip_processor = None
         self._slowfast = None
+        self._text_cache: dict[str, object] = {}
+        self._clip_frame_cache: dict[Path, np.ndarray] = {}
 
     @property
     def clip_checkpoint(self) -> str:
@@ -63,27 +65,42 @@ class UniVTGFeatures:
         import torch
         from PIL import Image
 
-        model, processor = self._load_clip()
-        images = []
-        for path in paths:
-            with Image.open(path) as image:
-                images.append(image.convert("RGB"))
-        inputs = processor(images=images, return_tensors="pt")
-        inputs = {key: value.to(model.device) for key, value in inputs.items()}
-        with torch.inference_mode():
-            values = model.get_image_features(**inputs)
-        return torch.nn.functional.normalize(values.float(), dim=-1).cpu().numpy()
+        # HMVE encodes scout/corridor/boundary passes with overlapping timestamps.
+        # Cache CLIP features per frame path so a frame seen in an earlier pass is
+        # not re-encoded. extract_frames names paths deterministically by timestamp,
+        # so the same timestamp across passes maps to the same path.
+        missing = [path for path in paths if path not in self._clip_frame_cache]
+        if missing:
+            model, processor = self._load_clip()
+            images = []
+            for path in missing:
+                with Image.open(path) as image:
+                    images.append(image.convert("RGB"))
+            inputs = processor(images=images, return_tensors="pt")
+            inputs = {key: value.to(model.device) for key, value in inputs.items()}
+            with torch.inference_mode():
+                values = model.get_image_features(**inputs)
+            for path, value in zip(missing, torch.nn.functional.normalize(values.float(), dim=-1).cpu().numpy()):
+                self._clip_frame_cache[path] = value
+        return np.stack([self._clip_frame_cache[path] for path in paths])
 
     def text(self, query: str):
         import torch
 
+        # HMVE calls query_scores 3x and predict 1x per sample, all with the same
+        # query. Cache the CLIP text embedding so it is computed once, not 4x.
+        cached = self._text_cache.get(query)
+        if cached is not None:
+            return cached
         model, processor = self._load_clip()
         inputs = processor(text=[query], return_tensors="pt", padding=True)
         inputs = {key: value.to(model.device) for key, value in inputs.items()}
         with torch.inference_mode():
             output = model.text_model(**inputs).last_hidden_state[0]
         length = int(inputs["attention_mask"][0].sum())
-        return output[:length].float()
+        embedding = output[:length].float()
+        self._text_cache[query] = embedding
+        return embedding
 
     def _load_slowfast(self):
         if self._slowfast is None:

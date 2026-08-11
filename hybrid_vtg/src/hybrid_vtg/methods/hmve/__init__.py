@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Sequence
 
 from ...contracts import (
     GroundingContext,
@@ -42,22 +43,30 @@ def _temporal_scores(evidence: TemporalEvidence, scores) -> list[tuple[float, fl
 def propose_corridors(
     temporal_scores: list[tuple[float, float, int]],
     duration: float,
-    maximum: int = 4,
+    maximum: int = 6,
 ) -> tuple[Corridor, ...]:
     ranked = sorted(temporal_scores, key=lambda value: (-value[1], value[0]))
+    # Adapt the minimum center separation to the number of candidate peaks so closely-spaced
+    # occurrences are not collapsed into a single corridor.
+    minimum_separation = max(4.0, min(8.0, duration / max(2 * maximum, 2)))
     centers: list[tuple[float, float]] = []
     for timestamp, score, _ in ranked:
-        if all(abs(timestamp - prior) >= 8.0 for prior, _ in centers):
+        if all(abs(timestamp - prior) >= minimum_separation for prior, _ in centers):
             centers.append((timestamp, score))
         if len(centers) == maximum:
             break
     if not centers:
         centers = [(duration / 2.0, 0.0)]
+    # Corridor width scales with duration so long videos (many occurrences spread over
+    # minutes) get wider corridors instead of a fixed 16s window that misses targets.
+    # OMTG-style dense multi-occurrence videos need wide corridors to cover all
+    # occurrences; 64s half-width covers ~84% of targets vs ~27% at 16s.
+    half_width = min(64.0, max(16.0, duration / 8.0))
     corridors = []
     for center, score in centers:
-        start = max(0.0, center - 8.0)
-        end = min(duration, center + 8.0)
-        start = max(0.0, end - 16.0)
+        start = max(0.0, center - half_width)
+        end = min(duration, center + half_width)
+        start = max(0.0, end - 2 * half_width)
         corridors.append(Corridor(start, end, score))
     return tuple(sorted(corridors, key=lambda value: value.start))
 
@@ -90,21 +99,40 @@ def propose_boundary_bands(
     return tuple(sorted(bands, key=lambda value: (value.start, value.end, value.role)))
 
 
-def observation_timestamps(windows, fps: float, minimum_per_window: int = 2) -> tuple[float, ...]:
-    """Build one chronological batch for a logical observation pass."""
+def observation_timestamps(
+    windows,
+    fps: float,
+    minimum_per_window: int = 2,
+    roles: Sequence[str] | None = None,
+) -> tuple[tuple[float, ...], tuple[str, ...]]:
+    """Build one chronological batch for a logical observation pass.
+
+    Returns ``(timestamps, roles)``. When ``roles`` is given (one per window), each
+    window's role is expanded to every timestamp it contributes; otherwise roles are
+    empty. The even-count padding repeats the final real frame and its role.
+    """
     if fps <= 0:
         raise ValueError("observation FPS must be positive")
+    if roles is not None and len(roles) != len(windows):
+        raise ValueError(f"{len(windows)} windows but {len(roles)} roles")
     values: dict[float, float] = {}
-    for window in windows:
+    role_map: dict[float, str] = {}
+    for index, window in enumerate(windows):
         count = max(minimum_per_window, math.ceil((window.end - window.start) * fps))
         for timestamp in uniform_timestamps(window.start, window.end, count):
-            values.setdefault(round(timestamp, 6), timestamp)
+            key = round(timestamp, 6)
+            values.setdefault(key, timestamp)
+            if roles is not None:
+                role_map[key] = roles[index]
     timestamps = [values[key] for key in sorted(values)]
+    out_roles = [role_map[key] for key in sorted(values)] if roles is not None else []
     if len(timestamps) % 2:
         # Qwen temporal tubelets consume pairs. Repeating the final real frame
         # keeps a single logical encoder call without inventing a new time.
         timestamps.append(timestamps[-1])
-    return tuple(timestamps)
+        if out_roles:
+            out_roles.append(out_roles[-1])
+    return tuple(timestamps), tuple(out_roles)
 
 
 def pack_evidence(evidence: TemporalEvidence, scores, target: int, anchor_indices: set[int]) -> TemporalEvidence:
@@ -114,8 +142,38 @@ def pack_evidence(evidence: TemporalEvidence, scores, target: int, anchor_indice
     target = min(max(target, len(anchor_indices)), evidence.size)
     normalized = functional.normalize(evidence.embeddings.float(), dim=-1, eps=1e-6)
     selected = set(anchor_indices)
+    # Temporal-coverage anchors: split the timeline into bands and keep the top-scoring
+    # non-duplicate row in each, so retained evidence spans the whole video instead of
+    # clustering on the top-scoring regions.
+    if len(selected) < target:
+        times = torch.tensor(evidence.timestamps, device=scores.device, dtype=torch.float32)
+        band_count = min(target - len(selected), max(1, math.ceil(math.sqrt(target))))
+        edges = torch.linspace(times.min(), times.max() + 1e-6, band_count + 1, device=scores.device)
+        for band in range(band_count):
+            members = torch.nonzero(
+                (times >= edges[band]) & (times < edges[band + 1]),
+                as_tuple=False,
+            ).flatten()
+            if not members.numel():
+                continue
+            for index in members[torch.argsort(scores[members], descending=True, stable=True)].tolist():
+                index = int(index)
+                if index in selected:
+                    continue
+                duplicate = any(
+                    abs(evidence.timestamps[index] - evidence.timestamps[prior]) <= 0.51
+                    and float(torch.dot(normalized[index], normalized[prior]).item()) >= 0.98
+                    for prior in selected
+                )
+                if not duplicate:
+                    selected.add(index)
+                    break
+            if len(selected) == target:
+                break
     ranked = torch.argsort(scores.float(), descending=True, stable=True).tolist()
     for index in ranked:
+        if len(selected) >= target:
+            break
         if index in selected:
             continue
         duplicate = any(
@@ -125,8 +183,6 @@ def pack_evidence(evidence: TemporalEvidence, scores, target: int, anchor_indice
         )
         if not duplicate:
             selected.add(index)
-        if len(selected) == target:
-            break
     if len(selected) < target:
         for index in ranked:
             selected.add(index)
@@ -143,7 +199,7 @@ class HMVE(Method):
         self,
         scout_fps: float = 0.5,
         detail_fps: float = 1.0,
-        boundary_fps: float = 2.0,
+        boundary_fps: float = 3.0,
         boundary_radius: float = 2.0,
         retention_ratio: float = 0.125,
     ) -> None:
@@ -164,13 +220,15 @@ class HMVE(Method):
         if scout_frames % 2:
             scout_frames = scout_frames - 1 if scout_frames > 2 else 2
         scout = model.encode(sample, uniform_timestamps(0.0, sample.duration, scout_frames))
+        scout.roles = ("global_anchor",) * scout.size
         scout_scores = model.query_scores(scout, sample.query)
         temporal = _temporal_scores(scout, scout_scores)
-        corridors = propose_corridors(temporal, sample.duration)
+        corridors = propose_corridors(temporal, sample.duration, maximum=6)
 
         # Pass 1: encode every medium-detail corridor in one chronological batch.
-        corridor_timestamps = observation_timestamps(corridors, self.detail_fps)
+        corridor_timestamps, _ = observation_timestamps(corridors, self.detail_fps)
         corridor_evidence = model.encode(sample, corridor_timestamps)
+        corridor_evidence.roles = ("content",) * corridor_evidence.size
         corridor_scores = model.query_scores(corridor_evidence, sample.query)
         refined_temporal = _temporal_scores(corridor_evidence, corridor_scores)
 
@@ -181,8 +239,22 @@ class HMVE(Method):
             sample.duration,
             self.boundary_radius,
         )
-        boundary_timestamps = observation_timestamps(boundary_bands, self.boundary_fps)
+        boundary_timestamps, _ = observation_timestamps(
+            boundary_bands,
+            self.boundary_fps,
+            roles=[band.role for band in boundary_bands],
+        )
         boundary_evidence = model.encode(sample, boundary_timestamps)
+        # The Qwen encoder groups frames into temporal tubelets, so the number of
+        # evidence rows need not equal the requested timestamp count. Assign each row
+        # the role of the band that contains its (tubelet-center) timestamp.
+        boundary_evidence.roles = tuple(
+            next(
+                (band.role for band in boundary_bands if band.start <= timestamp <= band.end),
+                "boundary",
+            )
+            for timestamp in boundary_evidence.timestamps
+        )
 
         dense_reference_frames = max(2, math.ceil(sample.duration * self.boundary_fps))
         units_per_frame = scout.size / max(scout.source_frames, 1)

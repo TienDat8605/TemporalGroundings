@@ -45,6 +45,10 @@ def _infer_network_spec(state: dict[str, Any], maximum_video_length: int = 75) -
     hidden = int(state["token_type_embeddings.weight"].shape[1])
     layers = 1 + max(int(key.split(".")[3]) for key in state if key.startswith("transformer.encoder.layers."))
     projections = len({key.split(".")[1] for key in state if key.startswith("input_vid_proj.")})
+    # FFN width and text-position length are checkpoint-specific; read them from the
+    # state so the vendor network matches the frozen weights exactly.
+    ffn = int(state["transformer.encoder.layers.0.linear1.weight"].shape[0])
+    max_q_l = int(state["txt_position_embed.position_embeddings.weight"].shape[0])
     return NetworkSpec(
         video_dim=video_dim,
         text_dim=text_dim,
@@ -53,6 +57,8 @@ def _infer_network_spec(state: dict[str, Any], maximum_video_length: int = 75) -
         input_projections=projections,
         text_positions=False,
         maximum_video_length=maximum_video_length,
+        dim_feedforward=ffn,
+        max_q_l=max_q_l,
     )
 
 

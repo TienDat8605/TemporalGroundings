@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 from dataclasses import dataclass
 from pathlib import Path
@@ -132,7 +133,9 @@ class EmbeddingRouter:
         if self._model is None:
             from sentence_transformers import SentenceTransformer
 
-            self._model = SentenceTransformer(self.model_id)
+            # Run on CPU: the 4B grounder stays resident on the GPU for the whole run, so
+            # the 2B router must not compete with it for GPU memory (otherwise OOM).
+            self._model = SentenceTransformer(self.model_id, device="cpu")
             if not self._model.supports("video"):
                 raise RuntimeError(f"embedding model does not support video input: {self.model_id}")
         return self._model
@@ -173,10 +176,45 @@ class CoarseToFine64(Method):
 
     def __init__(self, router: EmbeddingRouter | None = None) -> None:
         self.router = router or EmbeddingRouter()
+        self._prepare_root: Path | None = None
+
+    def prepare(self, samples: Sequence[Sample], cache_root: Path) -> None:
+        """Run PySceneDetect once for every pending sample, before the GPU model loads.
+
+        Scene detection is CPU-only and independent of the query, so it is done in one
+        batch pass up front. Results are cached on disk so a resumed run reuses them.
+        """
+        self._prepare_root = cache_root
+        cache_root.mkdir(parents=True, exist_ok=True)
+        for sample in samples:
+            cache_path = cache_root / f"{sample.id}.json"
+            if cache_path.is_file():
+                continue
+            windows, source = content_windows(sample.video_path, sample.duration)
+            cache_path.write_text(
+                json.dumps(
+                    {
+                        "source": source,
+                        "windows": [{"start": value.start, "end": value.end} for value in windows],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+    def _cached_windows(self, sample: Sample, cache_dir: Path) -> tuple[list[Window], str]:
+        cache_path = self._prepare_root / f"{sample.id}.json" if self._prepare_root else None
+        if cache_path is None or not cache_path.is_file():
+            cache_path = cache_dir / f"{sample.id}.json"
+        if cache_path.is_file():
+            value = json.loads(cache_path.read_text(encoding="utf-8"))
+            windows = [Window(float(item["start"]), float(item["end"])) for item in value["windows"]]
+            return windows, str(value["source"])
+        windows, source = content_windows(sample.video_path, sample.duration)
+        return windows, source
 
     def run(self, sample: Sample, model: ModelBackend, cache_dir: Path) -> Prediction:
         self.validate_model(model)
-        windows, source = content_windows(sample.video_path, sample.duration)
+        windows, source = self._cached_windows(sample, cache_dir)
         if len(windows) == 1:
             timestamps = uniform_timestamps(0.0, sample.duration, FRAME_BUDGET)
             evidence = model.encode(sample, timestamps)

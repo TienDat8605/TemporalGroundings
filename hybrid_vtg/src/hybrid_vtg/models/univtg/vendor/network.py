@@ -87,6 +87,8 @@ class NetworkSpec:
     input_projections: int = 2
     text_positions: bool = False
     maximum_video_length: int = 75
+    dim_feedforward: int = 2048
+    max_q_l: int = 32
 
 
 class UniVTGNetwork(nn.Module):
@@ -97,12 +99,12 @@ class UniVTGNetwork(nn.Module):
             dropout=0.0,
             droppath=0.0,
             nheads=8,
-            dim_feedforward=2048,
+            dim_feedforward=spec.dim_feedforward,
             enc_layers=spec.encoder_layers,
             dec_layers=0,
             pre_norm=False,
             position_embedding="sine",
-            max_q_l=32,
+            max_q_l=spec.max_q_l,
             input_dropout=0.0,
         )
         self.transformer = build_transformer(args)

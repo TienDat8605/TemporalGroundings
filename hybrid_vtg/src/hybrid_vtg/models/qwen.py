@@ -20,11 +20,23 @@ from ..postprocess import consolidate_spans, parse_spans
 class _CompactQwenMixin:
     """Preserve explicit compact-prefill positions on the first generation step."""
 
-    def prepare_inputs_for_generation(self, *args: Any, position_ids=None, cache_position=None, **kwargs: Any):
+    def prepare_inputs_for_generation(
+        self,
+        *args: Any,
+        position_ids=None,
+        cache_position=None,
+        inputs_embeds=None,
+        **kwargs: Any,
+    ):
+        # `inputs_embeds` must be an explicit named parameter, not hidden in **kwargs:
+        # transformers/generation/utils.py inspects the *signature* of
+        # prepare_inputs_for_generation for the parameter name before accepting
+        # inputs_embeds in .generate().
         values = super().prepare_inputs_for_generation(
             *args,
             position_ids=position_ids,
             cache_position=cache_position,
+            inputs_embeds=inputs_embeds,
             **kwargs,
         )
         if position_ids is not None and cache_position is not None and int(cache_position[0]) == 0:
@@ -41,31 +53,165 @@ def _model_class():
     return CompactQwen
 
 
+def _prune_indices(grid_thw, merge: int, prune_ratio: float) -> tuple[list[int], list[list[int]]]:
+    """Indices of surviving patch tokens after dropping whole 2x2 merge cells.
+
+    Keeps a rectangular sub-grid of merge cells so the ``Qwen3VLVisionPatchMerger``
+    reshape invariant (4 consecutive tokens per cell) is preserved. ``prune_ratio``
+    is the fraction of cells retained:
+
+    - ``0.5``  -> keep even cell rows (halve height)
+    - ``0.25`` -> keep even cell rows and columns (halve both dims)
+
+    Returns ``(survive_indices, new_grid)`` where ``new_grid`` is the reduced
+    ``[t, h, w]`` per frame, matching the surviving token count.
+    """
+    if prune_ratio == 0.5:
+        step_r, step_c = 2, 1
+    elif prune_ratio == 0.25:
+        step_r, step_c = 2, 2
+    else:
+        raise ValueError(f"unsupported prune_ratio {prune_ratio!r}; use 0.5 or 0.25")
+    survive: list[int] = []
+    new_grid: list[list[int]] = []
+    offset = 0
+    for t, h, w in grid_thw.tolist():
+        cells_h, cells_w = h // merge, w // merge
+        kept_rows = (cells_h + step_r - 1) // step_r
+        kept_cols = (cells_w + step_c - 1) // step_c
+        # A video row stacks t temporal frames; the same spatial cell pattern is
+        # kept in every frame, so repeat it t times.
+        for frame in range(t):
+            frame_base = offset + frame * h * w
+            for cell_row in range(0, cells_h, step_r):
+                for cell_col in range(0, cells_w, step_c):
+                    cell_index = cell_row * cells_w + cell_col
+                    start = frame_base + cell_index * merge * merge
+                    survive.extend(range(start, start + merge * merge))
+        offset += t * h * w
+        # Reduced grid must match the actual kept cell count so cu_seqlens and the
+        # merger reshape stay consistent with the pruned token sequence.
+        new_grid.append([t, kept_rows * merge, kept_cols * merge])
+    return survive, new_grid
+
+
+def _install_vision_pruning(model, prune_ratio: float, prune_layer: int) -> None:
+    """Wrap the Qwen vision encoder to drop spatial merge cells mid-forward.
+
+    Prunes after ``prune_layer`` blocks, then recomputes ``cu_seqlens`` and the
+    rotary ``position_embeddings`` for the surviving tokens and returns a reduced
+    ``grid_thw`` so downstream ``split_sizes`` stay consistent. DeepStack features
+    are computed on the pruned sequence and are discarded by the backend, so their
+    alignment is not a correctness concern.
+    """
+    import torch
+    import torch.nn.functional as functional
+
+    visual = model.model.visual
+    merge = int(model.config.vision_config.spatial_merge_size)
+    original_forward = visual.forward
+
+    def pruned_forward(hidden_states, grid_thw, **kwargs):
+        hidden_states = visual.patch_embed(hidden_states)
+        pos_embeds = visual.fast_pos_embed_interpolate(grid_thw)
+        hidden_states = hidden_states + pos_embeds
+        rotary_pos_emb = visual.rot_pos_emb(grid_thw)
+        seq_len, _ = hidden_states.size()
+        hidden_states = hidden_states.reshape(seq_len, -1)
+        rotary_pos_emb = rotary_pos_emb.reshape(seq_len, -1)
+        emb = torch.cat((rotary_pos_emb, rotary_pos_emb), dim=-1)
+        position_embeddings = (emb.cos(), emb.sin())
+        cu_seqlens = torch.repeat_interleave(
+            grid_thw[:, 1] * grid_thw[:, 2], grid_thw[:, 0]
+        ).cumsum(dim=0, dtype=torch.int32)
+        cu_seqlens = functional.pad(cu_seqlens, (1, 0), value=0)
+        deepstack_feature_lists = []
+        for layer_num, blk in enumerate(visual.blocks):
+            if layer_num == prune_layer:
+                survive, new_grid = _prune_indices(grid_thw, merge, prune_ratio)
+                index = torch.tensor(survive, device=hidden_states.device, dtype=torch.long)
+                hidden_states = hidden_states[index]
+                grid_thw = torch.tensor(new_grid, device=grid_thw.device, dtype=grid_thw.dtype)
+                cu_seqlens = torch.repeat_interleave(
+                    grid_thw[:, 1] * grid_thw[:, 2], grid_thw[:, 0]
+                ).cumsum(dim=0, dtype=torch.int32)
+                cu_seqlens = functional.pad(cu_seqlens, (1, 0), value=0)
+                cos, sin = position_embeddings
+                position_embeddings = (cos[index], sin[index])
+                model.model._pruned_grid_thw = grid_thw[0]
+            hidden_states = blk(
+                hidden_states,
+                cu_seqlens=cu_seqlens,
+                position_embeddings=position_embeddings,
+                **kwargs,
+            )
+            if layer_num in visual.deepstack_visual_indexes:
+                deepstack_feature = visual.deepstack_merger_list[
+                    visual.deepstack_visual_indexes.index(layer_num)
+                ](hidden_states)
+                deepstack_feature_lists.append(deepstack_feature)
+        hidden_states = visual.merger(hidden_states)
+        return hidden_states, deepstack_feature_lists, grid_thw
+
+    visual.forward = pruned_forward
+
+    def pruned_get_image_features(pixel_values, image_grid_thw):
+        image_embeds, deepstack_image_embeds, pruned_grid = visual(
+            pixel_values, grid_thw=image_grid_thw
+        )
+        split_sizes = (pruned_grid.prod(-1) // merge**2).tolist()
+        image_embeds = torch.split(image_embeds, split_sizes)
+        return image_embeds, deepstack_image_embeds
+
+    model.model.get_image_features = pruned_get_image_features
+    del original_forward
+
+
 class QwenEvidenceBackend(ModelBackend):
     capabilities = frozenset({"encoded-evidence", "spatial-evidence", "generative"})
 
-    def __init__(self, checkpoint: str, cache_dir: Path, *, name: str) -> None:
+    def __init__(
+        self,
+        checkpoint: str,
+        cache_dir: Path,
+        *,
+        name: str,
+        prune_ratio: float = 0.0,
+        prune_layer: int = 12,
+    ) -> None:
         self.name = name
         self.checkpoint = checkpoint
         self.cache_dir = cache_dir
+        self.prune_ratio = prune_ratio
+        self.prune_layer = prune_layer
         self._model: Any = None
         self._processor: Any = None
 
     def _load(self) -> tuple[Any, Any]:
         if self._model is None:
             from transformers import AutoProcessor
+            from transformers import logging as hf_logging
 
-            self._processor = AutoProcessor.from_pretrained(self.checkpoint)
-            self._model = (
-                _model_class()
-                .from_pretrained(
-                    self.checkpoint,
-                    torch_dtype="auto",
-                    device_map="auto",
-                    low_cpu_mem_usage=True,
+            # Suppress the large model-weight / device-map load reports. These can be
+            # several screens of output for a 4B checkpoint and bury the run progress.
+            previous = hf_logging.get_verbosity()
+            hf_logging.set_verbosity_error()
+            try:
+                self._processor = AutoProcessor.from_pretrained(self.checkpoint)
+                self._model = (
+                    _model_class()
+                    .from_pretrained(
+                        self.checkpoint,
+                        torch_dtype="auto",
+                        device_map="auto",
+                        low_cpu_mem_usage=True,
+                    )
+                    .eval()
                 )
-                .eval()
-            )
+                if self.prune_ratio:
+                    _install_vision_pruning(self._model, self.prune_ratio, self.prune_layer)
+            finally:
+                hf_logging.set_verbosity(previous)
         return self._model, self._processor
 
     @staticmethod
@@ -84,14 +230,24 @@ class QwenEvidenceBackend(ModelBackend):
             with Image.open(path) as image:
                 frames.append(image.convert("RGB"))
         placeholder = processor.vision_start_token + processor.video_token + processor.vision_end_token
-        inputs = processor(text=[placeholder], videos=[frames], return_tensors="pt")
+        # TimeLens2 ships video_processor.do_resize=False, which leaves frames at their
+        # native resolution while the grid is computed from a resized size, so the
+        # patch reshape mismatches. Force resizing so grid and tensor agree.
+        inputs = processor(
+            text=[placeholder],
+            videos=[frames],
+            return_tensors="pt",
+            do_resize=True,
+        )
         device = self._device(model.model.visual)
         pixels = inputs["pixel_values_videos"].to(device)
         grids = inputs["video_grid_thw"].to(device)
         with torch.inference_mode():
             features, _ = model.model.get_video_features(pixels, grids)
         embedding = features[0]
-        temporal, height, width = [int(value) for value in grids[0].tolist()]
+        pruned = getattr(model.model, "_pruned_grid_thw", None)
+        grid = pruned if pruned is not None else grids[0]
+        temporal, height, width = [int(value) for value in grid.tolist()]
         merge = int(model.config.vision_config.spatial_merge_size)
         per_time = height * width // (merge * merge)
         if temporal * per_time != int(embedding.shape[0]):
@@ -136,9 +292,17 @@ class QwenEvidenceBackend(ModelBackend):
 
     @staticmethod
     def _prompt(sample: Sample, context: GroundingContext) -> str:
-        cardinality = "every disjoint interval" if sample.cardinality == "multi" else "the best interval"
+        if sample.cardinality == "multi":
+            return (
+                f"The event '{sample.query}' may occur MULTIPLE times in this video. "
+                f"List EVERY occurrence as its own [start, end] pair, in chronological order. "
+                f"Use seconds relative to this evidence window, from 0 to {context.duration:.3f}. "
+                "Return ONLY a JSON array of [start, end] pairs, e.g. [[1.0, 3.0], [7.5, 9.0]]. "
+                f"Do NOT return the whole video as a single pair like [0, {context.duration:.3f}]. "
+                "Return [] if the event never occurs."
+            )
         return (
-            f"Find {cardinality} where this event occurs: {sample.query!r}. "
+            f"Find the best interval where this event occurs: {sample.query!r}. "
             f"Use seconds relative to this evidence window, from 0 to {context.duration:.3f}. "
             "Return only a JSON array of [start, end] pairs. Return [] if absent."
         )
@@ -148,18 +312,19 @@ class QwenEvidenceBackend(ModelBackend):
 
         model, processor = self._load()
         tokenizer = processor.tokenizer
-        groups: list[tuple[float, int]] = []
-        for timestamp in evidence.timestamps:
+        groups: list[tuple[float, int, str]] = []
+        for index, timestamp in enumerate(evidence.timestamps):
             relative = max(0.0, timestamp - context.start)
+            role = evidence.roles[index] if evidence.roles else ""
             if groups and abs(groups[-1][0] - relative) < 1e-5:
-                groups[-1] = (relative, groups[-1][1] + 1)
+                groups[-1] = (relative, groups[-1][1] + 1, groups[-1][2])
             else:
-                groups.append((relative, 1))
+                groups.append((relative, 1, role))
         visual = "".join(
-            f"<{timestamp:.1f} seconds>{processor.vision_start_token}"
+            f"<{timestamp:.2f} seconds>{f', {role}' if role else ''}{processor.vision_start_token}"
             + processor.video_token * count
             + processor.vision_end_token
-            for timestamp, count in groups
+            for timestamp, count, role in groups
         )
         text = f"<|im_start|>user\n{self._prompt(sample, context)}\n{visual}<|im_end|>\n<|im_start|>assistant\n"
         encoded = tokenizer(text, return_tensors="pt", add_special_tokens=False)

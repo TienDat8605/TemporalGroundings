@@ -66,6 +66,7 @@ class TemporalEvidence:
     timestamps: tuple[float, ...]
     source_frames: int
     metadata: dict[str, Any] = field(default_factory=dict)
+    roles: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         rows = int(self.embeddings.shape[0])
@@ -73,6 +74,8 @@ class TemporalEvidence:
             raise ValueError(f"evidence has {rows} rows but {len(self.timestamps)} timestamps")
         if rows == 0:
             raise ValueError("evidence cannot be empty")
+        if self.roles and len(self.roles) != rows:
+            raise ValueError(f"evidence has {rows} rows but {len(self.roles)} roles")
 
     @property
     def size(self) -> int:
@@ -87,6 +90,7 @@ class TemporalEvidence:
             timestamps=tuple(self.timestamps[int(value)] for value in index.cpu().tolist()),
             source_frames=self.source_frames,
             metadata={**self.metadata, "selected_indices": index.cpu().tolist()},
+            roles=tuple(self.roles[int(value)] for value in index.cpu().tolist()) if self.roles else (),
         )
 
     @classmethod
@@ -97,12 +101,14 @@ class TemporalEvidence:
             raise ValueError("at least one evidence block is required")
         embeddings = torch.cat([value.embeddings for value in values], dim=0)
         timestamps = tuple(time for value in values for time in value.timestamps)
+        roles = tuple(role for value in values for role in value.roles) if all(value.roles for value in values) else ()
         order = sorted(range(len(timestamps)), key=lambda index: (timestamps[index], index))
         merged = cls(
             embeddings=embeddings,
             timestamps=timestamps,
             source_frames=sum(value.source_frames for value in values),
             metadata={"parts": [value.metadata for value in values]},
+            roles=roles,
         )
         return merged.select(order)
 
@@ -158,6 +164,15 @@ class Method(ABC):
     @abstractmethod
     def run(self, sample: Sample, model: ModelBackend, cache_dir: Path) -> Prediction:
         """Ground one sample."""
+
+    def prepare(self, samples: Sequence[Sample], cache_root: Path) -> None:
+        """Run one batch-level pass over all pending samples before grounding.
+
+        Called by the runner once, before the model backend is loaded, with the full
+        set of pending samples. The default is a no-op; methods that benefit from a
+        batch CPU-only preprocessing step (e.g. scene detection) override it. The model
+        is not loaded yet, so this must not require GPU memory.
+        """
 
 
 class Benchmark(ABC):

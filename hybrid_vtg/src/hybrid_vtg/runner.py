@@ -76,12 +76,25 @@ def _evaluation_summary(benchmark: Any, samples: list[Sample], records: list[dic
             "metrics": None,
             "message": "No predictions succeeded; metrics were not calculated. See errors.jsonl.",
         }
+    metrics = benchmark.evaluate(_evaluation_records(samples, records))
+    if metrics is None:
+        return {
+            "status": "complete" if failed == 0 else "partial",
+            "requested": len(samples),
+            "successful": successful,
+            "failed": failed,
+            "metrics": None,
+            "message": (
+                "Predictions succeeded but this benchmark has no local ground truth "
+                "(hidden-label split); metrics are unavailable. A submission file was exported."
+            ),
+        }
     return {
         "status": "complete" if failed == 0 else "partial",
         "requested": len(samples),
         "successful": successful,
         "failed": failed,
-        "metrics": benchmark.evaluate(_evaluation_records(samples, records)),
+        "metrics": metrics,
         "metrics_scope": "all requested samples; failed samples count as empty predictions",
     }
 
@@ -97,6 +110,9 @@ def run_benchmark(
     checkpoint: str | None = None,
     model_spec: str | None = None,
     feature_roots: tuple[Path, ...] = (),
+    rerun: bool = False,
+    prune_ratio: float = 0.0,
+    prune_layer: int = 12,
 ) -> dict[str, Any]:
     percentage = validate_percentage(percentage)
     load_builtin_plugins()
@@ -137,17 +153,27 @@ def run_benchmark(
     ensure_manifest(run_dir / "manifest.json", manifest)
 
     predictions_path = run_dir / "predictions.jsonl"
+    if rerun:
+        # Discard prior predictions so every selected sample is re-evaluated with the
+        # current code, instead of resuming from a cached run.
+        predictions_path.unlink(missing_ok=True)
+        (run_dir / "errors.jsonl").unlink(missing_ok=True)
     existing = read_jsonl(predictions_path)
     done = {str(record["id"]) for record in existing}
     pending = [sample for sample in selected if sample.id not in done]
     if pending:
         method = METHODS.create(method_name)
+        # Batch CPU-only preprocessing (e.g. scene detection) runs before the model
+        # backend is loaded, so it never competes with GPU memory.
+        method.prepare(pending, run_dir / "prepare")
         model = MODELS.create(
             model_name,
             cache_dir=results_root / "cache",
             checkpoint=checkpoint,
             model_spec=model_spec,
             feature_roots=feature_roots,
+            prune_ratio=prune_ratio,
+            prune_layer=prune_layer,
         )
         method.validate_model(model)
         progress = tqdm(pending, desc=f"{benchmark_name}/{model_name}/{method_name}", unit="sample")
@@ -176,7 +202,10 @@ def run_benchmark(
     summary["run_directory"] = str(run_dir)
     metrics_name = f"{percentage_key(percentage)}.json"
     write_json(run_dir / "metrics" / metrics_name, summary)
-    if percentage == 100 and summary["failed"] == 0:
+    # Export a submission whenever the benchmark has no local ground truth (hidden-label
+    # splits like QVHighlights) or the full test set is evaluated. For hidden-label
+    # benchmarks the submission is the only result, so it is produced at any subset.
+    if (summary["metrics"] is None or percentage == 100) and summary["failed"] == 0:
         submission = benchmark.export_submission(
             values,
             results_root / "submissions" / benchmark_name / model_name / method_name / f"seed-{seed}.jsonl",

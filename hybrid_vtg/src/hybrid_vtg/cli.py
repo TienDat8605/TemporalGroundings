@@ -32,6 +32,23 @@ def parser() -> argparse.ArgumentParser:
         help="seeded query percentage from 0 through 100; decimals are accepted",
     )
     run.add_argument("--seed", type=int, required=True)
+    run.add_argument(
+        "--rerun",
+        action="store_true",
+        help="discard cached predictions and re-evaluate every selected sample",
+    )
+    run.add_argument(
+        "--prune-ratio",
+        type=float,
+        default=0.0,
+        help="in-encoder spatial pruning: fraction of merge cells retained (0.5 or 0.25); 0 disables",
+    )
+    run.add_argument(
+        "--prune-layer",
+        type=int,
+        default=12,
+        help="vision block index after which in-encoder pruning is applied",
+    )
     run.add_argument("--checkpoint", help="optional override; required for UniVTG")
     run.add_argument(
         "--model-spec",
@@ -88,6 +105,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         checkpoint=args.checkpoint,
         model_spec=args.model_spec,
         feature_roots=tuple(args.feature_root),
+        rerun=args.rerun,
+        prune_ratio=args.prune_ratio,
+        prune_layer=args.prune_layer,
     )
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0 if result["failed"] == 0 else 2
