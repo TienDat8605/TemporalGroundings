@@ -20,7 +20,7 @@ def test_builtin_surface_is_exactly_the_requested_matrix():
         "unitime-adaptive",
         "unitime-fixed",
     )
-    assert MODELS.names() == ("qwen3-vl-4b", "timelens2-4b", "unitime", "univtg")
+    assert MODELS.names() == ("qwen2-vl-7b", "qwen3-vl-4b", "timelens2-4b", "unitime", "univtg")
     assert BENCHMARKS.names() == ("omtg", "qvhighlights", "tacos")
 
 

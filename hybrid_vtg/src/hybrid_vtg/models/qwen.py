@@ -153,7 +153,7 @@ def _install_mage_vision_pruning(model, prune_layer: int) -> None:
 
 
 class QwenEvidenceBackend(ModelBackend):
-    capabilities = frozenset({"encoded-evidence", "spatial-evidence", "generative"})
+    capabilities = frozenset({"encoded-evidence", "spatial-evidence", "generative", "timestamp-interleaved"})
 
     def __init__(
         self,

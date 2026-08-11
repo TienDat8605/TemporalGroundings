@@ -221,9 +221,18 @@ def run_benchmark(
         manifest["base_checkpoint"] = base_checkpoint or "Qwen/Qwen2-VL-7B-Instruct"
         manifest["post_hoc_training_free"] = True
         manifest["upstream_trained_adapter"] = True
+        manifest["maximum_evidence_units"] = 4_096
+    elif model_name == "qwen2-vl-7b":
+        manifest["checkpoint"] = checkpoint or "Qwen/Qwen2-VL-7B-Instruct"
+        manifest["maximum_evidence_units"] = 4_096
     if output_method != method_name:
         manifest["result_method"] = output_method
-        manifest["method_options"] = {"corridor_top_k": corridor_top_k}
+        manifest["method_options"] = {
+            "corridor_top_k": corridor_top_k,
+            "scout_fps": 0.5,
+            "detail_fps": 1.0,
+            "boundary_fps": 2.0,
+        }
     if output_model != model_name:
         manifest["result_model"] = output_model
         manifest["pruning"] = {

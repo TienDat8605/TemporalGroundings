@@ -8,6 +8,7 @@ from hybrid_vtg.contracts import GroundingContext, ModelBackend, Prediction, Sam
 from hybrid_vtg.methods.unitime_adaptive import UniTimeAdaptive
 from hybrid_vtg.methods.unitime_fixed import UniTimeFixed
 from hybrid_vtg.models.pruning import mage_cell_plan
+from hybrid_vtg.models.qwen import QwenEvidenceBackend
 from hybrid_vtg.models.unitime import (
     UniTimeEvidenceBackend,
     _CompactQwen2Mixin,
@@ -69,6 +70,18 @@ def test_adaptive_frame_size_respects_merger_cell_budget_and_aspect():
     assert width % 28 == height % 28 == 0
     assert (width // 28) * (height // 28) <= 64
     assert width > height
+
+
+def test_qwen2_backends_use_4096_cell_budget_without_requiring_adapter(tmp_path):
+    backend = UniTimeEvidenceBackend(None, tmp_path, name="qwen2-vl-7b")
+    assert backend.maximum_evidence_units == 4_096
+    assert backend.adapter_checkpoint is None
+
+
+def test_qwen3_adaptive_capability_does_not_change_its_budget(tmp_path):
+    backend = QwenEvidenceBackend("base", tmp_path, name="qwen3-vl-4b")
+    assert "timestamp-interleaved" in backend.capabilities
+    assert backend.maximum_evidence_units is None
 
 
 def test_qwen2_mage_wrapper_prunes_before_vision_block():
@@ -175,6 +188,11 @@ def test_unitime_adaptive_uses_top_k_corridors_and_one_final_generation():
     assert backend.predict_calls == 1
     assert backend.last_evidence.timestamps == tuple(sorted(backend.last_evidence.timestamps))
     assert len(backend.last_evidence.metadata["cell_coordinates"]) == backend.last_evidence.size
+
+
+def test_unitime_adaptive_uses_reduced_sampling_defaults():
+    method = UniTimeAdaptive()
+    assert (method.scout_fps, method.detail_fps, method.boundary_fps) == (0.5, 1.0, 2.0)
 
 
 def test_unitime_adaptive_short_video_bypasses_routing():

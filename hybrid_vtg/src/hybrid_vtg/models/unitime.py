@@ -18,6 +18,7 @@ from .qwen import _dense_evidence_units
 VISION_START_TOKEN = "<|vision_start|>"
 VISION_END_TOKEN = "<|vision_end|>"
 VIDEO_TOKEN = "<|video_pad|>"
+UNITIME_EVIDENCE_BUDGET = 4_096
 
 
 def adaptive_frame_size(width: int, height: int, target_cells: int) -> tuple[int, int]:
@@ -242,7 +243,7 @@ def compact_mrope_positions(input_ids, video_token_id: int, coordinate_groups: S
 
 
 class UniTimeEvidenceBackend(ModelBackend):
-    """Frozen public UniTime LoRA with training-free routing and pruning."""
+    """Frozen Qwen2-VL with optional UniTime LoRA, routing, and pruning."""
 
     capabilities = frozenset(
         {"encoded-evidence", "spatial-evidence", "generative", "timestamp-interleaved", "unitime-coarse"}
@@ -250,7 +251,7 @@ class UniTimeEvidenceBackend(ModelBackend):
 
     def __init__(
         self,
-        adapter_checkpoint: str,
+        adapter_checkpoint: str | None,
         cache_dir: Path,
         *,
         base_checkpoint: str = "Qwen/Qwen2-VL-7B-Instruct",
@@ -285,15 +286,15 @@ class UniTimeEvidenceBackend(ModelBackend):
         self.post_pruning = post_pruning
         self.post_retention = post_retention
         self._model: Any = None
+        self._base_model: Any = None
         self._processor: Any = None
 
     @property
     def maximum_evidence_units(self) -> int:
-        return 16_384
+        return UNITIME_EVIDENCE_BUDGET
 
     def _load(self) -> tuple[Any, Any, Any]:
         if self._model is None:
-            from peft import PeftModel
             from transformers import AutoProcessor
             from transformers import logging as hf_logging
 
@@ -306,13 +307,23 @@ class UniTimeEvidenceBackend(ModelBackend):
                     device_map="auto",
                     low_cpu_mem_usage=True,
                 ).eval()
-                self._model = PeftModel.from_pretrained(base, self.adapter_checkpoint, is_trainable=False).eval()
+                if self.adapter_checkpoint:
+                    from peft import PeftModel
+
+                    self._model = PeftModel.from_pretrained(
+                        base,
+                        self.adapter_checkpoint,
+                        is_trainable=False,
+                    ).eval()
+                else:
+                    self._model = base
+                self._base_model = base
                 self._processor = AutoProcessor.from_pretrained(self.base_checkpoint, use_fast=False)
                 if self.encoder_pruning == "mage":
                     _install_mage_qwen2_vision_pruning(base, self.encoder_prune_layer)
             finally:
                 hf_logging.set_verbosity(previous)
-        return self._model, self._model.get_base_model(), self._processor
+        return self._model, self._base_model, self._processor
 
     @staticmethod
     def _device(module: Any):
@@ -326,7 +337,8 @@ class UniTimeEvidenceBackend(ModelBackend):
                 str(stat.st_size),
                 str(stat.st_mtime_ns),
                 self.base_checkpoint,
-                self.adapter_checkpoint,
+                self.adapter_checkpoint or "no-adapter",
+                str(self.maximum_evidence_units),
                 self.encoder_pruning,
                 f"{self.encoder_retention:.8f}",
                 str(self.encoder_prune_layer),
@@ -375,12 +387,12 @@ class UniTimeEvidenceBackend(ModelBackend):
                 frames.append(image.convert("RGB"))
         decode_seconds = perf_counter() - decode_started
         placeholder = VISION_START_TOKEN + VIDEO_TOKEN + VISION_END_TOKEN
-        # Match UniTime's 16,384-token adaptive budget. Qwen2 uses two-frame
+        # Apply the shared 4,096-cell Qwen2 budget. Qwen2 uses two-frame
         # tubelets and one post-merger cell per 28x28 input-pixel region. Modern
         # Transformers video kwargs no longer expose Qwen's max_pixels option,
         # so resize explicitly before processing and keep the processor aligned.
         estimated_temporal = max(1, math.ceil(len(frames) / 2))
-        cells_per_time = max(16, min(768, self.maximum_evidence_units // estimated_temporal))
+        cells_per_time = max(1, min(768, self.maximum_evidence_units // estimated_temporal))
         resized_width, resized_height = adaptive_frame_size(frames[0].width, frames[0].height, cells_per_time)
         frames = [frame.resize((resized_width, resized_height), Image.Resampling.LANCZOS) for frame in frames]
         processor_started = perf_counter()
@@ -444,6 +456,7 @@ class UniTimeEvidenceBackend(ModelBackend):
             "backend": self.name,
             "base_checkpoint": self.base_checkpoint,
             "adapter_checkpoint": self.adapter_checkpoint,
+            "maximum_evidence_units": self.maximum_evidence_units,
             "grid_thw": [temporal, height, width],
             "tokens_per_time": list(cells_per_time),
             "cell_coordinates": [list(value) for value in coordinates],
@@ -731,6 +744,7 @@ class UniTimeEvidenceBackend(ModelBackend):
 
 
 __all__ = [
+    "UNITIME_EVIDENCE_BUDGET",
     "UniTimeEvidenceBackend",
     "_install_mage_qwen2_vision_pruning",
     "adaptive_frame_size",

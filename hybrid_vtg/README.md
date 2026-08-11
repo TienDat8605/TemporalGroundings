@@ -49,7 +49,7 @@ The same policies work independently with frozen UniTime. See
 [Run UniTime experiments](#run-unitime-experiments) for the complete baseline,
 Mage, SemVID, and adaptive command matrix.
 
-The UniTime backend caches grid-aligned post-encoder features by video identity, timestamps, checkpoints, and pruning configuration. It uses an explicit 16,384-cell adaptive budget, retains original sparse MRoPE coordinates, and snaps generated boundaries to timestamps shown in the prompt. `--checkpoint` overrides the default `zeqianli/UniTime` adapter; `--base-checkpoint` overrides its default `Qwen/Qwen2-VL-7B-Instruct` base.
+The UniTime and base Qwen2 backends cache grid-aligned post-encoder features by video identity, timestamps, checkpoints, pruning configuration, and evidence budget. They use an explicit 4,096-cell budget. Adaptive routing uses 0.5 FPS scouting, 1 FPS corridor refinement, and 2 FPS boundary refinement. Sparse MRoPE coordinates are retained and generated boundaries are snapped to timestamps shown in the prompt. For `--model unitime`, `--checkpoint` overrides the default `zeqianli/UniTime` adapter and `--base-checkpoint` overrides `Qwen/Qwen2-VL-7B-Instruct`.
 
 Use either policy alone by omitting the other policy's two arguments. The old generic `--prune-ratio` and `--prune-layer` interface has been removed. Pruned configurations receive distinct result directories such as `qwen3-vl-4b--enc-mage-r0.5-l0--post-semvid-r0.125`, preventing them from being mixed with dense baselines.
 
@@ -109,9 +109,12 @@ for the adapter.
 The CLI separates the model from the inference method:
 
 - `--model unitime` loads frozen Qwen2-VL-7B plus the released UniTime LoRA.
+- `--model qwen2-vl-7b` uses the frozen Qwen2-VL base without the adapter.
+- `--model qwen3-vl-4b` uses frozen Qwen3-VL with its native evidence prompt.
 - `--method unitime-fixed` uses fixed 32-second coarse segments.
 - `--method unitime-adaptive` replaces fixed coarse retrieval with HMVE top-k corridors.
-- Mage and SemVID are model options and can be applied to either method.
+- Mage and SemVID are independent model options. Adaptive routing supports all
+  three Qwen configurations; fixed coarse retrieval is a Qwen2/UniTime path.
 
 Prepare OMTG and authenticate with Hugging Face if needed:
 
@@ -196,10 +199,27 @@ hybrid-vtg run \
 ```
 
 For the dense fixed control, use `--method unitime-fixed` without pruning
-arguments. The backend computes only the final-token logits during generation,
-avoiding the approximately 5.09 GB full-prefill logits allocation at the
-16,384-token budget. A 24 GB GPU is still close to the practical limit for a
-BF16 7B model; SemVID at 12.5% is the lowest-memory configuration above.
+arguments. The Qwen2 backends compute only the final-token logits during
+generation and cap evidence at 4,096 cells. A 24 GB GPU is still close to the
+practical limit for a BF16 7B model; SemVID at 12.5% is the lowest-memory
+configuration above.
+
+The adapter-free Qwen models can run the same adaptive routing with Mage or
+SemVID. These are ablations, not UniTime reproductions: the UniTime LoRA is
+compatible with Qwen2-VL-7B only and cannot be loaded into Qwen3-VL-4B.
+Qwen3 keeps its existing processor-dependent evidence budget.
+
+```bash
+# Base Qwen2-VL-7B, 4,096-cell budget, adaptive routing, and Mage
+hybrid-vtg run --benchmark omtg --model qwen2-vl-7b \
+  --method unitime-adaptive --corridor-top-k 8 --subset 10 --seed 42 \
+  --encoder-pruning mage --encoder-retention 0.5 --encoder-prune-layer 0
+
+# Base Qwen3-VL-4B, unchanged budget, adaptive routing, and SemVID
+hybrid-vtg run --benchmark omtg --model qwen3-vl-4b \
+  --method unitime-adaptive --corridor-top-k 8 --subset 10 --seed 42 \
+  --post-pruning semvid --post-retention 0.125
+```
 
 The first run downloads `Qwen/Qwen2-VL-7B-Instruct` and `zeqianli/UniTime` into
 the Hugging Face cache. To use local weights, pass the base and adapter
@@ -339,6 +359,7 @@ request per video. The old all-splits archive was about 134 GB.
 
 | CLI name | Default checkpoint | Notes |
 |---|---|---|
+| `qwen2-vl-7b` | `Qwen/Qwen2-VL-7B-Instruct` | Adapter-free Qwen2 baseline; 4,096-cell budget with adaptive routing, Mage, and SemVID |
 | `qwen3-vl-4b` | `Qwen/Qwen3-VL-4B-Instruct` | Direct Transformers adapter with optional Mage-style and SemVID policies |
 | `timelens2-4b` | `MCG-NJU/TimeLens2-4B` | Official Apache-2.0 checkpoint; local downloader path is `assets/checkpoints/timelens2-4b` |
 | `unitime` | `zeqianli/UniTime` adapter on `Qwen/Qwen2-VL-7B-Instruct` | Frozen reference/adaptive backend with optional Mage and SemVID policies |

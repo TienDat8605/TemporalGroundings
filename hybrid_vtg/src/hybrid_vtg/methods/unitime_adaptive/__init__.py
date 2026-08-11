@@ -28,8 +28,8 @@ class UniTimeAdaptive(Method):
         *,
         top_k: int = 4,
         scout_fps: float = 0.5,
-        detail_fps: float = 2.0,
-        boundary_fps: float = 3.0,
+        detail_fps: float = 1.0,
+        boundary_fps: float = 2.0,
         boundary_radius: float = 2.0,
         short_seconds: float = 64.0,
     ) -> None:
