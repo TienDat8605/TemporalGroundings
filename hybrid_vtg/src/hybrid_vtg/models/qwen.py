@@ -527,7 +527,8 @@ class QwenEvidenceBackend(ModelBackend):
         """Run the official TimeLens2 whole-video control path."""
         if self.name != "timelens2-4b":
             raise ValueError("timelens-native is available only for a TimeLens checkpoint")
-        from .timelens import native_timelens_prediction
+        from .timelens import native_timelens_prediction, require_native_video_reader
 
+        require_native_video_reader()
         model, processor = self._load()
         return native_timelens_prediction(model, processor, sample, family="qwen3")

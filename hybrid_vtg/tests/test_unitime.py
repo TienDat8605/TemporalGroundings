@@ -9,7 +9,11 @@ from hybrid_vtg.methods.unitime_adaptive import UniTimeAdaptive
 from hybrid_vtg.methods.unitime_fixed import UniTimeFixed
 from hybrid_vtg.models.pruning import mage_cell_plan
 from hybrid_vtg.models.qwen import QwenEvidenceBackend, _generation_token_budget
-from hybrid_vtg.models.timelens import TimeLens7EvidenceBackend, _install_mage_qwen25_vision_pruning
+from hybrid_vtg.models.timelens import (
+    TimeLens7EvidenceBackend,
+    _install_mage_qwen25_vision_pruning,
+    require_native_video_reader,
+)
 from hybrid_vtg.models.unitime import (
     UniTimeEvidenceBackend,
     _CompactQwen2Mixin,
@@ -96,6 +100,12 @@ def test_timelens7_supports_native_and_adaptive_paths_with_4096_budget(tmp_path)
     multi = Sample("multi", "v", Path(__file__), 10.0, "stir", cardinality="multi")
     assert "The event happens in <start time> - <end time> seconds" in backend._instruction(single)
     assert "every separate temporal window" in backend._instruction(multi)
+
+
+def test_native_timelens_requires_decord_before_model_loading(monkeypatch):
+    monkeypatch.setattr("hybrid_vtg.models.timelens.importlib.util.find_spec", lambda name: None)
+    with pytest.raises(RuntimeError, match=r"qwen-vl-utils\[decord\]"):
+        require_native_video_reader()
 
 
 def test_qwen25_mage_wrapper_preserves_selected_cell_order():

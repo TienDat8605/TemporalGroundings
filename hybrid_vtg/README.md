@@ -83,7 +83,7 @@ model requirements files:
 | `peft>=0.18,<1` | Loading the released UniTime LoRA adapter without training |
 | `accelerate>=1.0` | Automatic device placement for the 4B/7B backends |
 | `Pillow`, `opencv-python-headless`, `numpy` | Frame decoding, resizing, motion, and residual maps |
-| `qwen-vl-utils>=0.0.14` | Official whole-video TimeLens/TimeLens2 preprocessing |
+| `qwen-vl-utils[decord]>=0.0.14` | Official whole-video TimeLens/TimeLens2 preprocessing and video decoding |
 
 `.[downloads]` adds `huggingface-hub` and `gdown`; `.[test]` adds `pytest` and
 `ruff`; `.[univtg-video]` adds PyTorchVideo only for raw SlowFast extraction.

@@ -49,6 +49,11 @@ run_worker() {
     echo "run: pip install -e '.[downloads,test]'" >&2
     exit 1
   fi
+  if ! python -c 'import decord' >/dev/null 2>&1; then
+    echo "missing native TimeLens video reader: decord" >&2
+    echo "install inside .venv with: pip install 'qwen-vl-utils[decord]>=0.0.14'" >&2
+    exit 1
+  fi
 
   export CUDA_VISIBLE_DEVICES="$GPU"
   mkdir -p "$LOG_ROOT"

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import math
 from pathlib import Path
 from typing import Any
@@ -13,6 +14,16 @@ from .unitime import VISION_END_TOKEN, VISION_START_TOKEN, UniTimeEvidenceBacken
 
 IMAGE_TOKEN = "<|image_pad|>"
 TIMELENS_VISUAL_TOKEN_BUDGET = 4_096
+
+
+def require_native_video_reader() -> None:
+    """Fail before loading model weights when the official video reader is absent."""
+    if importlib.util.find_spec("decord") is None:
+        raise RuntimeError(
+            "native TimeLens inference requires decord because recent torchvision builds "
+            "do not provide torchvision.io.read_video; install with: "
+            "pip install 'qwen-vl-utils[decord]>=0.0.14'"
+        )
 
 
 def native_timelens_prediction(model: Any, processor: Any, sample: Sample, *, family: str) -> Prediction:
@@ -335,6 +346,7 @@ class TimeLens7EvidenceBackend(UniTimeEvidenceBackend):
         return input_ids, attention, inputs_embeds, positions, [timestamp for timestamp, _ in groups]
 
     def predict_video(self, sample: Sample) -> Prediction:
+        require_native_video_reader()
         model, _, _ = self._load()
         return native_timelens_prediction(model, self._native_processor, sample, family="qwen2.5")
 
@@ -344,4 +356,5 @@ __all__ = [
     "TimeLens7EvidenceBackend",
     "_install_mage_qwen25_vision_pruning",
     "native_timelens_prediction",
+    "require_native_video_reader",
 ]
