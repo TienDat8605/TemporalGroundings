@@ -8,6 +8,7 @@ ASSET_ROOT="${TACOS_ASSET_ROOT:-$PROJECT_ROOT/assets}"
 GPU="${TACOS_GPU:-0}"
 SEED="${TACOS_SEED:-42}"
 SUBSET="${TACOS_SUBSET:-10}"
+RERUN="${TACOS_RERUN:-0}"
 LOG_ROOT="${TACOS_LOG_ROOT:-$PROJECT_ROOT/results/logs/tacos-matrix}"
 [[ "$ASSET_ROOT" == /* ]] || ASSET_ROOT="$PROJECT_ROOT/$ASSET_ROOT"
 [[ "$LOG_ROOT" == /* ]] || LOG_ROOT="$PROJECT_ROOT/$LOG_ROOT"
@@ -25,6 +26,7 @@ Optional environment variables:
   TACOS_GPU           CUDA device index (default: 0)
   TACOS_SEED          benchmark seed (default: 42)
   TACOS_SUBSET        query percentage (default: 10)
+  TACOS_RERUN         set to 1 to replace prior predictions (default: 0)
   TACOS_LOG_ROOT      per-run log directory
 
 Monitor:
@@ -56,6 +58,10 @@ run_worker() {
   fi
 
   export CUDA_VISIBLE_DEVICES="$GPU"
+  if [[ "$RERUN" != "0" && "$RERUN" != "1" ]]; then
+    echo "TACOS_RERUN must be 0 or 1" >&2
+    exit 2
+  fi
   mkdir -p "$LOG_ROOT"
   exec > >(tee -a "$LOG_ROOT/matrix.log") 2>&1
 
@@ -89,6 +95,7 @@ run_worker() {
     --subset "$SUBSET"
     --seed "$SEED"
   )
+  [[ "$RERUN" == "0" ]] || common+=(--rerun)
   local -a adaptive=(--method unitime-adaptive --corridor-top-k 4)
   local -a pruned=(
     --encoder-pruning mage
@@ -171,6 +178,7 @@ worker_command=$(printf '%q ' \
   "TACOS_GPU=$GPU" \
   "TACOS_SEED=$SEED" \
   "TACOS_SUBSET=$SUBSET" \
+  "TACOS_RERUN=$RERUN" \
   "TACOS_LOG_ROOT=$LOG_ROOT" \
   bash "$SCRIPT_PATH" --worker)
 tmux new-session -d -s "$SESSION_NAME" "$worker_command"

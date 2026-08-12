@@ -150,6 +150,13 @@ without stopping the remaining matrix. Logs are written under
 TACOS_GPU=1 TACOS_TMUX_SESSION=tacos-gpu1 scripts/run_tacos_tmux.sh
 ```
 
+After updating code or intentionally replacing partial results, add
+`TACOS_RERUN=1`. This passes `--rerun` to every matrix entry:
+
+```bash
+TACOS_RERUN=1 scripts/run_tacos_tmux.sh
+```
+
 ### Dense fixed-budget controls
 
 ```bash
