@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gc
 import hashlib
 import json
 import math
@@ -12,6 +13,7 @@ from time import perf_counter
 from typing import Any, Sequence
 
 import numpy as np
+from tqdm import tqdm
 
 from ...contracts import GroundingContext, Method, ModelBackend, Prediction, Sample, ScoredSpan
 from ...media import extract_frames, uniform_timestamps
@@ -387,11 +389,13 @@ class EmbeddingRouter:
         self,
         model_id: str = ROUTER_MODEL_ID,
         revision: str | None = None,
+        device: str = "cpu",
     ) -> None:
         self.model_id = model_id
         self.revision = (
             ROUTER_MODEL_REVISION if revision is None and model_id == ROUTER_MODEL_ID else revision
         )
+        self.device = device
         self._model: Any = None
         self._processor: Any = None
         self._loading_info: dict[str, Any] = {}
@@ -411,7 +415,7 @@ class EmbeddingRouter:
             loaded = AutoModel.from_pretrained(
                 self.model_id,
                 **source_options,
-                device_map="cpu",
+                device_map={"": self.device},
                 torch_dtype="auto",
                 low_cpu_mem_usage=True,
                 output_loading_info=True,
@@ -445,7 +449,7 @@ class EmbeddingRouter:
                 processor=self._processor,
                 normalize=True,
                 return_tensor=True,
-                device="cpu",
+                device=self.device,
             )
         )
 
@@ -455,6 +459,42 @@ class EmbeddingRouter:
             for start in range(0, len(inputs), ROUTER_EMBED_BATCH_SIZE)
         ]
         return np.concatenate(batches, axis=0)
+
+    def cache_queries(self, queries: Sequence[str], cache_root: Path) -> None:
+        """Batch and cache missing text embeddings before the grounder is loaded."""
+        missing: list[tuple[Path, str]] = []
+        seen: set[Path] = set()
+        for query in queries:
+            path = self._query_cache_path(query, cache_root)
+            if path in seen or self._read_cache(path, rows=1) is not None:
+                continue
+            seen.add(path)
+            missing.append((path, query))
+        for start in range(0, len(missing), ROUTER_EMBED_BATCH_SIZE):
+            batch = missing[start : start + ROUTER_EMBED_BATCH_SIZE]
+            embeddings = self._encode(
+                [
+                    {"text": query, "instruction": ROUTER_TEXT_INSTRUCTION}
+                    for _, query in batch
+                ]
+            )
+            if embeddings.ndim != 2 or embeddings.shape[0] != len(batch) or embeddings.shape[1] == 0:
+                raise RuntimeError(f"router returned invalid query embeddings: {embeddings.shape}")
+            for (path, _), embedding in zip(batch, embeddings):
+                self._write_cache(path, embedding[None, :])
+
+    def unload(self, *, fallback_device: str = "cpu") -> None:
+        """Release router weights before the grounding checkpoint occupies the GPU."""
+        used_cuda = self._model is not None and self.device.startswith("cuda")
+        self._model = None
+        self._processor = None
+        self._loading_info = {}
+        gc.collect()
+        if used_cuda:
+            import torch
+
+            torch.cuda.empty_cache()
+        self.device = fallback_device
 
     @staticmethod
     def _array(value: Any) -> np.ndarray:
@@ -643,11 +683,11 @@ class CoarseToFine64(Method):
         self._prepare_root: Path | None = None
 
     def prepare(self, samples: Sequence[Sample], cache_root: Path) -> None:
-        """Run PySceneDetect once per unique video revision before model loading.
+        """Cache scene windows and GPU router embeddings before model loading.
 
-        Scene detection is CPU-only and independent of the query, so it is done in one
-        batch pass up front. The shared, video-keyed cache is reused across queries,
-        seeds, model/pruning variants, reruns, and separate method instances.
+        The runner invokes this hook before constructing the grounder. Cold router work
+        can therefore use the GPU without competing for memory; its weights are unloaded
+        before this method returns. Warm runs only read the shared cache.
         """
         self._prepare_root = cache_root
         prepared: set[Path] = set()
@@ -657,6 +697,36 @@ class CoarseToFine64(Method):
                 continue
             cached_content_windows(sample, cache_root)
             prepared.add(cache_path)
+
+        jobs: list[tuple[Sample, list[Window], int]] = []
+        for sample in samples:
+            windows, _ = cached_content_windows(sample, cache_root)
+            if len(windows) == 1:
+                continue
+            routed, policy = strict_budget(windows)
+            jobs.append((sample, routed, policy["router_frames_per_window"]))
+        if not jobs or not isinstance(self.router, EmbeddingRouter):
+            return
+
+        import torch
+
+        self.router.device = "cuda" if torch.cuda.is_available() else "cpu"
+        try:
+            self.router.cache_queries([sample.query for sample, _, _ in jobs], cache_root)
+            unique_visual_jobs: dict[Path, tuple[Sample, list[Window], int]] = {}
+            for sample, routed, frames_per_window in jobs:
+                path, _ = self.router._video_cache_path(
+                    sample, routed, frames_per_window, cache_root
+                )
+                unique_visual_jobs.setdefault(path, (sample, routed, frames_per_window))
+            for sample, routed, frames_per_window in tqdm(
+                unique_visual_jobs.values(),
+                desc=f"router cache ({self.router.device})",
+                unit="video",
+            ):
+                self.router.rank(sample, routed, frames_per_window, cache_root)
+        finally:
+            self.router.unload(fallback_device="cpu")
 
     def _cached_windows(self, sample: Sample, cache_dir: Path) -> tuple[list[Window], str]:
         return cached_content_windows(sample, self._prepare_root or cache_dir)

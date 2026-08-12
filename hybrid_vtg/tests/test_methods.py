@@ -107,6 +107,47 @@ def test_coarse_to_fine_prepare_shares_scene_cache_by_video(monkeypatch, tmp_pat
     assert scene_cache_path(changed_duration, cache_root) != cache_a
 
 
+def test_prepare_prewarms_shared_router_cache_on_gpu_then_unloads(monkeypatch, tmp_path):
+    calls = []
+
+    def fake_content_windows(video_path, duration):
+        return [Window(0.0, 45.0), Window(43.0, duration)], "content"
+
+    router = EmbeddingRouter()
+
+    def fake_cache_queries(queries, cache_root):
+        calls.append(("queries", router.device, list(queries), cache_root))
+
+    def fake_rank(sample, windows, frames_per_window, cache_root):
+        calls.append(("visual", router.device, sample.id, frames_per_window, cache_root))
+        return [0.0] * len(windows)
+
+    def fake_unload(*, fallback_device):
+        calls.append(("unload", router.device, fallback_device))
+        router.device = fallback_device
+
+    monkeypatch.setattr(
+        "hybrid_vtg.methods.coarse_to_fine_64.content_windows", fake_content_windows
+    )
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(router, "cache_queries", fake_cache_queries)
+    monkeypatch.setattr(router, "rank", fake_rank)
+    monkeypatch.setattr(router, "unload", fake_unload)
+    video = tmp_path / "video.mp4"
+    video.touch()
+    samples = [
+        Sample("1", "video", video, 90.0, "first query"),
+        Sample("2", "video", video, 90.0, "second query"),
+    ]
+
+    CoarseToFine64(router=router).prepare(samples, tmp_path / "cache")
+
+    assert calls[0][0:3] == ("queries", "cuda", ["first query", "second query"])
+    assert calls[1][0:3] == ("visual", "cuda", "1")
+    assert calls[2] == ("unload", "cuda", "cpu")
+    assert router.device == "cpu"
+
+
 def test_coarse_to_fine_router_uses_embedding_specific_window_and_frame_scores(
     monkeypatch, tmp_path
 ):
