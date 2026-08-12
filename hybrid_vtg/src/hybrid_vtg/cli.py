@@ -33,12 +33,6 @@ def parser() -> argparse.ArgumentParser:
     )
     run.add_argument("--seed", type=int, required=True)
     run.add_argument(
-        "--corridor-top-k",
-        type=int,
-        default=4,
-        help="number of adaptive corridors retained by unitime-adaptive (1-8)",
-    )
-    run.add_argument(
         "--rerun",
         action="store_true",
         help="discard cached predictions and re-evaluate every selected sample",
@@ -135,7 +129,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         model_spec=args.model_spec,
         feature_roots=tuple(args.feature_root),
         rerun=args.rerun,
-        corridor_top_k=args.corridor_top_k,
         encoder_pruning=args.encoder_pruning,
         encoder_retention=args.encoder_retention,
         encoder_prune_layer=args.encoder_prune_layer,

@@ -152,7 +152,6 @@ def run_benchmark(
     model_spec: str | None = None,
     feature_roots: tuple[Path, ...] = (),
     rerun: bool = False,
-    corridor_top_k: int = 4,
     encoder_pruning: str = "none",
     encoder_retention: float = 1.0,
     encoder_prune_layer: int = 0,
@@ -160,15 +159,18 @@ def run_benchmark(
     post_retention: float = 1.0,
 ) -> dict[str, Any]:
     percentage = validate_percentage(percentage)
-    if not 1 <= corridor_top_k <= 8:
-        raise ValueError("corridor top-k must be between 1 and 8")
     if base_checkpoint is not None and model_name != "unitime":
         raise ValueError("base checkpoint override is available only for UniTime")
-    if method_name == "timelens-native" and model_name not in {"timelens2-4b", "timelens-7b"}:
-        raise ValueError("timelens-native requires --model timelens2-4b or timelens-7b")
-    if method_name == "timelens-native" and (encoder_pruning != "none" or post_pruning != "none"):
+    native_models = {"unitime", "timelens2-4b", "timelens-8b", "timelens-7b"}
+    if method_name == "native" and model_name not in native_models:
+        raise ValueError("native requires --model unitime, timelens2-4b, timelens-8b, or timelens-7b")
+    if (
+        method_name == "native"
+        and model_name != "unitime"
+        and (encoder_pruning != "none" or post_pruning != "none")
+    ):
         raise ValueError(
-            "timelens-native is the dense native control; use unitime-adaptive for Mage or SemVID"
+            "native TimeLens inference is dense; use coarse-to-fine-64 for Mage or SemVID"
         )
     _validate_pruning_configuration(
         model_name,
@@ -201,7 +203,7 @@ def run_benchmark(
         post_pruning,
         post_retention,
     )
-    output_method = f"{method_name}-k{corridor_top_k}" if method_name == "unitime-adaptive" else method_name
+    output_method = method_name
     run_dir = run_directory(results_root, benchmark_name, output_model, output_method, seed)
     print(f"run directory: {run_dir}", flush=True)
     manifest = {
@@ -236,27 +238,22 @@ def run_benchmark(
         manifest["maximum_evidence_units"] = 4_096
     elif model_name == "timelens2-4b":
         manifest["checkpoint"] = checkpoint or "MCG-NJU/TimeLens2-4B"
-        if method_name == "timelens-native":
+        if method_name == "native":
             manifest["native_video_fps"] = 2.0
             manifest["native_total_pixel_budget"] = 4_096 * 32 * 32
         manifest["maximum_evidence_units"] = 4_096
     elif model_name == "timelens-8b":
         manifest["checkpoint"] = checkpoint or "TencentARC/TimeLens-8B"
+        if method_name == "native":
+            manifest["native_video_fps"] = 2.0
+            manifest["native_total_pixel_budget"] = 4_096 * 32 * 32
         manifest["maximum_evidence_units"] = 4_096
     elif model_name == "timelens-7b":
         manifest["checkpoint"] = checkpoint or "TencentARC/TimeLens-7B"
-        if method_name == "timelens-native":
+        if method_name == "native":
             manifest["native_video_fps"] = 2.0
             manifest["native_total_pixel_budget"] = 4_096 * 28 * 28
         manifest["maximum_evidence_units"] = 4_096
-    if output_method != method_name:
-        manifest["result_method"] = output_method
-        manifest["method_options"] = {
-            "corridor_top_k": corridor_top_k,
-            "scout_fps": 0.5,
-            "detail_fps": 1.0,
-            "boundary_fps": 2.0,
-        }
     if output_model != model_name:
         manifest["result_model"] = output_model
         manifest["pruning"] = {
@@ -280,11 +277,7 @@ def run_benchmark(
     done = {str(record["id"]) for record in existing}
     pending = [sample for sample in selected if sample.id not in done]
     if pending:
-        method = (
-            METHODS.create(method_name, top_k=corridor_top_k)
-            if method_name == "unitime-adaptive"
-            else METHODS.create(method_name)
-        )
+        method = METHODS.create(method_name)
         # Batch CPU-only preprocessing (e.g. scene detection) runs before the model
         # backend is loaded, so it never competes with GPU memory.
         method.prepare(pending, run_dir / "prepare")

@@ -37,7 +37,7 @@ def test_result_layout_and_generated_note(tmp_path: Path):
 
 def test_pruned_result_uses_its_configuration_name(tmp_path: Path):
     variant = "qwen3-vl-4b--enc-mage-r0.5-l0"
-    run = run_directory(tmp_path, "omtg", variant, "hmve", 7)
+    run = run_directory(tmp_path, "omtg", variant, "coarse-to-fine-64", 7)
     (run / "metrics").mkdir(parents=True)
     (run / "manifest.json").write_text(
         json.dumps(
@@ -45,7 +45,7 @@ def test_pruned_result_uses_its_configuration_name(tmp_path: Path):
                 "benchmark": "omtg",
                 "model": "qwen3-vl-4b",
                 "result_model": variant,
-                "method": "hmve",
+                "method": "coarse-to-fine-64",
                 "seed": 7,
             }
         )

@@ -516,6 +516,8 @@ class QwenEvidenceBackend(ModelBackend):
                 "post_pruning": self.post_pruning,
                 "post_retention_ratio": self.post_retention,
                 "max_new_tokens": max_new_tokens,
+                "llm_input_tokens": int(input_ids.shape[1]),
+                "llm_output_tokens": int(output_ids.shape[1]),
                 "semvid": {
                     key: value for key, value in evidence.metadata.items() if key.startswith("semvid_")
                 },
@@ -525,8 +527,8 @@ class QwenEvidenceBackend(ModelBackend):
 
     def predict_video(self, sample: Sample) -> Prediction:
         """Run the official TimeLens2 whole-video control path."""
-        if self.name != "timelens2-4b":
-            raise ValueError("timelens-native is available only for a TimeLens checkpoint")
+        if self.name not in {"timelens2-4b", "timelens-8b"}:
+            raise ValueError("native video inference is available only for a TimeLens checkpoint")
         from .timelens import native_timelens_prediction, require_native_video_reader
 
         require_native_video_reader()

@@ -41,11 +41,18 @@ def test_partial_run_marks_failed_samples_as_empty_predictions():
 
 
 def test_pruning_configurations_get_independent_result_directories():
-    assert _pruning_variant("qwen", "none", 1.0, 0, "none", 1.0) == "qwen"
-    assert (
-        _pruning_variant("qwen", "mage", 0.5, 0, "semvid", 0.125)
-        == "qwen--enc-mage-r0.5-l0--post-semvid-r0.125"
-    )
+    variants = {
+        _pruning_variant("qwen", "none", 1.0, 0, "none", 1.0),
+        _pruning_variant("qwen", "mage", 0.5, 0, "none", 1.0),
+        _pruning_variant("qwen", "none", 1.0, 0, "semvid", 0.125),
+        _pruning_variant("qwen", "mage", 0.5, 0, "semvid", 0.125),
+    }
+    assert variants == {
+        "qwen",
+        "qwen--enc-mage-r0.5-l0",
+        "qwen--post-semvid-r0.125",
+        "qwen--enc-mage-r0.5-l0--post-semvid-r0.125",
+    }
 
 
 def test_pruning_configuration_is_validated_before_a_run():
@@ -55,35 +62,36 @@ def test_pruning_configuration_is_validated_before_a_run():
         _validate_pruning_configuration("univtg", "mage", 0.5, 0, "none", 1.0)
 
 
-def test_adaptive_corridor_count_is_validated_before_loading_data(tmp_path):
-    with pytest.raises(ValueError, match="between 1 and 8"):
-        run_benchmark(
-            benchmark_name="omtg",
-            data=tmp_path,
-            model_name="unitime",
-            method_name="unitime-adaptive",
-            percentage=1,
-            seed=1,
-            corridor_top_k=9,
-        )
-
-
-def test_timelens_native_rejects_non_timelens_and_pruning_before_loading_data(tmp_path):
+def test_native_rejects_unsupported_models_and_timelens_pruning_before_loading_data(tmp_path):
     with pytest.raises(ValueError, match="requires --model"):
         run_benchmark(
             benchmark_name="tacos",
             data=tmp_path,
-            model_name="unitime",
-            method_name="timelens-native",
+            model_name="qwen3-vl-4b",
+            method_name="native",
             percentage=1,
             seed=1,
         )
-    with pytest.raises(ValueError, match="dense native control"):
+    with pytest.raises(ValueError, match="native TimeLens inference is dense"):
         run_benchmark(
             benchmark_name="tacos",
             data=tmp_path,
             model_name="timelens-7b",
-            method_name="timelens-native",
+            method_name="native",
+            percentage=1,
+            seed=1,
+            post_pruning="semvid",
+            post_retention=0.125,
+        )
+
+
+def test_native_allows_unitime_pruning_until_data_validation(tmp_path):
+    with pytest.raises(FileNotFoundError, match="data directory"):
+        run_benchmark(
+            benchmark_name="tacos",
+            data=tmp_path / "missing",
+            model_name="unitime",
+            method_name="native",
             percentage=1,
             seed=1,
             post_pruning="semvid",

@@ -111,7 +111,7 @@ def native_timelens_prediction(model: Any, processor: Any, sample: Sample, *, fa
         spans,
         raw,
         {
-            "backend": "timelens-native",
+            "backend": "native-timelens",
             "checkpoint_family": family,
             "native_whole_video_control": True,
             "visual_token_budget": TIMELENS_VISUAL_TOKEN_BUDGET,
@@ -213,7 +213,7 @@ def _install_mage_qwen25_vision_pruning(model: Any, prune_layer: int) -> None:
 
 
 class TimeLens7EvidenceBackend(UniTimeEvidenceBackend):
-    """Frozen TimeLens-7B with native and HMVE-compatible evidence paths."""
+    """Frozen TimeLens-7B with native and encoded-evidence paths."""
 
     capabilities = frozenset(
         {"encoded-evidence", "spatial-evidence", "generative", "timestamp-interleaved", "native-video-grounding"}

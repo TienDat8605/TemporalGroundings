@@ -1,4 +1,4 @@
-"""Frozen UniTime's original fixed-segment coarse-to-fine inference."""
+"""Checkpoint-native inference for UniTime and TimeLens model families."""
 
 from __future__ import annotations
 
@@ -9,21 +9,15 @@ from ...contracts import GroundingContext, Method, ModelBackend, Prediction, Sam
 from ...media import uniform_timestamps
 
 
-class UniTimeFixed(Method):
-    """Reference baseline for the public adapter without additional training."""
+class Native(Method):
+    """Use each released model family's native temporal-grounding hierarchy."""
 
-    name = "unitime-fixed"
-    required_capabilities = frozenset({"encoded-evidence", "timestamp-interleaved", "unitime-coarse"})
+    name = "native"
+    required_capabilities = frozenset()
 
-    def __init__(
-        self,
-        *,
-        fps: float = 2.0,
-        short_seconds: float = 64.0,
-        segment_seconds: float = 32.0,
-    ) -> None:
+    def __init__(self, *, fps: float = 2.0, short_seconds: float = 64.0, segment_seconds: float = 32.0) -> None:
         if min(fps, short_seconds, segment_seconds) <= 0:
-            raise ValueError("FPS and UniTime thresholds must be positive")
+            raise ValueError("FPS and native hierarchy thresholds must be positive")
         self.fps = fps
         self.short_seconds = short_seconds
         self.segment_seconds = segment_seconds
@@ -43,9 +37,7 @@ class UniTimeFixed(Method):
             "timing": evidence.metadata.get("timing", {}),
         }
 
-    def run(self, sample: Sample, model: ModelBackend, cache_dir: Path) -> Prediction:
-        del cache_dir
-        self.validate_model(model)
+    def _run_unitime(self, sample: Sample, model: ModelBackend) -> Prediction:
         if sample.duration <= self.short_seconds:
             frames = self._frames(sample.duration)
             evidence = model.encode(sample, uniform_timestamps(0.0, sample.duration, frames))
@@ -55,7 +47,8 @@ class UniTimeFixed(Method):
                 prediction.raw_output,
                 {
                     **prediction.telemetry,
-                    "fixed_segment_baseline": True,
+                    "native_family": "unitime",
+                    "fixed_segment_hierarchy": True,
                     "short_video_bypass": True,
                     "encoder_calls": 1,
                     "llm_calls": 1,
@@ -79,7 +72,8 @@ class UniTimeFixed(Method):
             {
                 **prediction.telemetry,
                 **coarse_telemetry,
-                "fixed_segment_baseline": True,
+                "native_family": "unitime",
+                "fixed_segment_hierarchy": True,
                 "short_video_bypass": False,
                 "segment_seconds": self.segment_seconds,
                 "coarse_frames": coarse.source_frames,
@@ -91,5 +85,19 @@ class UniTimeFixed(Method):
             },
         )
 
+    def run(self, sample: Sample, model: ModelBackend, cache_dir: Path) -> Prediction:
+        del cache_dir
+        if "unitime-coarse" in model.capabilities:
+            return self._run_unitime(sample, model)
+        if "native-video-grounding" in model.capabilities:
+            if getattr(model, "encoder_pruning", "none") != "none" or getattr(model, "post_pruning", "none") != "none":
+                raise ValueError(
+                    "native TimeLens inference is dense; use coarse-to-fine-64 for Mage or SemVID"
+                )
+            return model.predict_video(sample)  # type: ignore[attr-defined]
+        raise ValueError(
+            f"method 'native' requires a UniTime or TimeLens backend; model {model.name!r} is unsupported"
+        )
 
-__all__ = ["UniTimeFixed"]
+
+__all__ = ["Native"]

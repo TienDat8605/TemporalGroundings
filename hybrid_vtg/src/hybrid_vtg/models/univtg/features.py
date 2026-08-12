@@ -65,7 +65,7 @@ class UniVTGFeatures:
         import torch
         from PIL import Image
 
-        # HMVE encodes scout/corridor/boundary passes with overlapping timestamps.
+        # Windowed methods may encode multiple passes with overlapping timestamps.
         # Cache CLIP features per frame path so a frame seen in an earlier pass is
         # not re-encoded. extract_frames names paths deterministically by timestamp,
         # so the same timestamp across passes maps to the same path.
@@ -87,7 +87,7 @@ class UniVTGFeatures:
     def text(self, query: str):
         import torch
 
-        # HMVE calls query_scores 3x and predict 1x per sample, all with the same
+        # Multi-pass methods may call query_scores repeatedly with the same
         # query. Cache the CLIP text embedding so it is computed once, not 4x.
         cached = self._text_cache.get(query)
         if cached is not None:

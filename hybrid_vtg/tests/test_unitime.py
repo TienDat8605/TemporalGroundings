@@ -5,8 +5,7 @@ import pytest
 import torch
 
 from hybrid_vtg.contracts import GroundingContext, ModelBackend, Prediction, Sample, ScoredSpan, TemporalEvidence
-from hybrid_vtg.methods.unitime_adaptive import UniTimeAdaptive
-from hybrid_vtg.methods.unitime_fixed import UniTimeFixed
+from hybrid_vtg.methods.native import Native
 from hybrid_vtg.models.pruning import mage_cell_plan
 from hybrid_vtg.models.qwen import QwenEvidenceBackend, _generation_token_budget
 from hybrid_vtg.models.timelens import (
@@ -243,129 +242,67 @@ def test_qwen2_mage_wrapper_prunes_before_vision_block():
     assert model.model.visual.blocks[0].seen == (8, [0, 4, 8])
 
 
-class _TimestampBackend(ModelBackend):
-    name = "timestamp"
-    capabilities = frozenset({"encoded-evidence", "timestamp-interleaved"})
+def test_unitime_sentence_style_output_is_parsed():
+    spans = parse_spans("From 15.0 seconds to 18.5 seconds.")
+    assert [(span.start, span.end) for span in spans] == [(15.0, 18.5)]
+
+
+class _NativeUniTimeBackend(ModelBackend):
+    name = "unitime"
+    capabilities = frozenset({"encoded-evidence", "unitime-coarse"})
 
     def __init__(self):
         self.encoder_calls = 0
         self.predict_calls = 0
-        self.last_evidence = None
-
-    @property
-    def maximum_evidence_units(self):
-        return 10_000
 
     def encode(self, sample, timestamps):
         del sample
         self.encoder_calls += 1
-        count = len(timestamps)
-        embeddings = torch.arange(count * 4, dtype=torch.float32).reshape(count, 4)
-        return TemporalEvidence(
-            embeddings,
-            tuple(timestamps),
-            count,
-            {"cell_coordinates": [[index, 0, 0] for index in range(count)]},
-        )
+        return TemporalEvidence(torch.ones((len(timestamps), 2)), tuple(timestamps), len(timestamps))
 
     def query_scores(self, evidence, query):
         del query
-        return torch.linspace(0, 1, evidence.size)
-
-    def predict(self, sample, evidence, context: GroundingContext):
-        del sample, context
-        self.predict_calls += 1
-        self.last_evidence = evidence
-        return Prediction((ScoredSpan(1.0, 2.0),))
-
-
-def test_unitime_adaptive_uses_top_k_corridors_and_one_final_generation():
-    method = UniTimeAdaptive(top_k=2, short_seconds=64)
-    backend = _TimestampBackend()
-    sample = Sample("long", "video", Path(__file__), 100.0, "event")
-
-    result = method.run(sample, backend, Path("unused"))
-
-    assert result.telemetry["adaptive_corridors"] is True
-    assert result.telemetry["top_k"] == 2
-    assert len(result.telemetry["corridors"]) == 2
-    assert backend.encoder_calls == 3
-    assert backend.predict_calls == 1
-    assert backend.last_evidence.timestamps == tuple(sorted(backend.last_evidence.timestamps))
-    assert len(backend.last_evidence.metadata["cell_coordinates"]) == backend.last_evidence.size
-
-
-def test_unitime_adaptive_uses_reduced_sampling_defaults():
-    method = UniTimeAdaptive()
-    assert (method.scout_fps, method.detail_fps, method.boundary_fps) == (0.5, 1.0, 2.0)
-
-
-def test_unitime_adaptive_short_video_bypasses_routing():
-    method = UniTimeAdaptive(top_k=3, short_seconds=64)
-    backend = _TimestampBackend()
-    sample = Sample("short", "video", Path(__file__), 20.0, "event")
-
-    result = method.run(sample, backend, Path("unused"))
-
-    assert result.telemetry["short_video_bypass"] is True
-    assert backend.encoder_calls == 1
-    assert backend.predict_calls == 1
-
-
-def test_unitime_adaptive_bounds_top_k_to_visual_budget():
-    with pytest.raises(ValueError, match="between 1 and 8"):
-        UniTimeAdaptive(top_k=9)
-
-
-class _FixedBackend(_TimestampBackend):
-    capabilities = frozenset({"encoded-evidence", "timestamp-interleaved", "unitime-coarse"})
+        return torch.ones(evidence.size)
 
     def coarse_corridor(self, sample, evidence, *, segment_seconds):
         del sample, evidence, segment_seconds
         return GroundingContext(32.0, 64.0), {"coarse_raw_output": "32 seconds"}
 
+    def predict(self, sample, evidence, context):
+        del sample, evidence, context
+        self.predict_calls += 1
+        return Prediction((ScoredSpan(33.0, 40.0),))
 
-def test_unitime_fixed_uses_trained_coarse_then_fine_pass():
-    method = UniTimeFixed(short_seconds=64, segment_seconds=32)
-    backend = _FixedBackend()
-    sample = Sample("long", "video", Path(__file__), 100.0, "event")
 
-    result = method.run(sample, backend, Path("unused"))
+class _NativeTimeLensBackend(_NativeUniTimeBackend):
+    name = "timelens2-4b"
+    capabilities = frozenset({"native-video-grounding"})
 
-    assert result.telemetry["fixed_segment_baseline"] is True
+    def predict_video(self, sample):
+        del sample
+        return Prediction((ScoredSpan(3.0, 4.0),), telemetry={"native_whole_video_control": True})
+
+
+def test_native_dispatches_unitime_to_fixed_coarse_fine_hierarchy():
+    backend = _NativeUniTimeBackend()
+    result = Native().run(
+        Sample("long", "video", Path(__file__), 100.0, "event"),
+        backend,
+        Path("unused"),
+    )
+    assert result.telemetry["native_family"] == "unitime"
     assert result.telemetry["corridor"] == {"start": 32.0, "end": 64.0}
-    assert result.telemetry["encoder_calls"] == 2
-    assert result.telemetry["llm_calls"] == 2
-    assert backend.encoder_calls == 2
+    assert backend.encoder_calls == result.telemetry["encoder_calls"] == 2
     assert backend.predict_calls == 1
 
 
-def test_unitime_coarse_prediction_expands_through_last_selected_segment(monkeypatch, tmp_path):
-    backend = UniTimeEvidenceBackend("adapter", tmp_path)
-    evidence = TemporalEvidence(
-        torch.eye(4),
-        (0.0, 32.0, 64.0, 96.0),
-        8,
-        {"cell_coordinates": [[index, 0, 0] for index in range(4)]},
+def test_native_dispatches_timelens_to_whole_video_path():
+    result = Native().run(
+        Sample("short", "video", Path(__file__), 10.0, "event"),
+        _NativeTimeLensBackend(),
+        Path("unused"),
     )
-    sample = Sample("long", "video", Path(__file__), 120.0, "event")
-    monkeypatch.setattr(
-        backend,
-        "_evidence_prompt",
-        lambda *args, **kwargs: (None, None, None, None, [0.0, 32.0, 64.0, 96.0]),
-    )
-    monkeypatch.setattr(backend, "_generate", lambda *args: "32 seconds, 64 seconds")
-
-    corridor, telemetry = backend.coarse_corridor(sample, evidence, segment_seconds=32)
-
-    assert corridor == GroundingContext(32.0, 96.0)
-    assert telemetry["coarse_selected"] == [32.0, 64.0]
-    assert telemetry["coarse_fallback"] is False
-
-
-def test_unitime_sentence_style_output_is_parsed():
-    spans = parse_spans("From 15.0 seconds to 18.5 seconds.")
-    assert [(span.start, span.end) for span in spans] == [(15.0, 18.5)]
+    assert result.telemetry["native_whole_video_control"] is True
 
 
 def test_omtg_gets_larger_generation_budget_only():

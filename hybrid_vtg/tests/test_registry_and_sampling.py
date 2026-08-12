@@ -16,10 +16,7 @@ def test_builtin_surface_is_exactly_the_requested_matrix():
     load_builtin_plugins()
     assert METHODS.names() == (
         "coarse-to-fine-64",
-        "hmve",
-        "timelens-native",
-        "unitime-adaptive",
-        "unitime-fixed",
+        "native",
     )
     assert MODELS.names() == (
         "qwen2-vl-7b",
