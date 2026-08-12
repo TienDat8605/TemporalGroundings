@@ -349,10 +349,39 @@ Runs are resumable and stored under
 are part of `<model-variant>`, and adaptive top-k is part of `<method-variant>`,
 so these five experiments cannot overwrite one another.
 
+### OMTG: UniTime and TimeLens-8B adaptive + pruning
+
+Download OMTG and the two checkpoints:
+
+```bash
+hybrid-vtg download omtg unitime timelens-8b \
+  --root ./assets --accept-licenses --hf-login
+```
+
+Start the two-run matrix in a detached tmux session:
+
+```bash
+scripts/run_omtg_tmux.sh
+tmux attach -t omtg-vtg-10
+```
+
+The script activates `.venv` inside tmux, then runs only `unitime-adaptive`
+top-k=4 with Mage retention 50% and SemVID final retention 12.5% for UniTime
+and TimeLens-8B. It defaults to a seeded 10% OMTG subset. Use the full split,
+a different GPU, or replace existing results with:
+
+```bash
+OMTG_SUBSET=100 OMTG_GPU=1 OMTG_RERUN=1 scripts/run_omtg_tmux.sh
+```
+
+Logs are stored under `results/logs/omtg-adaptive-pruned/`. TimeLens-8B is the
+Qwen3-VL-8B-based `TencentARC/TimeLens-8B` release; this matrix does not run
+TimeLens-7B or any dense/native control.
+
 ## Download datasets and checkpoints
 
 One command downloads the three benchmarks, UniTime adapter plus its Qwen2-VL
-base, TimeLens2-4B, TimeLens-7B, and the official UniVTG CLIP-B/32 checkpoint:
+base, TimeLens2-4B, TimeLens-8B, TimeLens-7B, and the official UniVTG CLIP-B/32 checkpoint:
 
 ```bash
 hybrid-vtg download --root ./assets --accept-licenses
@@ -383,11 +412,11 @@ python scripts/download_assets.py --root ./assets --accept-licenses
 To download only selected assets, name them explicitly:
 
 ```bash
-hybrid-vtg download tacos unitime timelens2-4b timelens-7b --root ./assets --accept-licenses
+hybrid-vtg download tacos unitime timelens2-4b timelens-8b --root ./assets --accept-licenses
 ```
 
 Valid targets are `omtg`, `tacos`, `qvhighlights`, `unitime`,
-`timelens2-4b`, `timelens-7b`, and `univtg`. With no targets, all seven are
+`timelens2-4b`, `timelens-8b`, `timelens-7b`, and `univtg`. With no targets, all eight are
 downloaded. The layout is:
 
 ```text
@@ -402,6 +431,7 @@ assets/
     │   ├── adapter/
     │   └── qwen2-vl-7b/
     ├── timelens2-4b/
+    ├── timelens-8b/
     ├── timelens-7b/
     └── univtg-pretrained-clip-b32-4m/
 ```
@@ -425,6 +455,7 @@ TACoS data retains its upstream terms. QVHighlights annotations use CC BY-NC-SA
 [VideoMind TACoS](https://huggingface.co/datasets/yeliudev/VideoMind-Dataset/tree/main/tacos),
 [TACoS](https://www.mpi-inf.mpg.de/departments/computer-vision-and-machine-learning/research/vision-and-language/tacos-multi-level-corpus),
 [TimeLens2](https://huggingface.co/MCG-NJU/TimeLens2-4B),
+[TimeLens-8B](https://huggingface.co/TencentARC/TimeLens-8B),
 [TimeLens-7B](https://huggingface.co/TencentARC/TimeLens-7B),
 [UniTime](https://huggingface.co/zeqianli/UniTime), and
 [UniVTG](https://github.com/showlab/UniVTG).
@@ -476,6 +507,7 @@ request per video. The old all-splits archive was about 134 GB.
 | `qwen2-vl-7b` | `Qwen/Qwen2-VL-7B-Instruct` | Adapter-free Qwen2 baseline; 4,096-cell budget with adaptive routing, Mage, and SemVID |
 | `qwen3-vl-4b` | `Qwen/Qwen3-VL-4B-Instruct` | 4,096-cell evidence budget with optional Mage and SemVID |
 | `timelens2-4b` | `MCG-NJU/TimeLens2-4B` | Native 2 FPS or adaptive path, both capped at 4,096 visual tokens |
+| `timelens-8b` | `TencentARC/TimeLens-8B` | Qwen3-VL adaptive path capped at 4,096 visual tokens, with optional Mage and SemVID |
 | `timelens-7b` | `TencentARC/TimeLens-7B` | Native timestamp or adaptive path, both capped at 4,096 visual tokens |
 | `unitime` | `zeqianli/UniTime` adapter on `Qwen/Qwen2-VL-7B-Instruct` | Frozen reference/adaptive backend with optional Mage and SemVID policies |
 | `univtg` | none | Pass a `.ckpt` file or a directory containing exactly one `.ckpt`; the downloader directory works directly |
@@ -542,4 +574,4 @@ pytest
 
 ## Provenance and licenses
 
-The trimmed UniVTG transformer and positional-encoding implementation is derived from the official [showlab/UniVTG](https://github.com/showlab/UniVTG) repository under MIT. The fixed-budget method is a clean reimplementation of the TimeLens2 evaluation policy. Model checkpoints and datasets are not redistributed here and retain their own terms. Read [NOTICE.md](NOTICE.md) and [LICENSES](LICENSES/) before use. TimeLens2-4B declares Apache-2.0. The TimeLens-7B model card labels the checkpoint BSD-3-Clause, while its source repository includes additional TimeLens terms; review both upstream distributions before use.
+The trimmed UniVTG transformer and positional-encoding implementation is derived from the official [showlab/UniVTG](https://github.com/showlab/UniVTG) repository under MIT. The fixed-budget method is a clean reimplementation of the TimeLens2 evaluation policy. Model checkpoints and datasets are not redistributed here and retain their own terms. Read [NOTICE.md](NOTICE.md) and [LICENSES](LICENSES/) before use. TimeLens2-4B declares Apache-2.0. The TimeLens-7B and TimeLens-8B model cards label their checkpoints BSD-3-Clause, while the source repository includes additional TimeLens terms; review both upstream distributions before use.

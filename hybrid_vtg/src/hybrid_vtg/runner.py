@@ -240,6 +240,9 @@ def run_benchmark(
             manifest["native_video_fps"] = 2.0
             manifest["native_total_pixel_budget"] = 4_096 * 32 * 32
         manifest["maximum_evidence_units"] = 4_096
+    elif model_name == "timelens-8b":
+        manifest["checkpoint"] = checkpoint or "TencentARC/TimeLens-8B"
+        manifest["maximum_evidence_units"] = 4_096
     elif model_name == "timelens-7b":
         manifest["checkpoint"] = checkpoint or "TencentARC/TimeLens-7B"
         if method_name == "timelens-native":

@@ -25,6 +25,7 @@ def test_builtin_surface_is_exactly_the_requested_matrix():
         "qwen2-vl-7b",
         "qwen3-vl-4b",
         "timelens-7b",
+        "timelens-8b",
         "timelens2-4b",
         "unitime",
         "univtg",
@@ -35,8 +36,10 @@ def test_builtin_surface_is_exactly_the_requested_matrix():
 def test_all_qwen3_backends_get_4096_evidence_cap(tmp_path):
     load_builtin_plugins()
     timelens2 = MODELS.create("timelens2-4b", cache_dir=tmp_path)
+    timelens8 = MODELS.create("timelens-8b", cache_dir=tmp_path)
     qwen3 = MODELS.create("qwen3-vl-4b", cache_dir=tmp_path)
     assert timelens2.maximum_evidence_units == 4_096
+    assert timelens8.maximum_evidence_units == 4_096
     assert qwen3.maximum_evidence_units == 4_096
 
 

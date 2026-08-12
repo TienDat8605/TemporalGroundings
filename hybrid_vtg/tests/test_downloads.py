@@ -30,6 +30,7 @@ def test_download_layout_is_one_predictable_assets_tree(tmp_path: Path):
     assert paths["qvhighlights"] == (tmp_path / "assets" / "datasets" / "qvhighlights").resolve()
     assert paths["unitime"] == (tmp_path / "assets" / "checkpoints" / "unitime").resolve()
     assert paths["timelens2-4b"] == (tmp_path / "assets" / "checkpoints" / "timelens2-4b").resolve()
+    assert paths["timelens-8b"] == (tmp_path / "assets" / "checkpoints" / "timelens-8b").resolve()
     assert paths["timelens-7b"] == (tmp_path / "assets" / "checkpoints" / "timelens-7b").resolve()
     assert paths["univtg"].name == "univtg-pretrained-clip-b32-4m"
     assert resolve_targets(()) == (
@@ -38,6 +39,7 @@ def test_download_layout_is_one_predictable_assets_tree(tmp_path: Path):
         "qvhighlights",
         "unitime",
         "timelens2-4b",
+        "timelens-8b",
         "timelens-7b",
         "univtg",
     )

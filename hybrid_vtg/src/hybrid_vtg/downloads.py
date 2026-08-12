@@ -26,6 +26,7 @@ TARGETS = (
     "qvhighlights",
     "unitime",
     "timelens2-4b",
+    "timelens-8b",
     "timelens-7b",
     "univtg",
 )
@@ -63,6 +64,7 @@ SOURCES = {
         "base_repository": "Qwen/Qwen2-VL-7B-Instruct",
     },
     "timelens2-4b": {"repository": "MCG-NJU/TimeLens2-4B"},
+    "timelens-8b": {"repository": "TencentARC/TimeLens-8B"},
     "timelens-7b": {"repository": "TencentARC/TimeLens-7B"},
     "univtg": {
         "checkpoint": ("https://drive.google.com/drive/folders/1-eGata6ZPV0A1BBsZpYyIooos9yjMx2f?usp=sharing"),
@@ -79,6 +81,7 @@ def asset_paths(root: Path) -> dict[str, Path]:
         "qvhighlights": root / "datasets" / "qvhighlights",
         "unitime": root / "checkpoints" / "unitime",
         "timelens2-4b": root / "checkpoints" / "timelens2-4b",
+        "timelens-8b": root / "checkpoints" / "timelens-8b",
         "timelens-7b": root / "checkpoints" / "timelens-7b",
         "univtg": root / "checkpoints" / "univtg-pretrained-clip-b32-4m",
     }
@@ -204,7 +207,7 @@ def _preflight_dependencies(selected: Sequence[str]) -> None:
         raise RuntimeError("downloads require: pip install -e '.[downloads]'")
     if "univtg" in selected and importlib.util.find_spec("gdown") is None:
         raise RuntimeError("Google Drive downloads require: pip install -e '.[downloads]'")
-    hf_targets = {"unitime", "timelens2-4b", "timelens-7b"}
+    hf_targets = {"unitime", "timelens2-4b", "timelens-8b", "timelens-7b"}
     if hf_targets.intersection(selected) and importlib.util.find_spec("huggingface_hub") is None:
         raise RuntimeError("Hugging Face checkpoint downloads require: pip install -e '.[downloads]'")
 
@@ -405,6 +408,14 @@ def _download_timelens7(_root: Path, destination: Path, hf_token: str | None) ->
     return _complete(destination, SOURCES["timelens-7b"])
 
 
+def _download_timelens8(_root: Path, destination: Path, hf_token: str | None) -> dict[str, Any]:
+    marker = destination / ".complete.json"
+    if marker.is_file():
+        return json.loads(marker.read_text(encoding="utf-8"))
+    _snapshot(SOURCES["timelens-8b"]["repository"], destination, hf_token)
+    return _complete(destination, SOURCES["timelens-8b"])
+
+
 def _download_univtg(_root: Path, destination: Path, _hf_token: str | None) -> dict[str, Any]:
     marker = destination / ".complete.json"
     if marker.is_file():
@@ -422,6 +433,7 @@ DOWNLOADERS: dict[str, Callable[[Path, Path, str | None], dict[str, Any]]] = {
     "qvhighlights": _download_qvhighlights,
     "unitime": _download_unitime,
     "timelens2-4b": _download_timelens2,
+    "timelens-8b": _download_timelens8,
     "timelens-7b": _download_timelens7,
     "univtg": _download_univtg,
 }
