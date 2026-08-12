@@ -119,19 +119,19 @@ automatically. It is strongly recommended for the official whole-video
 TimeLens controls on a 24 GB GPU; follow the model card's installation command
 instead of adding it to the portable base requirements.
 
-## Run TACoS: UniTime, TimeLens2, and TimeLens
+## Run TACoS: UniTime and TimeLens2
 
-Download the TACoS test split and all three model releases once:
+Download the TACoS test split and both focused model releases once:
 
 ```bash
-hybrid-vtg download tacos unitime timelens2-4b timelens-7b \
+hybrid-vtg download tacos unitime timelens2-4b \
   --root ./assets --accept-licenses --hf-login
 ```
 
 Start with a reproducible 10% subset; change `--subset 10` to `--subset 100`
 for the full 4,001-query TACoS test split.
 
-To run the complete nine-run 10% matrix in a detached tmux session, use:
+To run the complete six-run 10% matrix in a detached tmux session, use:
 
 ```bash
 scripts/run_tacos_tmux.sh
@@ -139,9 +139,10 @@ tmux attach -t tacos-vtg-10
 ```
 
 The detached worker changes to the repository root and activates `.venv`
-itself, so it keeps the correct environment after SSH disconnects. It runs the
-three original/native controls, three adaptive top-k=4 experiments, and three
-adaptive + Mage (50%) + SemVID (12.5%) experiments sequentially on GPU 0.
+itself, so it keeps the correct environment after SSH disconnects. For UniTime
+and TimeLens2-4B, it runs the original/native control, adaptive top-k=4, and
+adaptive + Mage (50%) + SemVID (12.5%) sequentially on GPU 0. TimeLens-7B is
+intentionally excluded from this focused matrix.
 Matching partial benchmark outputs resume normally; one failed run is logged
 without stopping the remaining matrix. Logs are written under
 `results/logs/tacos-matrix/`. Override defaults with environment variables:
@@ -170,16 +171,11 @@ hybrid-vtg run --benchmark tacos --model unitime --method unitime-fixed \
 hybrid-vtg run --benchmark tacos --model timelens2-4b --method timelens-native \
   --checkpoint ./assets/checkpoints/timelens2-4b \
   --subset 10 --seed 42
-
-# TimeLens-7B's official interleaved-text-timestamp inference
-hybrid-vtg run --benchmark tacos --model timelens-7b --method timelens-native \
-  --checkpoint ./assets/checkpoints/timelens-7b \
-  --subset 10 --seed 42
 ```
 
 ### Our adaptive temporal method
 
-Run the same training-free scout/corridor/boundary method on each checkpoint:
+Run the same training-free scout/corridor/boundary method on both checkpoints:
 
 ```bash
 hybrid-vtg run --benchmark tacos --model unitime --method unitime-adaptive \
@@ -189,10 +185,6 @@ hybrid-vtg run --benchmark tacos --model unitime --method unitime-adaptive \
 
 hybrid-vtg run --benchmark tacos --model timelens2-4b --method unitime-adaptive \
   --checkpoint ./assets/checkpoints/timelens2-4b \
-  --corridor-top-k 4 --subset 10 --seed 42
-
-hybrid-vtg run --benchmark tacos --model timelens-7b --method unitime-adaptive \
-  --checkpoint ./assets/checkpoints/timelens-7b \
   --corridor-top-k 4 --subset 10 --seed 42
 ```
 

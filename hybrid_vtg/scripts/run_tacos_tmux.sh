@@ -15,7 +15,7 @@ LOG_ROOT="${TACOS_LOG_ROOT:-$PROJECT_ROOT/results/logs/tacos-matrix}"
 
 usage() {
   cat <<'EOF'
-Run the nine-experiment TACoS matrix in a detached tmux session.
+Run the six-experiment TACoS matrix in a detached tmux session.
 
 Usage:
   scripts/run_tacos_tmux.sh
@@ -77,15 +77,14 @@ run_worker() {
   local unitime_adapter="$ASSET_ROOT/checkpoints/unitime/adapter"
   local unitime_base="$ASSET_ROOT/checkpoints/unitime/qwen2-vl-7b"
   local timelens2="$ASSET_ROOT/checkpoints/timelens2-4b"
-  local timelens7="$ASSET_ROOT/checkpoints/timelens-7b"
   local -a missing=()
-  for path in "$data" "$unitime_adapter" "$unitime_base" "$timelens2" "$timelens7"; do
+  for path in "$data" "$unitime_adapter" "$unitime_base" "$timelens2"; do
     [[ -e "$path" ]] || missing+=("$path")
   done
   if ((${#missing[@]})); then
     printf 'missing required asset: %s\n' "${missing[@]}" >&2
     echo "download first with:" >&2
-    echo "hybrid-vtg download tacos unitime timelens2-4b timelens-7b --root '$ASSET_ROOT' --accept-licenses --hf-login" >&2
+    echo "hybrid-vtg download tacos unitime timelens2-4b --root '$ASSET_ROOT' --accept-licenses --hf-login" >&2
     exit 1
   fi
 
@@ -127,8 +126,6 @@ run_worker() {
     --checkpoint "$unitime_adapter" --base-checkpoint "$unitime_base"
   run_one timelens2-original \
     --model timelens2-4b --method timelens-native --checkpoint "$timelens2"
-  run_one timelens7-original \
-    --model timelens-7b --method timelens-native --checkpoint "$timelens7"
 
   # Experiment 2: adaptive top-k=4 temporal routing.
   run_one unitime-adaptive \
@@ -136,8 +133,6 @@ run_worker() {
     --checkpoint "$unitime_adapter" --base-checkpoint "$unitime_base"
   run_one timelens2-adaptive \
     --model timelens2-4b "${adaptive[@]}" --checkpoint "$timelens2"
-  run_one timelens7-adaptive \
-    --model timelens-7b "${adaptive[@]}" --checkpoint "$timelens7"
 
   # Experiment 3: adaptive routing plus both independent spatial policies.
   run_one unitime-adaptive-mage-semvid \
@@ -145,8 +140,6 @@ run_worker() {
     --checkpoint "$unitime_adapter" --base-checkpoint "$unitime_base"
   run_one timelens2-adaptive-mage-semvid \
     --model timelens2-4b "${adaptive[@]}" "${pruned[@]}" --checkpoint "$timelens2"
-  run_one timelens7-adaptive-mage-semvid \
-    --model timelens-7b "${adaptive[@]}" "${pruned[@]}" --checkpoint "$timelens7"
 
   echo
   echo "finished: $(date --iso-8601=seconds); failures: $failures"
