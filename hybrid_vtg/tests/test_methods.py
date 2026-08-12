@@ -132,7 +132,7 @@ def test_coarse_to_fine_router_uses_sentence_transformer_encode(monkeypatch, tmp
     assert calls[0][0] == ["open the door"]
     assert [list(value) for value in calls[1][0]] == [["video"], ["video"]]
     assert all(call[1]["normalize_embeddings"] for call in calls)
-    assert calls[1][1]["do_sample_frames"] is False
+    assert calls[1][1]["processing_kwargs"] == {"video": {"do_sample_frames": False}}
     assert len(extract_calls) == 2
     assert router.last_telemetry["query_embedding_cache_hit"] is False
     assert router.last_telemetry["video_embedding_cache_hit"] is False
