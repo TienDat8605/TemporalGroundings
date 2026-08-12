@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import math
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -17,6 +18,13 @@ from ..contracts import (
 from ..media import extract_frames
 from ..postprocess import consolidate_spans, parse_spans
 from .pruning import mage_cell_plan, motion_residual_importance, semvid_select
+
+
+def _attention_options() -> dict[str, str]:
+    """Use FlashAttention 2 when its validated Transformers integration is available."""
+    from transformers.utils import is_flash_attn_2_available
+
+    return {"attn_implementation": "flash_attention_2"} if is_flash_attn_2_available() else {}
 
 
 def _generation_token_budget(sample: Sample) -> int:
@@ -158,7 +166,9 @@ def _install_mage_vision_pruning(model, prune_layer: int) -> None:
 
 
 class QwenEvidenceBackend(ModelBackend):
-    capabilities = frozenset({"encoded-evidence", "spatial-evidence", "generative", "timestamp-interleaved"})
+    capabilities = frozenset(
+        {"encoded-evidence", "spatial-evidence", "generative", "timestamp-interleaved", "native-video-grounding"}
+    )
 
     def __init__(
         self,
@@ -171,6 +181,7 @@ class QwenEvidenceBackend(ModelBackend):
         encoder_prune_layer: int = 0,
         post_pruning: str = "none",
         post_retention: float = 1.0,
+        maximum_evidence_units: int | None = 4_096,
     ) -> None:
         if encoder_pruning not in {"none", "mage"}:
             raise ValueError("encoder pruning must be 'none' or 'mage'")
@@ -186,6 +197,8 @@ class QwenEvidenceBackend(ModelBackend):
             raise ValueError("post retention requires --post-pruning semvid")
         if encoder_pruning == "mage" and post_pruning == "semvid" and post_retention > encoder_retention:
             raise ValueError("post retention cannot exceed encoder retention when both policies are enabled")
+        if maximum_evidence_units is not None and maximum_evidence_units <= 0:
+            raise ValueError("maximum evidence units must be positive")
         self.name = name
         self.checkpoint = checkpoint
         self.cache_dir = cache_dir
@@ -194,8 +207,13 @@ class QwenEvidenceBackend(ModelBackend):
         self.encoder_prune_layer = encoder_prune_layer
         self.post_pruning = post_pruning
         self.post_retention = post_retention
+        self._maximum_evidence_units = maximum_evidence_units
         self._model: Any = None
         self._processor: Any = None
+
+    @property
+    def maximum_evidence_units(self) -> int | None:
+        return self._maximum_evidence_units
 
     def _load(self) -> tuple[Any, Any]:
         if self._model is None:
@@ -215,6 +233,7 @@ class QwenEvidenceBackend(ModelBackend):
                         torch_dtype="auto",
                         device_map="auto",
                         low_cpu_mem_usage=True,
+                        **_attention_options(),
                     )
                     .eval()
                 )
@@ -234,12 +253,36 @@ class QwenEvidenceBackend(ModelBackend):
         from PIL import Image
 
         model, processor = self._load()
-        paths = extract_frames(sample.video_path, timestamps, self.cache_dir / "frames")
+        paths = extract_frames(
+            sample.video_path,
+            timestamps,
+            self.cache_dir / "frames",
+            maximum_width=2_048 if self.maximum_evidence_units is not None else 336,
+        )
         frames = []
         for path in paths:
             with Image.open(path) as image:
                 frames.append(image.convert("RGB"))
         placeholder = processor.vision_start_token + processor.video_token + processor.vision_end_token
+        do_resize = True
+        if self.maximum_evidence_units is not None:
+            temporal_patch = int(model.config.vision_config.temporal_patch_size)
+            patch = int(model.config.vision_config.patch_size)
+            merge = int(model.config.vision_config.spatial_merge_size)
+            temporal = max(1, math.ceil(len(frames) / temporal_patch))
+            cells_per_time = max(1, self.maximum_evidence_units // temporal)
+            aspect = frames[0].width / frames[0].height
+            cell_height = max(1, round(math.sqrt(cells_per_time / aspect)))
+            cell_width = max(1, cells_per_time // cell_height)
+            while cell_height * cell_width > cells_per_time:
+                if cell_width >= cell_height:
+                    cell_width -= 1
+                else:
+                    cell_height -= 1
+            alignment = patch * merge
+            size = (cell_width * alignment, cell_height * alignment)
+            frames = [frame.resize(size, Image.Resampling.LANCZOS) for frame in frames]
+            do_resize = False
         # TimeLens2 ships video_processor.do_resize=False, which leaves frames at their
         # native resolution while the grid is computed from a resized size, so the
         # patch reshape mismatches. Force resizing so grid and tensor agree.
@@ -247,7 +290,7 @@ class QwenEvidenceBackend(ModelBackend):
             text=[placeholder],
             videos=[frames],
             return_tensors="pt",
-            do_resize=True,
+            do_resize=do_resize,
         )
         device = self._device(model.model.visual)
         pixels = inputs["pixel_values_videos"].to(device)
@@ -332,6 +375,7 @@ class QwenEvidenceBackend(ModelBackend):
                 "tokens_per_time": list(cells_per_time),
                 "cell_coordinates": [list(value) for value in coordinates],
                 "dense_evidence_units": temporal * dense_per_time,
+                "maximum_evidence_units": self.maximum_evidence_units,
                 "encoder_pruning": self.encoder_pruning,
                 "encoder_retention_ratio": self.encoder_retention,
                 "encoder_prune_layer": self.encoder_prune_layer,
@@ -478,3 +522,12 @@ class QwenEvidenceBackend(ModelBackend):
                 "context": {"start": context.start, "end": context.end},
             },
         )
+
+    def predict_video(self, sample: Sample) -> Prediction:
+        """Run the official TimeLens2 whole-video control path."""
+        if self.name != "timelens2-4b":
+            raise ValueError("timelens-native is available only for a TimeLens checkpoint")
+        from .timelens import native_timelens_prediction
+
+        model, processor = self._load()
+        return native_timelens_prediction(model, processor, sample, family="qwen3")

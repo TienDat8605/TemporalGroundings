@@ -10,6 +10,19 @@ The files under `src/hybrid_vtg/models/univtg/vendor/` are trimmed from the offi
 
 The `coarse-to-fine-64` method is a clean reimplementation of the `embedding-window-local` evaluation design in TimeLens2. No TimeLens2 source tree is required at runtime. The official `MCG-NJU/TimeLens2-4B` checkpoint and current TimeLens2 repository declare Apache License 2.0. The older Tencent TimeLens license retained in `LICENSES/TimeLens-v1.txt` applies to the historical TimeLens project, not the downloaded TimeLens2-4B checkpoint. See <https://github.com/MCG-NJU/TimeLens2> and <https://huggingface.co/MCG-NJU/TimeLens2-4B>.
 
+## TimeLens-7B
+
+`src/hybrid_vtg/models/timelens.py` interoperates with the released
+`TencentARC/TimeLens-7B` checkpoint through standard Transformers and
+qwen-vl-utils APIs. The native path follows the public two-FPS,
+timestamp-interleaved model-card recipe; the evidence path is an independent
+integration with this project's adaptive routing and pruning. No upstream
+TimeLens source is copied. The checkpoint model card currently labels the
+checkpoint BSD-3-Clause, while the official source repository includes the
+additional TimeLens terms preserved in `LICENSES/TimeLens-v1.txt`; users must
+review both upstream distributions. See <https://github.com/TencentARC/TimeLens> and
+<https://huggingface.co/TencentARC/TimeLens-7B>.
+
 ## SemVID
 
 `src/hybrid_vtg/models/pruning.py` contains a modified, standalone adaptation of the semantic-oriented Qwen3-VL token selector from the official SemVID project, revision `432a76928817cdfba7d04c460ac475482cd7c3a4`. The adaptation retains SemVID's context/object/motion roles, query-conditioned frame allocation, multi-token object coverage, MMR diversity, and motion scoring, while adding variable per-timestamp capacities and integration with Hybrid VTG's evidence contract. It does not require the SemVID checkout at runtime. SemVID is Copyright 2026 Open Visual-Pruning Suite Authors and is distributed under Apache License 2.0; see `LICENSES/SemVID-Apache-2.0.txt` and <https://github.com/JiaqiLi404/SemVID>.
@@ -26,4 +39,4 @@ The encoder-stage policy is a clean-room, training-free adaptation of Mage-VL's 
 
 ## Models and data
 
-The optional downloader retrieves, but does not redistribute, upstream assets. Qwen, CLIP, PyTorchVideo pretrained weights, UniVTG checkpoints, TimeLens2 checkpoints, OMTG, TACoS, and QVHighlights retain their independent licenses and dataset/source-video terms. TACoS is retrieved from VideoMind's BSD-3-Clause dataset repository using its 3 FPS, 480p, no-audio variant; the underlying TACoS video data remains limited to scientific use by MPII and may not be republished. QVHighlights test annotations come from Moment-DETR, and their referenced videos are retrieved as the test-only `jwnt4/qvhighlights-test` archive; the underlying QVHighlights terms remain CC BY-NC-SA 4.0.
+The optional downloader retrieves, but does not redistribute, upstream assets. Qwen, CLIP, PyTorchVideo pretrained weights, UniVTG checkpoints, UniTime, TimeLens, TimeLens2, OMTG, TACoS, and QVHighlights retain their independent licenses and dataset/source-video terms. TACoS is retrieved from VideoMind's BSD-3-Clause dataset repository using its 3 FPS, 480p, no-audio variant; the underlying TACoS video data remains limited to scientific use by MPII and may not be republished. QVHighlights test annotations come from Moment-DETR, and their referenced videos are retrieved as the test-only `jwnt4/qvhighlights-test` archive; the underlying QVHighlights terms remain CC BY-NC-SA 4.0.

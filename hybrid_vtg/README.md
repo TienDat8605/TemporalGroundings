@@ -49,7 +49,14 @@ The same policies work independently with frozen UniTime. See
 [Run UniTime experiments](#run-unitime-experiments) for the complete baseline,
 Mage, SemVID, and adaptive command matrix.
 
-The UniTime and base Qwen2 backends cache grid-aligned post-encoder features by video identity, timestamps, checkpoints, pruning configuration, and evidence budget. They use an explicit 4,096-cell budget. Adaptive routing uses 0.5 FPS scouting, 1 FPS corridor refinement, and 2 FPS boundary refinement. Sparse MRoPE coordinates are retained and generated boundaries are snapped to timestamps shown in the prompt. For `--model unitime`, `--checkpoint` overrides the default `zeqianli/UniTime` adapter and `--base-checkpoint` overrides `Qwen/Qwen2-VL-7B-Instruct`.
+All Qwen-based backends use an explicit 4,096-cell visual-evidence budget. The UniTime and base Qwen2 backends also cache grid-aligned post-encoder features by video identity, timestamps, checkpoints, pruning configuration, and evidence budget. Adaptive routing uses 0.5 FPS scouting, 1 FPS corridor refinement, and 2 FPS boundary refinement. Sparse MRoPE coordinates are retained and generated boundaries are snapped to timestamps shown in the prompt. For `--model unitime`, `--checkpoint` overrides the default `zeqianli/UniTime` adapter and `--base-checkpoint` overrides `Qwen/Qwen2-VL-7B-Instruct`.
+
+TimeLens2-4B and TimeLens-7B expose two deliberately separate paths.
+`timelens-native` uses each checkpoint's official whole-video 2 FPS prompt with
+the shared 4,096-token budget; it is the dense baseline and rejects pruning flags.
+`unitime-adaptive` uses this project's timestamp-interleaved evidence interface
+and supports Mage and SemVID. The shared ceiling keeps long TACoS videos
+practical on a 24 GB GPU and applies to base Qwen3-VL as well.
 
 Use either policy alone by omitting the other policy's two arguments. The old generic `--prune-ratio` and `--prune-layer` interface has been removed. Pruned configurations receive distinct result directories such as `qwen3-vl-4b--enc-mage-r0.5-l0--post-semvid-r0.125`, preventing them from being mixed with dense baselines.
 
@@ -65,16 +72,18 @@ source .venv/bin/activate
 pip install -e '.[downloads,test]'
 ```
 
-The base installation already contains everything needed by Qwen3-VL and
-UniTime; there is no separate UniTime requirements file:
+The base installation already contains everything needed by Qwen2-VL,
+Qwen2.5-VL, Qwen3-VL, UniTime, TimeLens, and TimeLens2; there are no separate
+model requirements files:
 
 | Dependency | Purpose |
 |---|---|
 | `torch>=2.4`, `torchvision>=0.19` | Model execution and visual preprocessing |
-| `transformers>=4.57,<5` | Qwen2-VL/Qwen3-VL models, processors, and generation |
+| `transformers>=4.57,<5` | Qwen2-VL/Qwen2.5-VL/Qwen3-VL models, processors, and generation |
 | `peft>=0.18,<1` | Loading the released UniTime LoRA adapter without training |
 | `accelerate>=1.0` | Automatic device placement for the 4B/7B backends |
 | `Pillow`, `opencv-python-headless`, `numpy` | Frame decoding, resizing, motion, and residual maps |
+| `qwen-vl-utils>=0.0.14` | Official whole-video TimeLens/TimeLens2 preprocessing |
 
 `.[downloads]` adds `huggingface-hub` and `gdown`; `.[test]` adds `pytest` and
 `ruff`; `.[univtg-video]` adds PyTorchVideo only for raw SlowFast extraction.
@@ -103,6 +112,81 @@ both `Qwen/Qwen2-VL-7B-Instruct` and the `zeqianli/UniTime` PEFT adapter; model
 weights are downloaded from Hugging Face unless the checkpoint flags name local
 directories. Use `--base-checkpoint` for the Qwen2-VL base and `--checkpoint`
 for the adapter.
+
+FlashAttention 2 is optional, not required for correctness. If it is installed
+and compatible with the active CUDA/PyTorch build, the backends select it
+automatically. It is strongly recommended for the official whole-video
+TimeLens controls on a 24 GB GPU; follow the model card's installation command
+instead of adding it to the portable base requirements.
+
+## Run TACoS: UniTime, TimeLens2, and TimeLens
+
+Download the TACoS test split and all three model releases once:
+
+```bash
+hybrid-vtg download tacos unitime timelens2-4b timelens-7b \
+  --root ./assets --accept-licenses --hf-login
+```
+
+Start with a reproducible 10% subset; change `--subset 10` to `--subset 100`
+for the full 4,001-query TACoS test split.
+
+### Dense fixed-budget controls
+
+```bash
+# UniTime's fixed coarse-to-fine hierarchy
+hybrid-vtg run --benchmark tacos --model unitime --method unitime-fixed \
+  --checkpoint ./assets/checkpoints/unitime/adapter \
+  --base-checkpoint ./assets/checkpoints/unitime/qwen2-vl-7b \
+  --subset 10 --seed 42
+
+# TimeLens2-4B's native whole-video 2 FPS prompt, capped at 4,096 tokens
+hybrid-vtg run --benchmark tacos --model timelens2-4b --method timelens-native \
+  --checkpoint ./assets/checkpoints/timelens2-4b \
+  --subset 10 --seed 42
+
+# TimeLens-7B's official interleaved-text-timestamp inference
+hybrid-vtg run --benchmark tacos --model timelens-7b --method timelens-native \
+  --checkpoint ./assets/checkpoints/timelens-7b \
+  --subset 10 --seed 42
+```
+
+### Our adaptive temporal method
+
+Run the same training-free scout/corridor/boundary method on each checkpoint:
+
+```bash
+hybrid-vtg run --benchmark tacos --model unitime --method unitime-adaptive \
+  --checkpoint ./assets/checkpoints/unitime/adapter \
+  --base-checkpoint ./assets/checkpoints/unitime/qwen2-vl-7b \
+  --corridor-top-k 4 --subset 10 --seed 42
+
+hybrid-vtg run --benchmark tacos --model timelens2-4b --method unitime-adaptive \
+  --checkpoint ./assets/checkpoints/timelens2-4b \
+  --corridor-top-k 4 --subset 10 --seed 42
+
+hybrid-vtg run --benchmark tacos --model timelens-7b --method unitime-adaptive \
+  --checkpoint ./assets/checkpoints/timelens-7b \
+  --corridor-top-k 4 --subset 10 --seed 42
+```
+
+For each adaptive command, append exactly one of these blocks to measure the
+spatial method independently:
+
+```bash
+# Mage: retain 50% of dense merger cells before vision block 0
+--encoder-pruning mage --encoder-retention 0.5 --encoder-prune-layer 0
+
+# SemVID: retain 12.5% of original dense evidence after the encoder
+--post-pruning semvid --post-retention 0.125
+```
+
+You can also combine both blocks; `0.125` remains relative to the original
+dense evidence, so it is valid with Mage retention `0.5`. A focused matrix has
+four configurations per model: dense control, adaptive, adaptive + Mage, and
+adaptive + SemVID. UniTime's dense control is `unitime-fixed`; both TimeLens
+dense controls are `timelens-native`. Do not attach pruning flags to
+`timelens-native`, because that would no longer be the dense native control.
 
 ## Run UniTime experiments
 
@@ -207,7 +291,7 @@ configuration above.
 The adapter-free Qwen models can run the same adaptive routing with Mage or
 SemVID. These are ablations, not UniTime reproductions: the UniTime LoRA is
 compatible with Qwen2-VL-7B only and cannot be loaded into Qwen3-VL-4B.
-Qwen3 keeps its existing processor-dependent evidence budget.
+Qwen3 now uses the same explicit 4,096-cell evidence budget.
 
 OMTG generation allows up to 256 new tokens so the model can enumerate many
 separate occurrences; other benchmarks retain the 32-token limit. Predictions
@@ -220,7 +304,7 @@ hybrid-vtg run --benchmark omtg --model qwen2-vl-7b \
   --method unitime-adaptive --corridor-top-k 8 --subset 10 --seed 42 \
   --encoder-pruning mage --encoder-retention 0.5 --encoder-prune-layer 0
 
-# Base Qwen3-VL-4B, unchanged budget, adaptive routing, and SemVID
+# Base Qwen3-VL-4B, 4,096-cell budget, adaptive routing, and SemVID
 hybrid-vtg run --benchmark omtg --model qwen3-vl-4b \
   --method unitime-adaptive --corridor-top-k 8 --subset 10 --seed 42 \
   --post-pruning semvid --post-retention 0.125
@@ -249,8 +333,8 @@ so these five experiments cannot overwrite one another.
 
 ## Download datasets and checkpoints
 
-One command downloads the three benchmarks, TimeLens2-4B, and the official
-UniVTG CLIP-B/32 4M pretraining checkpoint:
+One command downloads the three benchmarks, UniTime adapter plus its Qwen2-VL
+base, TimeLens2-4B, TimeLens-7B, and the official UniVTG CLIP-B/32 checkpoint:
 
 ```bash
 hybrid-vtg download --root ./assets --accept-licenses
@@ -269,7 +353,7 @@ hybrid-vtg download --root ./assets --accept-licenses --hf-login
 This uses `HF_TOKEN` when that environment variable is set; otherwise it opens
 Hugging Face's secure token prompt and saves the login in the standard local
 Hugging Face token store. Authentication can avoid anonymous rate limits for
-OMTG, TACoS, QVHighlights, and TimeLens2 downloads. The token is never stored
+OMTG, TACoS, QVHighlights, UniTime, TimeLens, and TimeLens2 downloads. The token is never stored
 in `assets/manifest.json`.
 
 The equivalent repository script is:
@@ -281,11 +365,12 @@ python scripts/download_assets.py --root ./assets --accept-licenses
 To download only selected assets, name them explicitly:
 
 ```bash
-hybrid-vtg download omtg qvhighlights timelens2-4b --root ./assets --accept-licenses
+hybrid-vtg download tacos unitime timelens2-4b timelens-7b --root ./assets --accept-licenses
 ```
 
-Valid targets are `omtg`, `tacos`, `qvhighlights`, `timelens2-4b`, and
-`univtg`. With no targets, all five are downloaded. The layout is:
+Valid targets are `omtg`, `tacos`, `qvhighlights`, `unitime`,
+`timelens2-4b`, `timelens-7b`, and `univtg`. With no targets, all seven are
+downloaded. The layout is:
 
 ```text
 assets/
@@ -295,7 +380,11 @@ assets/
 │   ├── tacos/            test annotations + 25 compressed test videos
 │   └── qvhighlights/     test annotation + its 1,529 test videos only
 └── checkpoints/
+    ├── unitime/
+    │   ├── adapter/
+    │   └── qwen2-vl-7b/
     ├── timelens2-4b/
+    ├── timelens-7b/
     └── univtg-pretrained-clip-b32-4m/
 ```
 
@@ -317,7 +406,9 @@ TACoS data retains its upstream terms. QVHighlights annotations use CC BY-NC-SA
 [QVHighlights test archive](https://huggingface.co/datasets/jwnt4/qvhighlights-test),
 [VideoMind TACoS](https://huggingface.co/datasets/yeliudev/VideoMind-Dataset/tree/main/tacos),
 [TACoS](https://www.mpi-inf.mpg.de/departments/computer-vision-and-machine-learning/research/vision-and-language/tacos-multi-level-corpus),
-[TimeLens2](https://huggingface.co/MCG-NJU/TimeLens2-4B), and
+[TimeLens2](https://huggingface.co/MCG-NJU/TimeLens2-4B),
+[TimeLens-7B](https://huggingface.co/TencentARC/TimeLens-7B),
+[UniTime](https://huggingface.co/zeqianli/UniTime), and
 [UniVTG](https://github.com/showlab/UniVTG).
 
 ## One run interface
@@ -365,8 +456,9 @@ request per video. The old all-splits archive was about 134 GB.
 | CLI name | Default checkpoint | Notes |
 |---|---|---|
 | `qwen2-vl-7b` | `Qwen/Qwen2-VL-7B-Instruct` | Adapter-free Qwen2 baseline; 4,096-cell budget with adaptive routing, Mage, and SemVID |
-| `qwen3-vl-4b` | `Qwen/Qwen3-VL-4B-Instruct` | Direct Transformers adapter with optional Mage-style and SemVID policies |
-| `timelens2-4b` | `MCG-NJU/TimeLens2-4B` | Official Apache-2.0 checkpoint; local downloader path is `assets/checkpoints/timelens2-4b` |
+| `qwen3-vl-4b` | `Qwen/Qwen3-VL-4B-Instruct` | 4,096-cell evidence budget with optional Mage and SemVID |
+| `timelens2-4b` | `MCG-NJU/TimeLens2-4B` | Native 2 FPS or adaptive path, both capped at 4,096 visual tokens |
+| `timelens-7b` | `TencentARC/TimeLens-7B` | Native timestamp or adaptive path, both capped at 4,096 visual tokens |
 | `unitime` | `zeqianli/UniTime` adapter on `Qwen/Qwen2-VL-7B-Instruct` | Frozen reference/adaptive backend with optional Mage and SemVID policies |
 | `univtg` | none | Pass a `.ckpt` file or a directory containing exactly one `.ckpt`; the downloader directory works directly |
 
@@ -432,4 +524,4 @@ pytest
 
 ## Provenance and licenses
 
-The trimmed UniVTG transformer and positional-encoding implementation is derived from the official [showlab/UniVTG](https://github.com/showlab/UniVTG) repository under MIT. The fixed-budget method is a clean reimplementation of the TimeLens2 evaluation policy. Model checkpoints and datasets are not redistributed here and retain their own terms. Read [NOTICE.md](NOTICE.md) and [LICENSES](LICENSES/) before use; in particular, TimeLens2 is academic-only and states that it is not intended for use within the European Union.
+The trimmed UniVTG transformer and positional-encoding implementation is derived from the official [showlab/UniVTG](https://github.com/showlab/UniVTG) repository under MIT. The fixed-budget method is a clean reimplementation of the TimeLens2 evaluation policy. Model checkpoints and datasets are not redistributed here and retain their own terms. Read [NOTICE.md](NOTICE.md) and [LICENSES](LICENSES/) before use. TimeLens2-4B declares Apache-2.0. The TimeLens-7B model card labels the checkpoint BSD-3-Clause, while its source repository includes additional TimeLens terms; review both upstream distributions before use.

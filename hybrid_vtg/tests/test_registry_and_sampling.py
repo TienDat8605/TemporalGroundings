@@ -17,11 +17,27 @@ def test_builtin_surface_is_exactly_the_requested_matrix():
     assert METHODS.names() == (
         "coarse-to-fine-64",
         "hmve",
+        "timelens-native",
         "unitime-adaptive",
         "unitime-fixed",
     )
-    assert MODELS.names() == ("qwen2-vl-7b", "qwen3-vl-4b", "timelens2-4b", "unitime", "univtg")
+    assert MODELS.names() == (
+        "qwen2-vl-7b",
+        "qwen3-vl-4b",
+        "timelens-7b",
+        "timelens2-4b",
+        "unitime",
+        "univtg",
+    )
     assert BENCHMARKS.names() == ("omtg", "qvhighlights", "tacos")
+
+
+def test_all_qwen3_backends_get_4096_evidence_cap(tmp_path):
+    load_builtin_plugins()
+    timelens2 = MODELS.create("timelens2-4b", cache_dir=tmp_path)
+    qwen3 = MODELS.create("qwen3-vl-4b", cache_dir=tmp_path)
+    assert timelens2.maximum_evidence_units == 4_096
+    assert qwen3.maximum_evidence_units == 4_096
 
 
 def test_registry_rejects_duplicates_and_unknown_values():

@@ -13,7 +13,7 @@ from ..contracts import GroundingContext, ModelBackend, Prediction, Sample, Scor
 from ..media import extract_frames
 from ..postprocess import consolidate_spans, parse_spans
 from .pruning import mage_cell_plan, motion_residual_importance, semvid_select
-from .qwen import _dense_evidence_units, _generation_token_budget
+from .qwen import _attention_options, _dense_evidence_units, _generation_token_budget
 
 VISION_START_TOKEN = "<|vision_start|>"
 VISION_END_TOKEN = "<|vision_end|>"
@@ -306,6 +306,7 @@ class UniTimeEvidenceBackend(ModelBackend):
                     torch_dtype="auto",
                     device_map="auto",
                     low_cpu_mem_usage=True,
+                    **_attention_options(),
                 ).eval()
                 if self.adapter_checkpoint:
                     from peft import PeftModel

@@ -8,6 +8,7 @@ from typing import Any
 
 def register_models(registry: Any) -> None:
     from .qwen import QwenEvidenceBackend
+    from .timelens import TimeLens7EvidenceBackend
     from .unitime import UniTimeEvidenceBackend
     from .univtg import UniVTGBackend
 
@@ -52,6 +53,22 @@ def register_models(registry: Any) -> None:
                 checkpoint or "MCG-NJU/TimeLens2-4B",
                 Path(cache_dir),
                 name="timelens2-4b",
+                encoder_pruning=encoder_pruning,
+                encoder_retention=encoder_retention,
+                encoder_prune_layer=encoder_prune_layer,
+                post_pruning=post_pruning,
+                post_retention=post_retention,
+                maximum_evidence_units=4_096,
+            )
+        ),
+    )
+    registry.register(
+        "timelens-7b",
+        lambda cache_dir, checkpoint=None, model_spec=None, feature_roots=(), encoder_pruning="none",
+        encoder_retention=1.0, encoder_prune_layer=0, post_pruning="none", post_retention=1.0: (
+            TimeLens7EvidenceBackend(
+                checkpoint or "TencentARC/TimeLens-7B",
+                Path(cache_dir),
                 encoder_pruning=encoder_pruning,
                 encoder_retention=encoder_retention,
                 encoder_prune_layer=encoder_prune_layer,

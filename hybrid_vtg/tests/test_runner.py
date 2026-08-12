@@ -68,6 +68,29 @@ def test_adaptive_corridor_count_is_validated_before_loading_data(tmp_path):
         )
 
 
+def test_timelens_native_rejects_non_timelens_and_pruning_before_loading_data(tmp_path):
+    with pytest.raises(ValueError, match="requires --model"):
+        run_benchmark(
+            benchmark_name="tacos",
+            data=tmp_path,
+            model_name="unitime",
+            method_name="timelens-native",
+            percentage=1,
+            seed=1,
+        )
+    with pytest.raises(ValueError, match="dense native control"):
+        run_benchmark(
+            benchmark_name="tacos",
+            data=tmp_path,
+            model_name="timelens-7b",
+            method_name="timelens-native",
+            percentage=1,
+            seed=1,
+            post_pruning="semvid",
+            post_retention=0.125,
+        )
+
+
 def test_manifest_mismatch_requires_rerun(tmp_path):
     path = tmp_path / "manifest.json"
     ensure_manifest(path, {"revision": "old"})

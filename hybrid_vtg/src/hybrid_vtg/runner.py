@@ -164,6 +164,12 @@ def run_benchmark(
         raise ValueError("corridor top-k must be between 1 and 8")
     if base_checkpoint is not None and model_name != "unitime":
         raise ValueError("base checkpoint override is available only for UniTime")
+    if method_name == "timelens-native" and model_name not in {"timelens2-4b", "timelens-7b"}:
+        raise ValueError("timelens-native requires --model timelens2-4b or timelens-7b")
+    if method_name == "timelens-native" and (encoder_pruning != "none" or post_pruning != "none"):
+        raise ValueError(
+            "timelens-native is the dense native control; use unitime-adaptive for Mage or SemVID"
+        )
     _validate_pruning_configuration(
         model_name,
         encoder_pruning,
@@ -224,6 +230,21 @@ def run_benchmark(
         manifest["maximum_evidence_units"] = 4_096
     elif model_name == "qwen2-vl-7b":
         manifest["checkpoint"] = checkpoint or "Qwen/Qwen2-VL-7B-Instruct"
+        manifest["maximum_evidence_units"] = 4_096
+    elif model_name == "qwen3-vl-4b":
+        manifest["checkpoint"] = checkpoint or "Qwen/Qwen3-VL-4B-Instruct"
+        manifest["maximum_evidence_units"] = 4_096
+    elif model_name == "timelens2-4b":
+        manifest["checkpoint"] = checkpoint or "MCG-NJU/TimeLens2-4B"
+        if method_name == "timelens-native":
+            manifest["native_video_fps"] = 2.0
+            manifest["native_total_pixel_budget"] = 4_096 * 32 * 32
+        manifest["maximum_evidence_units"] = 4_096
+    elif model_name == "timelens-7b":
+        manifest["checkpoint"] = checkpoint or "TencentARC/TimeLens-7B"
+        if method_name == "timelens-native":
+            manifest["native_video_fps"] = 2.0
+            manifest["native_total_pixel_budget"] = 4_096 * 28 * 28
         manifest["maximum_evidence_units"] = 4_096
     if output_method != method_name:
         manifest["result_method"] = output_method

@@ -20,7 +20,15 @@ from urllib.parse import urlparse
 
 from .io import write_json
 
-TARGETS = ("omtg", "tacos", "qvhighlights", "timelens2-4b", "univtg")
+TARGETS = (
+    "omtg",
+    "tacos",
+    "qvhighlights",
+    "unitime",
+    "timelens2-4b",
+    "timelens-7b",
+    "univtg",
+)
 VIDEO_SUFFIXES = frozenset({".avi", ".mkv", ".mp4", ".webm"})
 _TACOS_VIDEO_NAME = re.compile(r"^(s\d+-d\d+)(?:-cam-\d+)?$", re.I)
 
@@ -50,7 +58,12 @@ SOURCES = {
             "research/vision-and-language/tacos-multi-level-corpus"
         ),
     },
+    "unitime": {
+        "adapter_repository": "zeqianli/UniTime",
+        "base_repository": "Qwen/Qwen2-VL-7B-Instruct",
+    },
     "timelens2-4b": {"repository": "MCG-NJU/TimeLens2-4B"},
+    "timelens-7b": {"repository": "TencentARC/TimeLens-7B"},
     "univtg": {
         "checkpoint": ("https://drive.google.com/drive/folders/1-eGata6ZPV0A1BBsZpYyIooos9yjMx2f?usp=sharing"),
         "variant": "pretrained-clip-b32-4m",
@@ -64,7 +77,9 @@ def asset_paths(root: Path) -> dict[str, Path]:
         "omtg": root / "datasets" / "omtg",
         "tacos": root / "datasets" / "tacos",
         "qvhighlights": root / "datasets" / "qvhighlights",
+        "unitime": root / "checkpoints" / "unitime",
         "timelens2-4b": root / "checkpoints" / "timelens2-4b",
+        "timelens-7b": root / "checkpoints" / "timelens-7b",
         "univtg": root / "checkpoints" / "univtg-pretrained-clip-b32-4m",
     }
 
@@ -189,8 +204,9 @@ def _preflight_dependencies(selected: Sequence[str]) -> None:
         raise RuntimeError("downloads require: pip install -e '.[downloads]'")
     if "univtg" in selected and importlib.util.find_spec("gdown") is None:
         raise RuntimeError("Google Drive downloads require: pip install -e '.[downloads]'")
-    if "timelens2-4b" in selected and importlib.util.find_spec("huggingface_hub") is None:
-        raise RuntimeError("TimeLens2 downloads require: pip install -e '.[downloads]'")
+    hf_targets = {"unitime", "timelens2-4b", "timelens-7b"}
+    if hf_targets.intersection(selected) and importlib.util.find_spec("huggingface_hub") is None:
+        raise RuntimeError("Hugging Face checkpoint downloads require: pip install -e '.[downloads]'")
 
 
 def _complete(destination: Path, source: dict[str, str], **extra: Any) -> dict[str, Any]:
@@ -354,20 +370,39 @@ def _download_tacos(root: Path, destination: Path, hf_token: str | None) -> dict
     return value
 
 
+def _snapshot(repository: str, destination: Path, hf_token: str | None) -> None:
+    from huggingface_hub import snapshot_download
+
+    destination.mkdir(parents=True, exist_ok=True)
+    print(f"download: https://huggingface.co/{repository}\n      -> {destination}")
+    snapshot_download(repo_id=repository, local_dir=destination, token=hf_token)
+
+
+def _download_unitime(_root: Path, destination: Path, hf_token: str | None) -> dict[str, Any]:
+    marker = destination / ".complete.json"
+    if marker.is_file():
+        return json.loads(marker.read_text(encoding="utf-8"))
+    adapter = destination / "adapter"
+    base = destination / "qwen2-vl-7b"
+    _snapshot(SOURCES["unitime"]["adapter_repository"], adapter, hf_token)
+    _snapshot(SOURCES["unitime"]["base_repository"], base, hf_token)
+    return _complete(destination, SOURCES["unitime"], adapter=str(adapter), base=str(base))
+
+
 def _download_timelens2(_root: Path, destination: Path, hf_token: str | None) -> dict[str, Any]:
     marker = destination / ".complete.json"
     if marker.is_file():
         return json.loads(marker.read_text(encoding="utf-8"))
-    from huggingface_hub import snapshot_download
-
-    destination.mkdir(parents=True, exist_ok=True)
-    print(f"download: https://huggingface.co/{SOURCES['timelens2-4b']['repository']}\n      -> {destination}")
-    snapshot_download(
-        repo_id=SOURCES["timelens2-4b"]["repository"],
-        local_dir=destination,
-        token=hf_token,
-    )
+    _snapshot(SOURCES["timelens2-4b"]["repository"], destination, hf_token)
     return _complete(destination, SOURCES["timelens2-4b"])
+
+
+def _download_timelens7(_root: Path, destination: Path, hf_token: str | None) -> dict[str, Any]:
+    marker = destination / ".complete.json"
+    if marker.is_file():
+        return json.loads(marker.read_text(encoding="utf-8"))
+    _snapshot(SOURCES["timelens-7b"]["repository"], destination, hf_token)
+    return _complete(destination, SOURCES["timelens-7b"])
 
 
 def _download_univtg(_root: Path, destination: Path, _hf_token: str | None) -> dict[str, Any]:
@@ -385,7 +420,9 @@ DOWNLOADERS: dict[str, Callable[[Path, Path, str | None], dict[str, Any]]] = {
     "omtg": _download_omtg,
     "tacos": _download_tacos,
     "qvhighlights": _download_qvhighlights,
+    "unitime": _download_unitime,
     "timelens2-4b": _download_timelens2,
+    "timelens-7b": _download_timelens7,
     "univtg": _download_univtg,
 }
 

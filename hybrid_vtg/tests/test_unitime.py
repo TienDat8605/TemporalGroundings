@@ -9,6 +9,7 @@ from hybrid_vtg.methods.unitime_adaptive import UniTimeAdaptive
 from hybrid_vtg.methods.unitime_fixed import UniTimeFixed
 from hybrid_vtg.models.pruning import mage_cell_plan
 from hybrid_vtg.models.qwen import QwenEvidenceBackend, _generation_token_budget
+from hybrid_vtg.models.timelens import TimeLens7EvidenceBackend, _install_mage_qwen25_vision_pruning
 from hybrid_vtg.models.unitime import (
     UniTimeEvidenceBackend,
     _CompactQwen2Mixin,
@@ -78,10 +79,81 @@ def test_qwen2_backends_use_4096_cell_budget_without_requiring_adapter(tmp_path)
     assert backend.adapter_checkpoint is None
 
 
-def test_qwen3_adaptive_capability_does_not_change_its_budget(tmp_path):
+def test_qwen3_uses_shared_4096_cell_budget(tmp_path):
     backend = QwenEvidenceBackend("base", tmp_path, name="qwen3-vl-4b")
     assert "timestamp-interleaved" in backend.capabilities
-    assert backend.maximum_evidence_units is None
+    assert backend.maximum_evidence_units == 4_096
+
+
+def test_timelens7_supports_native_and_adaptive_paths_with_4096_budget(tmp_path):
+    backend = TimeLens7EvidenceBackend("TencentARC/TimeLens-7B", tmp_path)
+    assert backend.maximum_evidence_units == 4_096
+    assert "native-video-grounding" in backend.capabilities
+    assert "timestamp-interleaved" in backend.capabilities
+    assert "unitime-coarse" not in backend.capabilities
+
+    single = Sample("single", "v", Path(__file__), 10.0, "slice the cucumber")
+    multi = Sample("multi", "v", Path(__file__), 10.0, "stir", cardinality="multi")
+    assert "The event happens in <start time> - <end time> seconds" in backend._instruction(single)
+    assert "every separate temporal window" in backend._instruction(multi)
+
+
+def test_qwen25_mage_wrapper_preserves_selected_cell_order():
+    class Block(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.seen = None
+
+        def forward(self, hidden_states, *, cu_seqlens, position_embeddings, **kwargs):
+            self.seen = (hidden_states.shape[0], cu_seqlens.tolist())
+            return hidden_states
+
+    class Merger(torch.nn.Module):
+        def forward(self, hidden_states):
+            return hidden_states.reshape(-1, 4, hidden_states.shape[-1]).mean(1)
+
+    class Visual(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.patch_embed = torch.nn.Identity()
+            self.blocks = torch.nn.ModuleList([Block()])
+            self.merger = Merger()
+            self.fullatt_block_indexes = []
+
+        def rot_pos_emb(self, grid_thw):
+            return torch.zeros((int(grid_thw.prod()), 1))
+
+        def get_window_index(self, grid_thw):
+            del grid_thw
+            return torch.tensor([1, 0, 3, 2]), [0, 8, 16]
+
+        def forward(self, hidden_states, grid_thw, **kwargs):
+            raise AssertionError("dense forward should be replaced")
+
+    class Inner:
+        def __init__(self):
+            self.visual = Visual()
+            self._mage_prune_plan = None
+
+    class Model:
+        def __init__(self):
+            self.model = Inner()
+            vision = type("Vision", (), {"spatial_merge_size": 2})()
+            self.config = type("Config", (), {"vision_config": vision})()
+
+    model = Model()
+    _install_mage_qwen25_vision_pruning(model, 0)
+    model.model._mage_prune_plan = mage_cell_plan(
+        np.array([[[0.0, 1.0]], [[1.0, 0.0]]], dtype=np.float32),
+        merge_size=2,
+        retention_ratio=0.5,
+    )
+    values = torch.arange(32, dtype=torch.float32).reshape(16, 2)
+    output = model.model.visual(values, torch.tensor([[2, 2, 4]]))
+
+    assert output.shape == (2, 2)
+    assert model.model.visual.blocks[0].seen == (8, [0, 4, 8])
+    assert torch.equal(output, torch.stack((values[4:8].mean(0), values[8:12].mean(0))))
 
 
 def test_multi_occurrence_prompts_keep_nearby_events_separate():
