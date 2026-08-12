@@ -20,6 +20,10 @@ No training or fine-tuning is performed. The reusable Qwen backends still suppor
 
 A video with only one window bypasses routing and gives all 64 frames to the grounder.
 
+PySceneDetect results are cached once per video revision and detector policy under `results/cache/methods/coarse-to-fine-64/scenes/`. The cache is shared by all queries, seeds, pruning variants, and reruns. Changing the video file, its recorded duration, or the detector policy produces a new cache entry.
+
+The embedding router uses the same shared-cache principle under `results/cache/methods/coarse-to-fine-64/router/`. Normalized video-window embeddings are keyed by the video revision, routed boundaries, exact sampled timestamps, router model, and embedding-policy version. Query embeddings are cached separately by exact query text. A new query therefore reuses the expensive video embeddings and performs only text encoding plus a local dot product; matched pruning runs normally reuse both sides.
+
 ### Cross-window fusion
 
 Fusion is provenance-aware. Candidates are seeded in descending router-score order. A seed accepts at most one prediction from each other window, and only when temporal IoU is strictly greater than `0.6`. Predictions from the same local window are never fused. Adjacent and non-overlapping spans are not merged.

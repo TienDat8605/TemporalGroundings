@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
@@ -16,6 +18,12 @@ from ...media import extract_frames, uniform_timestamps
 from ...postprocess import temporal_iou
 
 FRAME_BUDGET = 64
+SCENE_CACHE_SCHEMA = 1
+SCENE_POLICY = "content-t27-s4-window20-60-v1"
+ROUTER_CACHE_SCHEMA = 1
+ROUTER_POLICY = "qwen3-vl-embedding-normalized-v1"
+ROUTER_TEXT_PROMPT = "Represent this text for retrieving matching temporal video windows. "
+ROUTER_VIDEO_PROMPT = "Represent this video window for retrieval by a textual event description. "
 
 
 @dataclass(frozen=True)
@@ -204,6 +212,52 @@ def content_windows(video_path: Path, duration: float) -> tuple[list[Window], st
         return uniform_windows(duration), "uniform-fallback"
 
 
+def scene_cache_path(sample: Sample, cache_root: Path) -> Path:
+    """Return a query- and run-independent cache path for one video revision."""
+    path = sample.video_path.resolve()
+    stat = path.stat()
+    identity = {
+        "schema": SCENE_CACHE_SCHEMA,
+        "policy": SCENE_POLICY,
+        "video_path": str(path),
+        "video_size": stat.st_size,
+        "video_mtime_ns": stat.st_mtime_ns,
+        "duration": round(sample.duration, 6),
+    }
+    digest = hashlib.sha256(json.dumps(identity, sort_keys=True).encode("utf-8")).hexdigest()
+    return cache_root / "scenes" / f"{digest}.json"
+
+
+def cached_content_windows(sample: Sample, cache_root: Path) -> tuple[list[Window], str]:
+    cache_path = scene_cache_path(sample, cache_root)
+    if cache_path.is_file():
+        try:
+            value = json.loads(cache_path.read_text(encoding="utf-8"))
+            if value.get("schema") != SCENE_CACHE_SCHEMA or value.get("policy") != SCENE_POLICY:
+                raise ValueError("stale scene-window cache policy")
+            windows = [Window(float(item["start"]), float(item["end"])) for item in value["windows"]]
+            if not windows or any(window.start < 0 or window.end <= window.start for window in windows):
+                raise ValueError("invalid cached scene windows")
+            return windows, str(value["source"])
+        except (json.JSONDecodeError, KeyError, OSError, TypeError, ValueError):
+            pass
+
+    windows, source = content_windows(sample.video_path, sample.duration)
+    payload = {
+        "schema": SCENE_CACHE_SCHEMA,
+        "policy": SCENE_POLICY,
+        "video_path": str(sample.video_path.resolve()),
+        "duration": sample.duration,
+        "source": source,
+        "windows": [{"start": value.start, "end": value.end} for value in windows],
+    }
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = cache_path.with_suffix(f".{os.getpid()}.tmp")
+    temporary.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
+    temporary.replace(cache_path)
+    return windows, source
+
+
 def retained_window_count(count: int) -> int:
     return min(count, min(8, max(2, math.ceil(math.sqrt(count))))) if count else 0
 
@@ -250,6 +304,7 @@ class EmbeddingRouter:
     def __init__(self, model_id: str = "Qwen/Qwen3-VL-Embedding-2B") -> None:
         self.model_id = model_id
         self._model: Any = None
+        self.last_telemetry: dict[str, Any] = {}
 
     def _load(self) -> Any:
         if self._model is None:
@@ -262,35 +317,157 @@ class EmbeddingRouter:
                 raise RuntimeError(f"embedding model does not support video input: {self.model_id}")
         return self._model
 
+    @staticmethod
+    def _array(value: Any) -> np.ndarray:
+        if hasattr(value, "detach"):
+            value = value.detach().cpu().float().numpy()
+        return np.asarray(value, dtype=np.float32)
+
+    @staticmethod
+    def _read_cache(path: Path, *, rows: int | None = None) -> np.ndarray | None:
+        try:
+            with np.load(path, allow_pickle=False) as cached:
+                value = np.asarray(cached["embeddings"], dtype=np.float32)
+            if value.ndim != 2 or value.shape[1] == 0 or (rows is not None and value.shape[0] != rows):
+                raise ValueError("invalid embedding shape")
+            if not np.isfinite(value).all():
+                raise ValueError("non-finite cached embedding")
+            return value
+        except (FileNotFoundError, KeyError, OSError, ValueError):
+            return None
+
+    @staticmethod
+    def _write_cache(path: Path, embeddings: np.ndarray) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_suffix(f".{os.getpid()}.tmp.npz")
+        np.savez_compressed(temporary, embeddings=embeddings)
+        temporary.replace(path)
+
+    def _query_cache_path(self, query: str, cache_root: Path) -> Path:
+        identity = {
+            "schema": ROUTER_CACHE_SCHEMA,
+            "policy": ROUTER_POLICY,
+            "model_id": self.model_id,
+            "prompt": ROUTER_TEXT_PROMPT,
+            "query": query,
+        }
+        digest = hashlib.sha256(json.dumps(identity, sort_keys=True).encode("utf-8")).hexdigest()
+        return cache_root / "router" / "queries" / f"{digest}.npz"
+
+    def _video_cache_path(
+        self,
+        sample: Sample,
+        windows: Sequence[Window],
+        frames_per_window: int,
+        cache_root: Path,
+    ) -> tuple[Path, list[tuple[float, ...]]]:
+        path = sample.video_path.resolve()
+        stat = path.stat()
+        timestamps = [
+            uniform_timestamps(window.start, window.end, frames_per_window) for window in windows
+        ]
+        identity = {
+            "schema": ROUTER_CACHE_SCHEMA,
+            "policy": ROUTER_POLICY,
+            "model_id": self.model_id,
+            "prompt": ROUTER_VIDEO_PROMPT,
+            "video_path": str(path),
+            "video_size": stat.st_size,
+            "video_mtime_ns": stat.st_mtime_ns,
+            "duration": round(sample.duration, 6),
+            "frames_per_window": frames_per_window,
+            "windows": [
+                {
+                    "start": round(window.start, 6),
+                    "end": round(window.end, 6),
+                    "timestamps": [round(value, 6) for value in values],
+                }
+                for window, values in zip(windows, timestamps)
+            ],
+        }
+        digest = hashlib.sha256(json.dumps(identity, sort_keys=True).encode("utf-8")).hexdigest()
+        return cache_root / "router" / "videos" / f"{digest}.npz", timestamps
+
     def rank(
         self,
         sample: Sample,
         windows: Sequence[Window],
         frames_per_window: int,
-        cache_dir: Path,
+        cache_root: Path,
     ) -> list[float]:
-        model = self._load()
-        query = model.encode(
-            [sample.query],
-            prompt="Represent this text for retrieving matching temporal video windows. ",
-            convert_to_tensor=True,
-            normalize_embeddings=True,
-            show_progress_bar=False,
-        )[0]
-        videos = []
-        for index, window in enumerate(windows):
-            timestamps = uniform_timestamps(window.start, window.end, frames_per_window)
-            frames = extract_frames(sample.video_path, timestamps, cache_dir / f"router-{index}")
-            videos.append({"video": [str(path) for path in frames]})
-        embeddings = model.encode(
-            videos,
-            prompt="Represent this video window for retrieval by a textual event description. ",
-            batch_size=1,
-            convert_to_tensor=True,
-            normalize_embeddings=True,
-            show_progress_bar=False,
+        query_path = self._query_cache_path(sample.query, cache_root)
+        video_path, timestamps = self._video_cache_path(
+            sample,
+            windows,
+            frames_per_window,
+            cache_root,
         )
-        return [float(value) for value in (embeddings.float() @ query.float()).tolist()]
+        query_matrix = self._read_cache(query_path, rows=1)
+        video_embeddings = self._read_cache(video_path, rows=len(windows))
+        query_hit = query_matrix is not None
+        video_hit = video_embeddings is not None
+        if (
+            query_matrix is not None
+            and video_embeddings is not None
+            and query_matrix.shape[1] != video_embeddings.shape[1]
+        ):
+            query_matrix = None
+            video_embeddings = None
+            query_hit = video_hit = False
+
+        model = None
+        if query_matrix is None:
+            model = self._load()
+            query_matrix = self._array(
+                model.encode(
+                    [sample.query],
+                    prompt=ROUTER_TEXT_PROMPT,
+                    convert_to_tensor=True,
+                    normalize_embeddings=True,
+                    show_progress_bar=False,
+                )
+            )
+            if query_matrix.ndim != 2 or query_matrix.shape[0] != 1 or query_matrix.shape[1] == 0:
+                raise RuntimeError(f"router returned invalid query embeddings: {query_matrix.shape}")
+            self._write_cache(query_path, query_matrix)
+        if video_embeddings is None:
+            if model is None:
+                model = self._load()
+            videos = []
+            frame_root = cache_root / "router" / "frames" / video_path.stem
+            for index, values in enumerate(timestamps):
+                frames = extract_frames(sample.video_path, values, frame_root / f"window-{index}")
+                videos.append({"video": [str(path) for path in frames]})
+            video_embeddings = self._array(
+                model.encode(
+                    videos,
+                    prompt=ROUTER_VIDEO_PROMPT,
+                    batch_size=1,
+                    convert_to_tensor=True,
+                    normalize_embeddings=True,
+                    show_progress_bar=False,
+                )
+            )
+            if (
+                video_embeddings.ndim != 2
+                or video_embeddings.shape[0] != len(windows)
+                or video_embeddings.shape[1] == 0
+            ):
+                raise RuntimeError(f"router returned invalid video embeddings: {video_embeddings.shape}")
+            self._write_cache(video_path, video_embeddings)
+        if query_matrix.shape != (1, video_embeddings.shape[1]):
+            raise RuntimeError(
+                f"router embedding dimensions differ: query {query_matrix.shape}, video {video_embeddings.shape}"
+            )
+        self.last_telemetry = {
+            "query_embedding_cache_hit": query_hit,
+            "video_embedding_cache_hit": video_hit,
+            "query_embedding_cache": str(query_path),
+            "video_embedding_cache": str(video_path),
+            "embedding_model": self.model_id,
+            "embedding_policy": ROUTER_POLICY,
+        }
+        return [float(value) for value in (video_embeddings @ query_matrix[0]).tolist()]
 
 
 class CoarseToFine64(Method):
@@ -301,38 +478,23 @@ class CoarseToFine64(Method):
         self._prepare_root: Path | None = None
 
     def prepare(self, samples: Sequence[Sample], cache_root: Path) -> None:
-        """Run PySceneDetect once for every pending sample, before the GPU model loads.
+        """Run PySceneDetect once per unique video revision before model loading.
 
         Scene detection is CPU-only and independent of the query, so it is done in one
-        batch pass up front. Results are cached on disk so a resumed run reuses them.
+        batch pass up front. The shared, video-keyed cache is reused across queries,
+        seeds, model/pruning variants, reruns, and separate method instances.
         """
         self._prepare_root = cache_root
-        cache_root.mkdir(parents=True, exist_ok=True)
+        prepared: set[Path] = set()
         for sample in samples:
-            cache_path = cache_root / f"{sample.id}.json"
-            if cache_path.is_file():
+            cache_path = scene_cache_path(sample, cache_root)
+            if cache_path in prepared:
                 continue
-            windows, source = content_windows(sample.video_path, sample.duration)
-            cache_path.write_text(
-                json.dumps(
-                    {
-                        "source": source,
-                        "windows": [{"start": value.start, "end": value.end} for value in windows],
-                    }
-                ),
-                encoding="utf-8",
-            )
+            cached_content_windows(sample, cache_root)
+            prepared.add(cache_path)
 
     def _cached_windows(self, sample: Sample, cache_dir: Path) -> tuple[list[Window], str]:
-        cache_path = self._prepare_root / f"{sample.id}.json" if self._prepare_root else None
-        if cache_path is None or not cache_path.is_file():
-            cache_path = cache_dir / f"{sample.id}.json"
-        if cache_path.is_file():
-            value = json.loads(cache_path.read_text(encoding="utf-8"))
-            windows = [Window(float(item["start"]), float(item["end"])) for item in value["windows"]]
-            return windows, str(value["source"])
-        windows, source = content_windows(sample.video_path, sample.duration)
-        return windows, source
+        return cached_content_windows(sample, self._prepare_root or cache_dir)
 
     def run(self, sample: Sample, model: ModelBackend, cache_dir: Path) -> Prediction:
         self.validate_model(model)
@@ -398,7 +560,7 @@ class CoarseToFine64(Method):
             sample,
             routed,
             policy["router_frames_per_window"],
-            cache_dir / "router",
+            self._prepare_root or cache_dir,
         )
         router_seconds = perf_counter() - router_started
         selected = sorted(range(len(routed)), key=lambda index: (-scores[index], index))[: policy["selected_windows"]]
@@ -525,6 +687,7 @@ class CoarseToFine64(Method):
                 "allocations": allocations,
                 **policy,
                 "router_seconds": router_seconds,
+                "router_cache": dict(getattr(self.router, "last_telemetry", {})),
                 "grounder_frames": sum(allocations),
                 "total_frames": total,
                 "window_telemetry": window_telemetry,

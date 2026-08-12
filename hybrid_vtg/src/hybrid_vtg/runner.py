@@ -280,7 +280,7 @@ def run_benchmark(
         method = METHODS.create(method_name)
         # Batch CPU-only preprocessing (e.g. scene detection) runs before the model
         # backend is loaded, so it never competes with GPU memory.
-        method.prepare(pending, run_dir / "prepare")
+        method.prepare(pending, results_root / "cache" / "methods" / method_name)
         model_options = dict(
             cache_dir=results_root / "cache",
             checkpoint=checkpoint,

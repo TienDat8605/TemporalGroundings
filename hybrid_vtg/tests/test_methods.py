@@ -20,6 +20,7 @@ from hybrid_vtg.methods.coarse_to_fine_64 import (
     content_windows,
     distribute_frames,
     fuse_cross_window_spans,
+    scene_cache_path,
     strict_budget,
     uniform_windows,
 )
@@ -57,7 +58,7 @@ def test_coarse_to_fine_requests_headless_opencv_scene_backend(monkeypatch):
     assert policy == "uniform-fallback"
 
 
-def test_coarse_to_fine_prepare_caches_windows_for_all_samples(monkeypatch, tmp_path):
+def test_coarse_to_fine_prepare_shares_scene_cache_by_video(monkeypatch, tmp_path):
     import json
 
     calls = []
@@ -71,27 +72,42 @@ def test_coarse_to_fine_prepare_caches_windows_for_all_samples(monkeypatch, tmp_
         fake_content_windows,
     )
     method = CoarseToFine64()
+    video_a = tmp_path / "va.mp4"
+    video_b = tmp_path / "vb.mp4"
+    video_a.touch()
+    video_b.touch()
     samples = [
-        Sample("a", "va", tmp_path / "va.mp4", 20.0, "q a"),
-        Sample("b", "vb", tmp_path / "vb.mp4", 30.0, "q b"),
+        Sample("a1", "va", video_a, 20.0, "q a1"),
+        Sample("a2", "va", video_a, 20.0, "q a2"),
+        Sample("b", "vb", video_b, 30.0, "q b"),
     ]
-    cache_root = tmp_path / "prepare"
+    cache_root = tmp_path / "shared-cache"
     method.prepare(samples, cache_root)
 
     assert len(calls) == 2
-    assert (cache_root / "a.json").is_file()
-    assert (cache_root / "b.json").is_file()
-    value = json.loads((cache_root / "a.json").read_text())
+    cache_a = scene_cache_path(samples[0], cache_root)
+    cache_b = scene_cache_path(samples[2], cache_root)
+    assert cache_a.is_file() and cache_b.is_file() and cache_a != cache_b
+    assert scene_cache_path(samples[1], cache_root) == cache_a
+    value = json.loads(cache_a.read_text())
     assert value["source"] == "content"
     assert value["windows"] == [{"start": 0.0, "end": 20.0}]
 
+    # A separate run/method instance reuses the shared video cache.
     calls.clear()
-    method.prepare(samples, cache_root)
+    CoarseToFine64().prepare(samples, cache_root)
     assert calls == []
+
+    # Duration is part of the identity because it affects window construction.
+    changed_duration = Sample("a3", "va", video_a, 21.0, "q a3")
+    CoarseToFine64().prepare([changed_duration], cache_root)
+    assert calls == [(video_a, 21.0)]
+    assert scene_cache_path(changed_duration, cache_root) != cache_a
 
 
 def test_coarse_to_fine_router_uses_sentence_transformer_encode(monkeypatch, tmp_path):
     calls = []
+    extract_calls = []
 
     class FakeEmbeddingModel:
         def encode(self, values, **kwargs):
@@ -100,19 +116,57 @@ def test_coarse_to_fine_router_uses_sentence_transformer_encode(monkeypatch, tmp
                 return torch.tensor([[1.0, 0.0]])
             return torch.tensor([[0.5, 0.5], [1.0, 0.0]])
 
-    monkeypatch.setattr(
-        "hybrid_vtg.methods.coarse_to_fine_64.extract_frames",
-        lambda video, timestamps, destination: [destination / f"{index}.jpg" for index, _ in enumerate(timestamps)],
-    )
+    def fake_extract(video, timestamps, destination):
+        extract_calls.append((video, timestamps, destination))
+        return [destination / f"{index}.jpg" for index, _ in enumerate(timestamps)]
+
+    monkeypatch.setattr("hybrid_vtg.methods.coarse_to_fine_64.extract_frames", fake_extract)
     router = EmbeddingRouter()
     router._model = FakeEmbeddingModel()
-    sample = Sample("1", "video", tmp_path / "video.mp4", 20.0, "open the door")
+    video = tmp_path / "video.mp4"
+    video.touch()
+    sample = Sample("1", "video", video, 20.0, "open the door")
     scores = router.rank(sample, [Window(0.0, 10.0), Window(10.0, 20.0)], 2, tmp_path)
 
     assert scores == [0.5, 1.0]
     assert calls[0][0] == ["open the door"]
     assert [list(value) for value in calls[1][0]] == [["video"], ["video"]]
     assert all(call[1]["normalize_embeddings"] for call in calls)
+    assert len(extract_calls) == 2
+    assert router.last_telemetry["query_embedding_cache_hit"] is False
+    assert router.last_telemetry["video_embedding_cache_hit"] is False
+
+    # A fresh router process can rank the same query without loading the model.
+    cached_router = EmbeddingRouter()
+    cached_router._model = FakeEmbeddingModel()
+    assert cached_router.rank(sample, [Window(0.0, 10.0), Window(10.0, 20.0)], 2, tmp_path) == scores
+    assert len(calls) == 2
+    assert len(extract_calls) == 2
+    assert cached_router.last_telemetry["query_embedding_cache_hit"] is True
+    assert cached_router.last_telemetry["video_embedding_cache_hit"] is True
+
+    # A new query encodes only its text and reuses the expensive video embeddings.
+    other_query = Sample("2", "video", video, 20.0, "close the door")
+    cached_router.rank(other_query, [Window(0.0, 10.0), Window(10.0, 20.0)], 2, tmp_path)
+    assert len(calls) == 3 and calls[-1][0] == ["close the door"]
+    assert len(extract_calls) == 2
+    assert cached_router.last_telemetry["query_embedding_cache_hit"] is False
+    assert cached_router.last_telemetry["video_embedding_cache_hit"] is True
+
+    # Sampling-policy changes invalidate only the video side of the cache.
+    cached_router.rank(other_query, [Window(0.0, 10.0), Window(10.0, 20.0)], 4, tmp_path)
+    assert len(calls) == 4 and not isinstance(calls[-1][0][0], str)
+    assert len(extract_calls) == 4
+    assert cached_router.last_telemetry["query_embedding_cache_hit"] is True
+    assert cached_router.last_telemetry["video_embedding_cache_hit"] is False
+
+    # A corrupt entry is ignored and replaced atomically.
+    video_cache = Path(cached_router.last_telemetry["video_embedding_cache"])
+    video_cache.write_bytes(b"not an npz")
+    cached_router.rank(other_query, [Window(0.0, 10.0), Window(10.0, 20.0)], 4, tmp_path)
+    assert len(calls) == 5 and not isinstance(calls[-1][0][0], str)
+    assert cached_router.last_telemetry["query_embedding_cache_hit"] is True
+    assert cached_router.last_telemetry["video_embedding_cache_hit"] is False
 
 
 def test_cross_window_fusion_preserves_same_window_and_adjacent_occurrences():
