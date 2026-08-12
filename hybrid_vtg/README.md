@@ -131,6 +131,25 @@ hybrid-vtg download tacos unitime timelens2-4b timelens-7b \
 Start with a reproducible 10% subset; change `--subset 10` to `--subset 100`
 for the full 4,001-query TACoS test split.
 
+To run the complete nine-run 10% matrix in a detached tmux session, use:
+
+```bash
+scripts/run_tacos_tmux.sh
+tmux attach -t tacos-vtg-10
+```
+
+The detached worker changes to the repository root and activates `.venv`
+itself, so it keeps the correct environment after SSH disconnects. It runs the
+three original/native controls, three adaptive top-k=4 experiments, and three
+adaptive + Mage (50%) + SemVID (12.5%) experiments sequentially on GPU 0.
+Matching partial benchmark outputs resume normally; one failed run is logged
+without stopping the remaining matrix. Logs are written under
+`results/logs/tacos-matrix/`. Override defaults with environment variables:
+
+```bash
+TACOS_GPU=1 TACOS_TMUX_SESSION=tacos-gpu1 scripts/run_tacos_tmux.sh
+```
+
 ### Dense fixed-budget controls
 
 ```bash
