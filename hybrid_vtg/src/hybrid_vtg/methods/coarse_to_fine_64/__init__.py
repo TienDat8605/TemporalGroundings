@@ -21,7 +21,7 @@ FRAME_BUDGET = 64
 SCENE_CACHE_SCHEMA = 1
 SCENE_POLICY = "content-t27-s4-window20-60-v1"
 ROUTER_CACHE_SCHEMA = 1
-ROUTER_POLICY = "qwen3-vl-embedding-normalized-v1"
+ROUTER_POLICY = "qwen3-vl-embedding-normalized-presampled-v2"
 ROUTER_TEXT_PROMPT = "Represent this text for retrieving matching temporal video windows. "
 ROUTER_VIDEO_PROMPT = "Represent this video window for retrieval by a textual event description. "
 
@@ -446,6 +446,7 @@ class EmbeddingRouter:
                     convert_to_tensor=True,
                     normalize_embeddings=True,
                     show_progress_bar=False,
+                    do_sample_frames=False,
                 )
             )
             if (

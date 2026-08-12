@@ -22,7 +22,7 @@ A video with only one window bypasses routing and gives all 64 frames to the gro
 
 PySceneDetect results are cached once per video revision and detector policy under `results/cache/methods/coarse-to-fine-64/scenes/`. The cache is shared by all queries, seeds, pruning variants, and reruns. Changing the video file, its recorded duration, or the detector policy produces a new cache entry.
 
-The embedding router uses the same shared-cache principle under `results/cache/methods/coarse-to-fine-64/router/`. Normalized video-window embeddings are keyed by the video revision, routed boundaries, exact sampled timestamps, router model, and embedding-policy version. Query embeddings are cached separately by exact query text. A new query therefore reuses the expensive video embeddings and performs only text encoding plus a local dot product; matched pruning runs normally reuse both sides.
+The embedding router uses the same shared-cache principle under `results/cache/methods/coarse-to-fine-64/router/`. Normalized video-window embeddings are keyed by the video revision, routed boundaries, exact sampled timestamps, router model, and embedding-policy version. The router passes pre-decoded JPEG lists with processor-side frame sampling disabled, preserving the method's exact frame budget. Query embeddings are cached separately by exact query text. A new query therefore reuses the expensive video embeddings and performs only text encoding plus a local dot product; matched pruning runs normally reuse both sides.
 
 ### Cross-window fusion
 
