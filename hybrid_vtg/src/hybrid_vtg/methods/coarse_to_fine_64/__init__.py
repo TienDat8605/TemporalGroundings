@@ -20,10 +20,22 @@ from ...postprocess import temporal_iou
 FRAME_BUDGET = 64
 SCENE_CACHE_SCHEMA = 1
 SCENE_POLICY = "content-t27-s4-window20-60-v1"
-ROUTER_CACHE_SCHEMA = 1
-ROUTER_POLICY = "qwen3-vl-embedding-normalized-presampled-v3"
-ROUTER_TEXT_PROMPT = "Represent this text for retrieving matching temporal video windows. "
-ROUTER_VIDEO_PROMPT = "Represent this video window for retrieval by a textual event description. "
+ROUTER_CACHE_SCHEMA = 2
+ROUTER_MODEL_ID = "Qwen/Qwen3-VL-Embedding-2B"
+ROUTER_MODEL_REVISION = "474c9fab0f34eb0be9c8a3ae2317efd9e42d71c9"
+ROUTER_POLICY = "qwen3-vl-embedding-window-frame-occurrence-v4"
+ROUTER_TEXT_INSTRUCTION = (
+    "Retrieve every video segment where the described event is visibly occurring. "
+    "Focus on the action, actors, objects, and scene context, including brief occurrences"
+)
+ROUTER_VIDEO_INSTRUCTION = (
+    "Represent the visible actions, actors, objects, and scene context in this video segment "
+    "for event retrieval, preserving brief occurrences"
+)
+ROUTER_WINDOW_WEIGHT = 0.5
+ROUTER_FRAME_MAX_WEIGHT = 0.7
+ROUTER_DIVERSITY_WEIGHT = 0.15
+ROUTER_EMBED_BATCH_SIZE = 4
 
 
 @dataclass(frozen=True)
@@ -300,22 +312,149 @@ def distribute_frames(total: int, count: int) -> list[int]:
     return [(units + int(index < remainder)) * 2 for index in range(count)]
 
 
+def select_temporally_diverse_windows(
+    windows: Sequence[Window],
+    scores: Sequence[float],
+    count: int,
+    *,
+    diversity_weight: float = ROUTER_DIVERSITY_WEIGHT,
+) -> tuple[list[int], list[dict[str, float | int]]]:
+    """Select high-relevance windows while mildly penalizing temporal redundancy."""
+    if len(windows) != len(scores):
+        raise ValueError("windows and scores must have equal length")
+    if not 0.0 <= diversity_weight < 1.0:
+        raise ValueError("diversity_weight must be in [0, 1)")
+    count = min(max(0, count), len(windows))
+    if not count:
+        return [], []
+
+    values = np.asarray(scores, dtype=np.float64)
+    low, high = float(values.min()), float(values.max())
+    relevance = np.ones_like(values) if high == low else (values - low) / (high - low)
+    centers = np.asarray([(window.start + window.end) / 2.0 for window in windows])
+    distance_scale = max(1.0, 2.0 * float(np.median([window.duration for window in windows])))
+    remaining = set(range(len(windows)))
+    selected: list[int] = []
+    trace: list[dict[str, float | int]] = []
+
+    while remaining and len(selected) < count:
+        ranked: list[tuple[float, float, int, float]] = []
+        for index in remaining:
+            if selected:
+                diversity = min(
+                    1.0,
+                    min(abs(centers[index] - centers[other]) for other in selected)
+                    / distance_scale,
+                )
+                objective = (
+                    (1.0 - diversity_weight) * float(relevance[index])
+                    + diversity_weight * diversity
+                )
+            else:
+                diversity = 1.0
+                objective = float(relevance[index])
+            ranked.append((objective, float(values[index]), -index, diversity))
+        objective, _, neg_index, diversity = max(ranked)
+        index = -neg_index
+        selected.append(index)
+        remaining.remove(index)
+        trace.append(
+            {
+                "selection_order": len(selected) - 1,
+                "window_index": index,
+                "router_score": float(values[index]),
+                "normalized_relevance": float(relevance[index]),
+                "temporal_diversity": float(diversity),
+                "selection_objective": float(objective),
+            }
+        )
+    return selected, trace
+
+
+def _covered_duration(windows: Sequence[Window]) -> float:
+    covered = 0.0
+    end = 0.0
+    for window in sorted(windows, key=lambda value: (value.start, value.end)):
+        if window.end <= end:
+            continue
+        covered += window.end - max(window.start, end)
+        end = window.end
+    return covered
+
+
 class EmbeddingRouter:
-    def __init__(self, model_id: str = "Qwen/Qwen3-VL-Embedding-2B") -> None:
+    def __init__(
+        self,
+        model_id: str = ROUTER_MODEL_ID,
+        revision: str | None = None,
+    ) -> None:
         self.model_id = model_id
+        self.revision = (
+            ROUTER_MODEL_REVISION if revision is None and model_id == ROUTER_MODEL_ID else revision
+        )
         self._model: Any = None
+        self._processor: Any = None
+        self._loading_info: dict[str, Any] = {}
         self.last_telemetry: dict[str, Any] = {}
 
     def _load(self) -> Any:
         if self._model is None:
-            from sentence_transformers import SentenceTransformer
+            from transformers import AutoModel, AutoProcessor
 
             # Run on CPU: the 4B grounder stays resident on the GPU for the whole run, so
             # the 2B router must not compete with it for GPU memory (otherwise OOM).
-            self._model = SentenceTransformer(self.model_id, device="cpu")
-            if not self._model.supports("video"):
-                raise RuntimeError(f"embedding model does not support video input: {self.model_id}")
+            source_options = {
+                "revision": self.revision,
+                "trust_remote_code": True,
+            }
+            self._processor = AutoProcessor.from_pretrained(self.model_id, **source_options)
+            loaded = AutoModel.from_pretrained(
+                self.model_id,
+                **source_options,
+                device_map="cpu",
+                torch_dtype="auto",
+                low_cpu_mem_usage=True,
+                output_loading_info=True,
+            )
+            self._model, self._loading_info = loaded
+            missing = self._loading_info.get("missing_keys", [])
+            mismatched = self._loading_info.get("mismatched_keys", [])
+            errors = self._loading_info.get("error_msgs", [])
+            if missing or mismatched or errors:
+                self._model = None
+                raise RuntimeError(
+                    "router checkpoint did not load completely; refusing randomly initialized "
+                    f"weights (missing={len(missing)}, mismatched={len(mismatched)}, "
+                    f"errors={len(errors)})"
+                )
+            if not hasattr(self._model, "encode") or not hasattr(
+                self._processor, "prepare_for_embedding"
+            ):
+                self._model = None
+                raise RuntimeError(
+                    "router must load the embedding-specific Qwen3-VL implementation"
+                )
+            self._model.eval()
         return self._model
+
+    def _encode(self, inputs: list[dict[str, Any]]) -> np.ndarray:
+        model = self._load()
+        return self._array(
+            model.encode(
+                inputs,
+                processor=self._processor,
+                normalize=True,
+                return_tensor=True,
+                device="cpu",
+            )
+        )
+
+    def _encode_batched(self, inputs: list[dict[str, Any]]) -> np.ndarray:
+        batches = [
+            self._encode(inputs[start : start + ROUTER_EMBED_BATCH_SIZE])
+            for start in range(0, len(inputs), ROUTER_EMBED_BATCH_SIZE)
+        ]
+        return np.concatenate(batches, axis=0)
 
     @staticmethod
     def _array(value: Any) -> np.ndarray:
@@ -348,7 +487,8 @@ class EmbeddingRouter:
             "schema": ROUTER_CACHE_SCHEMA,
             "policy": ROUTER_POLICY,
             "model_id": self.model_id,
-            "prompt": ROUTER_TEXT_PROMPT,
+            "revision": self.revision,
+            "instruction": ROUTER_TEXT_INSTRUCTION,
             "query": query,
         }
         digest = hashlib.sha256(json.dumps(identity, sort_keys=True).encode("utf-8")).hexdigest()
@@ -370,7 +510,8 @@ class EmbeddingRouter:
             "schema": ROUTER_CACHE_SCHEMA,
             "policy": ROUTER_POLICY,
             "model_id": self.model_id,
-            "prompt": ROUTER_VIDEO_PROMPT,
+            "revision": self.revision,
+            "instruction": ROUTER_VIDEO_INSTRUCTION,
             "video_path": str(path),
             "video_size": stat.st_size,
             "video_mtime_ns": stat.st_mtime_ns,
@@ -403,7 +544,8 @@ class EmbeddingRouter:
             cache_root,
         )
         query_matrix = self._read_cache(query_path, rows=1)
-        video_embeddings = self._read_cache(video_path, rows=len(windows))
+        expected_video_rows = len(windows) * (frames_per_window + 1)
+        video_embeddings = self._read_cache(video_path, rows=expected_video_rows)
         query_hit = query_matrix is not None
         video_hit = video_embeddings is not None
         if (
@@ -415,43 +557,37 @@ class EmbeddingRouter:
             video_embeddings = None
             query_hit = video_hit = False
 
-        model = None
         if query_matrix is None:
-            model = self._load()
-            query_matrix = self._array(
-                model.encode(
-                    [sample.query],
-                    prompt=ROUTER_TEXT_PROMPT,
-                    convert_to_tensor=True,
-                    normalize_embeddings=True,
-                    show_progress_bar=False,
-                )
+            query_matrix = self._encode(
+                [{"text": sample.query, "instruction": ROUTER_TEXT_INSTRUCTION}]
             )
             if query_matrix.ndim != 2 or query_matrix.shape[0] != 1 or query_matrix.shape[1] == 0:
                 raise RuntimeError(f"router returned invalid query embeddings: {query_matrix.shape}")
             self._write_cache(query_path, query_matrix)
         if video_embeddings is None:
-            if model is None:
-                model = self._load()
-            videos = []
+            inputs: list[dict[str, Any]] = []
+            frame_inputs: list[dict[str, Any]] = []
             frame_root = cache_root / "router" / "frames" / video_path.stem
             for index, values in enumerate(timestamps):
                 frames = extract_frames(sample.video_path, values, frame_root / f"window-{index}")
-                videos.append({"video": [str(path) for path in frames]})
-            video_embeddings = self._array(
-                model.encode(
-                    videos,
-                    prompt=ROUTER_VIDEO_PROMPT,
-                    batch_size=1,
-                    convert_to_tensor=True,
-                    normalize_embeddings=True,
-                    show_progress_bar=False,
-                    processing_kwargs={"video": {"do_sample_frames": False}},
+                paths = [str(path) for path in frames]
+                inputs.append(
+                    {
+                        "video": paths,
+                        "num_frames": len(paths),
+                        "max_frames": len(paths),
+                        "instruction": ROUTER_VIDEO_INSTRUCTION,
+                    }
                 )
-            )
+                frame_inputs.extend(
+                    {"image": path, "instruction": ROUTER_VIDEO_INSTRUCTION} for path in paths
+                )
+            window_embeddings = self._encode_batched(inputs)
+            frame_embeddings = self._encode_batched(frame_inputs)
+            video_embeddings = np.concatenate((window_embeddings, frame_embeddings), axis=0)
             if (
                 video_embeddings.ndim != 2
-                or video_embeddings.shape[0] != len(windows)
+                or video_embeddings.shape[0] != expected_video_rows
                 or video_embeddings.shape[1] == 0
             ):
                 raise RuntimeError(f"router returned invalid video embeddings: {video_embeddings.shape}")
@@ -460,15 +596,43 @@ class EmbeddingRouter:
             raise RuntimeError(
                 f"router embedding dimensions differ: query {query_matrix.shape}, video {video_embeddings.shape}"
             )
+        window_embeddings = video_embeddings[: len(windows)]
+        frame_embeddings = video_embeddings[len(windows) :]
+        window_scores = window_embeddings @ query_matrix[0]
+        frame_scores = frame_embeddings @ query_matrix[0]
+        occurrence_scores: list[float] = []
+        for index in range(len(windows)):
+            values = np.sort(
+                frame_scores[index * frames_per_window : (index + 1) * frames_per_window]
+            )[::-1]
+            top_two_mean = float(values[: min(2, len(values))].mean())
+            occurrence_scores.append(
+                ROUTER_FRAME_MAX_WEIGHT * float(values[0])
+                + (1.0 - ROUTER_FRAME_MAX_WEIGHT) * top_two_mean
+            )
+        scores = [
+            ROUTER_WINDOW_WEIGHT * float(window_score)
+            + (1.0 - ROUTER_WINDOW_WEIGHT) * occurrence_score
+            for window_score, occurrence_score in zip(window_scores, occurrence_scores)
+        ]
         self.last_telemetry = {
             "query_embedding_cache_hit": query_hit,
             "video_embedding_cache_hit": video_hit,
             "query_embedding_cache": str(query_path),
             "video_embedding_cache": str(video_path),
             "embedding_model": self.model_id,
+            "embedding_revision": self.revision,
             "embedding_policy": ROUTER_POLICY,
+            "loader": "transformers-auto-embedding-specific",
+            "window_similarity": [float(value) for value in window_scores],
+            "frame_occurrence_similarity": occurrence_scores,
+            "score_formula": {
+                "window_weight": ROUTER_WINDOW_WEIGHT,
+                "frame_max_weight": ROUTER_FRAME_MAX_WEIGHT,
+                "frame_top_k": 2,
+            },
         }
-        return [float(value) for value in (video_embeddings @ query_matrix[0]).tolist()]
+        return scores
 
 
 class CoarseToFine64(Method):
@@ -564,15 +728,40 @@ class CoarseToFine64(Method):
             self._prepare_root or cache_dir,
         )
         router_seconds = perf_counter() - router_started
-        selected = sorted(range(len(routed)), key=lambda index: (-scores[index], index))[: policy["selected_windows"]]
+        baseline_selected = sorted(
+            range(len(routed)), key=lambda index: (-scores[index], index)
+        )[: policy["selected_windows"]]
+        selected, selection_trace = select_temporally_diverse_windows(
+            routed,
+            scores,
+            policy["selected_windows"],
+        )
         allocations = distribute_frames(policy["local_budget"], len(selected))
+        ranking = sorted(range(len(routed)), key=lambda index: (-scores[index], index))
+        unselected = set(range(len(routed))) - set(selected)
+        selection_margin = (
+            min(scores[index] for index in selected)
+            - max(scores[index] for index in unselected)
+            if unselected
+            else None
+        )
+        selected_centers = [(routed[index].start + routed[index].end) / 2.0 for index in selected]
+        selection_by_window = {value["window_index"]: value for value in selection_trace}
+        router_details = dict(getattr(self.router, "last_telemetry", {}))
+        window_similarity = router_details.get("window_similarity", [None] * len(routed))
+        occurrence_similarity = router_details.get(
+            "frame_occurrence_similarity", [None] * len(routed)
+        )
         predictions: list[tuple[int, Prediction]] = []
         window_telemetry: list[dict[str, Any]] = [
             {
                 "window_index": index,
                 "window": {"start": window.start, "end": window.end},
                 "router_score": scores[index],
+                "router_window_similarity": window_similarity[index],
+                "router_frame_occurrence_similarity": occurrence_similarity[index],
                 "selected": False,
+                "selection": selection_by_window.get(index),
                 "allocated_frames": 0,
                 "encoder_dense_tokens": None,
                 "encoder_retained_tokens": None,
@@ -685,10 +874,28 @@ class CoarseToFine64(Method):
                 "windows": [{"start": value.start, "end": value.end} for value in routed],
                 "scores": scores,
                 "selected": selected,
+                "baseline_topk_selected": baseline_selected,
+                "selection_policy": {
+                    "name": "relevance-temporal-diversity",
+                    "diversity_weight": ROUTER_DIVERSITY_WEIGHT,
+                    "trace": selection_trace,
+                },
+                "router_diagnostics": {
+                    "ranking": ranking,
+                    "selected_score_margin": selection_margin,
+                    "selected_duration_coverage": _covered_duration(
+                        [routed[index] for index in selected]
+                    )
+                    / sample.duration,
+                    "selected_center_spread": (
+                        max(selected_centers) - min(selected_centers)
+                    )
+                    / sample.duration,
+                },
                 "allocations": allocations,
                 **policy,
                 "router_seconds": router_seconds,
-                "router_cache": dict(getattr(self.router, "last_telemetry", {})),
+                "router_cache": router_details,
                 "grounder_frames": sum(allocations),
                 "total_frames": total,
                 "window_telemetry": window_telemetry,

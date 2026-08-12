@@ -1,6 +1,7 @@
 import math
 from pathlib import Path
 
+import pytest
 import torch
 
 from hybrid_vtg.contracts import (
@@ -21,6 +22,7 @@ from hybrid_vtg.methods.coarse_to_fine_64 import (
     distribute_frames,
     fuse_cross_window_spans,
     scene_cache_path,
+    select_temporally_diverse_windows,
     strict_budget,
     uniform_windows,
 )
@@ -105,16 +107,37 @@ def test_coarse_to_fine_prepare_shares_scene_cache_by_video(monkeypatch, tmp_pat
     assert scene_cache_path(changed_duration, cache_root) != cache_a
 
 
-def test_coarse_to_fine_router_uses_sentence_transformer_encode(monkeypatch, tmp_path):
+def test_coarse_to_fine_router_uses_embedding_specific_window_and_frame_scores(
+    monkeypatch, tmp_path
+):
     calls = []
     extract_calls = []
 
     class FakeEmbeddingModel:
         def encode(self, values, **kwargs):
             calls.append((values, kwargs))
-            if isinstance(values[0], str):
+            if "text" in values[0]:
                 return torch.tensor([[1.0, 0.0]])
-            return torch.tensor([[0.5, 0.5], [1.0, 0.0]])
+            if "video" in values[0]:
+                return torch.tensor(
+                    [[0.4, 0.0] if "window-0" in value["video"][0] else [0.8, 0.0] for value in values]
+                )
+            similarities = {
+                (0, 0): 0.2,
+                (0, 1): 0.6,
+                (0, 2): 0.3,
+                (0, 3): 0.4,
+                (1, 0): 0.9,
+                (1, 1): 0.7,
+                (1, 2): 0.6,
+                (1, 3): 0.5,
+            }
+            rows = []
+            for value in values:
+                path = Path(value["image"])
+                window = int(path.parent.name.split("-")[-1])
+                rows.append([similarities[(window, int(path.stem))], 0.0])
+            return torch.tensor(rows)
 
     def fake_extract(video, timestamps, destination):
         extract_calls.append((video, timestamps, destination))
@@ -128,11 +151,17 @@ def test_coarse_to_fine_router_uses_sentence_transformer_encode(monkeypatch, tmp
     sample = Sample("1", "video", video, 20.0, "open the door")
     scores = router.rank(sample, [Window(0.0, 10.0), Window(10.0, 20.0)], 2, tmp_path)
 
-    assert scores == [0.5, 1.0]
-    assert calls[0][0] == ["open the door"]
-    assert [list(value) for value in calls[1][0]] == [["video"], ["video"]]
-    assert all(call[1]["normalize_embeddings"] for call in calls)
-    assert calls[1][1]["processing_kwargs"] == {"video": {"do_sample_frames": False}}
+    assert all(
+        math.isclose(actual, expected, abs_tol=1e-6)
+        for actual, expected in zip(scores, [0.47, 0.835])
+    )
+    assert calls[0][0][0]["text"] == "open the door"
+    assert "Retrieve every video segment" in calls[0][0][0]["instruction"]
+    assert [len(value["video"]) for value in calls[1][0]] == [2, 2]
+    assert all(value["num_frames"] == 2 and value["max_frames"] == 2 for value in calls[1][0])
+    assert all("visible actions" in value["instruction"] for value in calls[1][0])
+    assert all(call[1]["normalize"] for call in calls)
+    assert all(call[1]["device"] == "cpu" for call in calls)
     assert len(extract_calls) == 2
     assert router.last_telemetry["query_embedding_cache_hit"] is False
     assert router.last_telemetry["video_embedding_cache_hit"] is False
@@ -141,7 +170,7 @@ def test_coarse_to_fine_router_uses_sentence_transformer_encode(monkeypatch, tmp
     cached_router = EmbeddingRouter()
     cached_router._model = FakeEmbeddingModel()
     assert cached_router.rank(sample, [Window(0.0, 10.0), Window(10.0, 20.0)], 2, tmp_path) == scores
-    assert len(calls) == 2
+    assert len(calls) == 3
     assert len(extract_calls) == 2
     assert cached_router.last_telemetry["query_embedding_cache_hit"] is True
     assert cached_router.last_telemetry["video_embedding_cache_hit"] is True
@@ -149,14 +178,14 @@ def test_coarse_to_fine_router_uses_sentence_transformer_encode(monkeypatch, tmp
     # A new query encodes only its text and reuses the expensive video embeddings.
     other_query = Sample("2", "video", video, 20.0, "close the door")
     cached_router.rank(other_query, [Window(0.0, 10.0), Window(10.0, 20.0)], 2, tmp_path)
-    assert len(calls) == 3 and calls[-1][0] == ["close the door"]
+    assert len(calls) == 4 and calls[-1][0][0]["text"] == "close the door"
     assert len(extract_calls) == 2
     assert cached_router.last_telemetry["query_embedding_cache_hit"] is False
     assert cached_router.last_telemetry["video_embedding_cache_hit"] is True
 
     # Sampling-policy changes invalidate only the video side of the cache.
     cached_router.rank(other_query, [Window(0.0, 10.0), Window(10.0, 20.0)], 4, tmp_path)
-    assert len(calls) == 4 and not isinstance(calls[-1][0][0], str)
+    assert len(calls) == 7 and "image" in calls[-1][0][0]
     assert len(extract_calls) == 4
     assert cached_router.last_telemetry["query_embedding_cache_hit"] is True
     assert cached_router.last_telemetry["video_embedding_cache_hit"] is False
@@ -165,9 +194,68 @@ def test_coarse_to_fine_router_uses_sentence_transformer_encode(monkeypatch, tmp
     video_cache = Path(cached_router.last_telemetry["video_embedding_cache"])
     video_cache.write_bytes(b"not an npz")
     cached_router.rank(other_query, [Window(0.0, 10.0), Window(10.0, 20.0)], 4, tmp_path)
-    assert len(calls) == 5 and not isinstance(calls[-1][0][0], str)
+    assert len(calls) == 10 and "image" in calls[-1][0][0]
     assert cached_router.last_telemetry["query_embedding_cache_hit"] is True
     assert cached_router.last_telemetry["video_embedding_cache_hit"] is False
+
+
+def test_router_temporal_diversity_avoids_redundant_near_ties():
+    windows = [Window(index * 10.0, (index + 1) * 10.0) for index in range(4)]
+
+    selected, trace = select_temporally_diverse_windows(
+        windows, [1.0, 0.98, 0.1, 0.97], 2
+    )
+
+    assert selected == [0, 3]
+    assert [value["window_index"] for value in trace] == selected
+    assert trace[1]["temporal_diversity"] == 1.0
+
+
+def test_router_loads_pinned_embedding_model_and_rejects_missing_weights(monkeypatch):
+    import transformers
+
+    calls = []
+
+    class FakeProcessor:
+        def prepare_for_embedding(self):
+            pass
+
+    class FakeModel:
+        def __init__(self):
+            self.evaluated = False
+
+        def encode(self):
+            pass
+
+        def eval(self):
+            self.evaluated = True
+
+    model = FakeModel()
+
+    def processor_from_pretrained(model_id, **kwargs):
+        calls.append(("processor", model_id, kwargs))
+        return FakeProcessor()
+
+    def model_from_pretrained(model_id, **kwargs):
+        calls.append(("model", model_id, kwargs))
+        return model, {"missing_keys": [], "mismatched_keys": [], "error_msgs": []}
+
+    monkeypatch.setattr(transformers.AutoProcessor, "from_pretrained", processor_from_pretrained)
+    monkeypatch.setattr(transformers.AutoModel, "from_pretrained", model_from_pretrained)
+    router = EmbeddingRouter()
+
+    assert router._load() is model
+    assert model.evaluated
+    assert all(value[2]["trust_remote_code"] for value in calls)
+    assert calls[0][2]["revision"] == calls[1][2]["revision"]
+    assert calls[1][2]["output_loading_info"] is True
+
+    def incomplete_model(*args, **kwargs):
+        return FakeModel(), {"missing_keys": ["language_model.weight"]}
+
+    monkeypatch.setattr(transformers.AutoModel, "from_pretrained", incomplete_model)
+    with pytest.raises(RuntimeError, match="refusing randomly initialized weights"):
+        EmbeddingRouter()._load()
 
 
 def test_cross_window_fusion_preserves_same_window_and_adjacent_occurrences():

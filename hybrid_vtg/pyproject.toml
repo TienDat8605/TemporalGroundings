@@ -15,7 +15,6 @@ dependencies = [
   "Pillow>=10",
   "qwen-vl-utils[decord]>=0.0.14",
   "scenedetect[opencv-headless]>=0.6.4,<0.7",
-  "sentence-transformers>=5.4,<6",
   "scipy>=1.13",
   "torch>=2.4",
   "torchvision>=0.19",

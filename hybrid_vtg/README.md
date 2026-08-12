@@ -12,7 +12,7 @@ No training or fine-tuning is performed. The reusable Qwen backends still suppor
 `coarse-to-fine-64` uses a deliberately small pipeline:
 
 1. PySceneDetect divides a long video into 20–60 second windows. A deterministic uniform-window fallback is used when scene detection finds no boundaries.
-2. Frozen `Qwen/Qwen3-VL-Embedding-2B` on CPU ranks every window against the query.
+2. Frozen `Qwen/Qwen3-VL-Embedding-2B` on CPU ranks every window against the query. It combines a whole-window similarity with a brief-occurrence score from the exact sampled frames, then applies a mild temporal-diversity term when choosing near-tied windows.
 3. The router and selected local windows share exactly 64 decoded source frames.
 4. The frozen grounder predicts each selected window independently.
 5. Local timestamps are mapped to absolute video time.
@@ -22,7 +22,7 @@ A video with only one window bypasses routing and gives all 64 frames to the gro
 
 PySceneDetect results are cached once per video revision and detector policy under `results/cache/methods/coarse-to-fine-64/scenes/`. The cache is shared by all queries, seeds, pruning variants, and reruns. Changing the video file, its recorded duration, or the detector policy produces a new cache entry.
 
-The embedding router uses the same shared-cache principle under `results/cache/methods/coarse-to-fine-64/router/`. Normalized video-window embeddings are keyed by the video revision, routed boundaries, exact sampled timestamps, router model, and embedding-policy version. The router passes pre-decoded JPEG lists with processor-side frame sampling disabled, preserving the method's exact frame budget. Query embeddings are cached separately by exact query text. A new query therefore reuses the expensive video embeddings and performs only text encoding plus a local dot product; matched pruning runs normally reuse both sides.
+The embedding router uses the same shared-cache principle under `results/cache/methods/coarse-to-fine-64/router/`. It loads Qwen's embedding-specific `Qwen3VLForEmbedding` implementation at a pinned revision and rejects missing or mismatched checkpoint weights. Normalized whole-window and sampled-frame embeddings are keyed by the video revision, routed boundaries, exact sampled timestamps, router model revision, and embedding-policy version. The exact pre-decoded JPEG list is reused for both views, so the richer scoring does not increase the 64-source-frame budget. Query embeddings are cached separately by exact query text. A new query therefore reuses the expensive visual embeddings and performs only text encoding plus local dot products; matched pruning runs normally reuse both sides. The cache policy changed with this router upgrade, so vectors produced by the old generic loader are never reused.
 
 ### Cross-window fusion
 
