@@ -43,18 +43,45 @@ def scout_timestamps(duration: float, require_even: bool = False) -> tuple[tuple
     return pad_even(timestamps, require_even)
 
 
+def duplicate_tubelets(
+    timestamps: Sequence[float],
+    roles: Sequence[str],
+    qwen_tubelets: bool,
+) -> tuple[tuple[float, ...], tuple[str, ...], int]:
+    """Duplicate logical observations into two-frame identical Qwen tubelets."""
+    values = tuple(float(value) for value in timestamps)
+    values_roles = tuple(roles)
+    if len(values) != len(values_roles):
+        raise ValueError("timestamps and roles must align")
+    if not qwen_tubelets:
+        return values, values_roles, 0
+    duplicated_timestamps = tuple(value for value in values for _ in range(2))
+    duplicated_roles = tuple(role for role in values_roles for _ in range(2))
+    return duplicated_timestamps, duplicated_roles, len(values)
+
+
 @dataclass
 class BudgetLedger:
     budget: int
     requested_frames: int = 0
     duplicate_padding_frames: int = 0
+    tubelet_duplicate_frames: int = 0
 
     @property
     def remaining_frames(self) -> int:
         return self.budget - self.requested_frames
 
-    def reserve(self, timestamps: Sequence[float], duplicate_padding: int = 0) -> None:
+    def reserve(
+        self,
+        timestamps: Sequence[float],
+        duplicate_padding: int = 0,
+        tubelet_duplicates: int = 0,
+    ) -> None:
         requested = len(timestamps)
+        if duplicate_padding < 0 or tubelet_duplicates < 0:
+            raise ValueError("duplicate frame counts cannot be negative")
+        if duplicate_padding + tubelet_duplicates > requested:
+            raise ValueError("duplicate frame counts exceed requested frames")
         if requested > self.remaining_frames:
             raise AssertionError(
                 f"sampled-frame route requested {self.requested_frames + requested} frames "
@@ -62,12 +89,14 @@ class BudgetLedger:
             )
         self.requested_frames += requested
         self.duplicate_padding_frames += duplicate_padding
+        self.tubelet_duplicate_frames += tubelet_duplicates
 
     def to_dict(self) -> dict[str, int]:
         return {
             "budget": self.budget,
             "requested_frames": self.requested_frames,
             "duplicate_padding_frames": self.duplicate_padding_frames,
+            "tubelet_duplicate_frames": self.tubelet_duplicate_frames,
             "remaining_frames": self.remaining_frames,
         }
 

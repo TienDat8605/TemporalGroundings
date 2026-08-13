@@ -11,7 +11,7 @@ from hybrid_vtg.methods.boundary_guided_sparsification import (
     normalize_presence,
     pair_boundaries,
 )
-from hybrid_vtg.methods.budget import duration_budget, scout_timestamps
+from hybrid_vtg.methods.budget import duplicate_tubelets, duration_budget, scout_timestamps
 from hybrid_vtg.methods.coarse_to_fine_64 import (
     FRAME_BUDGET,
     CoarseToFine64,
@@ -312,6 +312,18 @@ def test_scout_timestamps_use_fixed_cells_and_report_qwen_padding():
     assert padding == 1
 
 
+def test_duplicate_tubelets_preserve_logical_timestamp_roles():
+    timestamps, roles, duplicates = duplicate_tubelets((4.0, 12.0, 20.0), ("a", "b", "c"), True)
+    assert timestamps == (4.0, 4.0, 12.0, 12.0, 20.0, 20.0)
+    assert roles == ("a", "a", "b", "b", "c", "c")
+    assert duplicates == 3
+
+    timestamps, roles, duplicates = duplicate_tubelets((4.0,), ("a",), False)
+    assert timestamps == (4.0,)
+    assert roles == ("a",)
+    assert duplicates == 0
+
+
 def test_presence_aggregation_uses_upper_quartile_mean_not_maximum():
     evidence = TemporalEvidence(torch.eye(5), (4.0,) * 5, 1)
     observations = aggregate_query_presence(evidence, torch.tensor([100.0, 1.0, 1.0, 1.0, 1.0]))
@@ -419,3 +431,73 @@ def test_bgs_supports_qwen_style_rows_and_preserves_ambiguous_corridors():
     assert result.telemetry["duplicate_padding_frames"] >= 0
     assert result.telemetry["retained_evidence"] <= backend.maximum_evidence_units
     assert backend.predict_calls == 1
+
+
+def test_bgs_counts_qwen_tubelet_duplicates_in_its_frame_ledger():
+    sample = Sample("bgs-tubelets", "video", Path(__file__), 48.0, "event")
+    backend = _ScriptedBoundaryBackend(rows_per_timestamp=5)
+    result = BoundaryGuidedSparsification().run(sample, backend, Path("unused"))
+
+    assert result.telemetry["qwen_tubelet_duplication"] is True
+    assert result.telemetry["scout_logical_frames"] == 6
+    assert result.telemetry["scout_physical_frames"] == 12
+    assert result.telemetry["tubelet_duplicate_frames"] >= 6
+    assert backend.requested_frames == result.telemetry["requested_frames"] == result.telemetry["budget"]
+
+
+def test_qwen_encode_disables_processor_frame_sampling(monkeypatch, tmp_path):
+    from PIL import Image
+
+    frame_paths = []
+    for index in range(4):
+        path = tmp_path / f"frame-{index}.jpg"
+        Image.new("RGB", (32, 32)).save(path)
+        frame_paths.append(path)
+
+    class _Processor:
+        vision_start_token = "<vision>"
+        video_token = "<video>"
+        vision_end_token = "</vision>"
+
+        def __init__(self):
+            self.kwargs = None
+
+        def __call__(self, **kwargs):
+            self.kwargs = kwargs
+            return {
+                "pixel_values_videos": torch.zeros((8, 8)),
+                "video_grid_thw": torch.tensor([[2, 2, 2]]),
+            }
+
+    class _Visual(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.marker = torch.nn.Parameter(torch.zeros(1))
+
+    class _InnerModel:
+        def __init__(self):
+            self.visual = _Visual()
+
+        def get_video_features(self, pixels, grids):
+            del pixels, grids
+            return [torch.ones((2, 4))], None
+
+    class _Model:
+        def __init__(self):
+            self.model = _InnerModel()
+            self.config = type(
+                "Config",
+                (),
+                {"vision_config": type("VisionConfig", (), {"spatial_merge_size": 2, "temporal_patch_size": 2})()},
+            )()
+
+    processor = _Processor()
+    backend = QwenEvidenceBackend("unused", tmp_path, name="qwen-test")
+    monkeypatch.setattr(backend, "_load", lambda: (_Model(), processor))
+    monkeypatch.setattr("hybrid_vtg.models.qwen.extract_frames", lambda *args: frame_paths)
+    evidence = backend.encode(Sample("qwen", "video", Path(__file__), 20.0, "event"), (1.0, 2.0, 3.0, 4.0))
+
+    assert processor.kwargs["do_sample_frames"] is False
+    assert evidence.metadata["processor_do_sample_frames"] is False
+    assert evidence.metadata["effective_temporal_units"] == 2
+    assert evidence.metadata["temporal_patch_size"] == 2

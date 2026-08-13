@@ -238,6 +238,7 @@ class QwenEvidenceBackend(ModelBackend):
             videos=[frames],
             return_tensors="pt",
             do_resize=True,
+            do_sample_frames=False,
         )
         device = self._device(model.model.visual)
         pixels = inputs["pixel_values_videos"].to(device)
@@ -266,6 +267,9 @@ class QwenEvidenceBackend(ModelBackend):
                 "backend": self.name,
                 "grid_thw": [temporal, height, width],
                 "tokens_per_time": per_time,
+                "effective_temporal_units": temporal,
+                "temporal_patch_size": int(model.config.vision_config.temporal_patch_size),
+                "processor_do_sample_frames": False,
                 "frame_paths": [str(path) for path in paths],
             },
         )

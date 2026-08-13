@@ -13,6 +13,7 @@ from ...media import uniform_timestamps
 from ..budget import (
     CELL_SECONDS,
     BudgetLedger,
+    duplicate_tubelets,
     duration_budget,
     pad_even,
     requires_even_frames,
@@ -344,14 +345,27 @@ class BoundaryGuidedSparsification(Method):
         query_scoring_calls = 0
 
         logical_scout, _ = scout_timestamps(sample.duration)
-        scout_times, scout_padding = pad_even(logical_scout, even_frames)
-        ledger.reserve(scout_times, scout_padding)
+        scout_times, _, scout_duplicates = duplicate_tubelets(
+            logical_scout,
+            ("global_anchor",) * len(logical_scout),
+            even_frames,
+        )
+        ledger.reserve(scout_times, tubelet_duplicates=scout_duplicates)
         scout = model.encode(sample, scout_times)
         encoder_calls += 1
         scout.roles = ("global_anchor",) * scout.size
         scout_scores = model.query_scores(scout, sample.query)
         query_scoring_calls += 1
-        coarse, calibration = normalize_presence(aggregate_query_presence(scout, scout_scores))
+        coarse_raw = aggregate_query_presence(scout, scout_scores)
+        if even_frames and len(coarse_raw) != len(logical_scout):
+            raise AssertionError(
+                f"Qwen produced {len(coarse_raw)} scout units for "
+                f"{len(logical_scout)} logical observations"
+            )
+        coarse, calibration = normalize_presence(coarse_raw)
+        scout.metadata["logical_timestamps"] = [float(value) for value in logical_scout]
+        scout.metadata["physical_timestamps"] = [float(value) for value in scout_times]
+        scout.metadata["effective_temporal_units"] = len(coarse_raw)
         scout.metadata["query_presence"] = [asdict(value) for value in coarse]
         evidence_blocks.append(scout)
 
@@ -362,21 +376,37 @@ class BoundaryGuidedSparsification(Method):
         refinement_log: list[dict[str, object]] = []
         dropped_pair_ids: set[int] = set()
 
-        def observe(times: Sequence[float], roles: Sequence[str], stage: str) -> tuple[CoarseObservation, ...]:
+        def observe(
+            times: Sequence[float],
+            roles: Sequence[str],
+            stage: str,
+            *,
+            preserve_logical_observations: bool = False,
+        ) -> tuple[CoarseObservation, ...]:
             nonlocal encoder_calls, query_scoring_calls
-            padded_times, padding = pad_even(times, even_frames)
-            if len(padded_times) > ledger.remaining_frames:
+            if preserve_logical_observations:
+                physical_times, physical_roles, tubelet_duplicates = duplicate_tubelets(times, roles, even_frames)
+                padding = 0
+            else:
+                physical_times, padding = pad_even(times, even_frames)
+                physical_roles = tuple(roles) + ((roles[-1],) if padding else ())
+                tubelet_duplicates = 0
+            if len(physical_times) > ledger.remaining_frames:
                 raise AssertionError(
-                    f"{stage} requests {len(padded_times)} frames with {ledger.remaining_frames} remaining"
+                    f"{stage} requests {len(physical_times)} frames with {ledger.remaining_frames} remaining"
                 )
-            padded_roles = tuple(roles) + ((roles[-1],) if padding else ())
-            ledger.reserve(padded_times, padding)
-            evidence = model.encode(sample, padded_times)
+            ledger.reserve(physical_times, padding, tubelet_duplicates)
+            evidence = model.encode(sample, physical_times)
             encoder_calls += 1
-            evidence.roles = _evidence_roles(evidence, padded_times, padded_roles)
+            evidence.roles = _evidence_roles(evidence, physical_times, physical_roles)
             scores = model.query_scores(evidence, sample.query)
             query_scoring_calls += 1
             raw = aggregate_query_presence(evidence, scores)
+            if preserve_logical_observations and even_frames and len(raw) != len(times):
+                raise AssertionError(
+                    f"Qwen temporal collapse in {stage}: "
+                    f"{len(raw)} units for {len(times)} logical observations"
+                )
             observations = []
             for value in raw:
                 normalized, state = state_for_score(value.aggregate, calibration)
@@ -388,7 +418,10 @@ class BoundaryGuidedSparsification(Method):
                 {
                     "stage": stage,
                     "requested_timestamps": [float(value) for value in times],
+                    "physical_timestamps": [float(value) for value in physical_times],
                     "padding_frames": padding,
+                    "tubelet_duplicate_frames": tubelet_duplicates,
+                    "effective_temporal_units": len(raw),
                     "observations": [asdict(value) for value in observations],
                 }
             )
@@ -411,11 +444,11 @@ class BoundaryGuidedSparsification(Method):
             sample.duration, selected, ledger.remaining_frames
         )
         if supplement_times:
-            padded_times, padding = pad_even(supplement_times, even_frames)
-            if len(padded_times) > ledger.remaining_frames:
-                supplement_times = supplement_times[: ledger.remaining_frames - 1]
-                supplement_roles = supplement_roles[: len(supplement_times)]
-            observe(supplement_times, supplement_roles, "fallback-anchors" if fallback_used else "final-evidence")
+            while supplement_times and len(pad_even(supplement_times, even_frames)[0]) > ledger.remaining_frames:
+                supplement_times = supplement_times[:-1]
+                supplement_roles = supplement_roles[:-1]
+            if supplement_times:
+                observe(supplement_times, supplement_roles, "fallback-anchors" if fallback_used else "final-evidence")
 
         if ledger.requested_frames > ledger.budget:
             raise AssertionError(f"BGS exceeded sampled-frame budget {ledger.budget}")
@@ -445,6 +478,8 @@ class BoundaryGuidedSparsification(Method):
                 **ledger.to_dict(),
                 "sampled_frames": ledger.requested_frames,
                 "coarse_cells": len(logical_scout),
+                "scout_logical_frames": len(logical_scout),
+                "scout_physical_frames": len(scout_times),
                 "coarse_observations": [asdict(value) for value in coarse],
                 "presence_calibration": asdict(calibration),
                 "state_runs": [asdict(value) for value in state_runs],
@@ -466,6 +501,7 @@ class BoundaryGuidedSparsification(Method):
                 "fallback_used": fallback_used,
                 "policy": "boundary-guided-sparsification",
                 "constants": constants,
+                "qwen_tubelet_duplication": even_frames,
                 "absolute_timestamps_preserved": True,
             },
         )
@@ -522,11 +558,23 @@ class BoundaryGuidedSparsification(Method):
             active = unfinished
             if not active:
                 break
-            active = self._fit_batch(active, ledger.remaining_frames, even_frames, pair_scores, dropped_pair_ids)
+            active = self._fit_batch(
+                active,
+                ledger.remaining_frames,
+                even_frames,
+                pair_scores,
+                dropped_pair_ids,
+                frames_per_item=2 if even_frames else 1,
+            )
             if not active:
                 break
             midpoints = [(value.left + value.right) / 2.0 for value in active]
-            observations = observe(midpoints, [value.role for value in active], "midpoint")
+            observations = observe(
+                midpoints,
+                [value.role for value in active],
+                "midpoint",
+                preserve_logical_observations=True,
+            )
             next_active: list[_ActiveBoundary] = []
             uncertain: list[_ActiveBoundary] = []
             for value, midpoint in zip(active, midpoints):
@@ -552,7 +600,7 @@ class BoundaryGuidedSparsification(Method):
                     even_frames,
                     pair_scores,
                     dropped_pair_ids,
-                    frames_per_item=2,
+                    frames_per_item=4 if even_frames else 2,
                 )
                 probe_times = [
                     timestamp
@@ -564,7 +612,12 @@ class BoundaryGuidedSparsification(Method):
                 ]
                 if probe_times:
                     probe_roles = [value.role for value in probeable for _ in range(2)]
-                    probe_observations = observe(probe_times, probe_roles, "ambiguity-probe")
+                    probe_observations = observe(
+                        probe_times,
+                        probe_roles,
+                        "ambiguity-probe",
+                        preserve_logical_observations=True,
+                    )
                     for index, value in enumerate(probeable):
                         left_probe, right_probe = probe_times[2 * index : 2 * index + 2]
                         left_state = _nearest_observation(probe_observations, left_probe).state
