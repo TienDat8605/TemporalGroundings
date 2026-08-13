@@ -3,6 +3,15 @@ from pathlib import Path
 import torch
 
 from hybrid_vtg.contracts import GroundingContext, ModelBackend, Prediction, Sample, TemporalEvidence
+from hybrid_vtg.methods.boundary_guided_sparsification import (
+    BoundaryGuidedSparsification,
+    CoarseObservation,
+    aggregate_query_presence,
+    detect_boundaries,
+    normalize_presence,
+    pair_boundaries,
+)
+from hybrid_vtg.methods.budget import duration_budget, scout_timestamps
 from hybrid_vtg.methods.coarse_to_fine_64 import (
     FRAME_BUDGET,
     CoarseToFine64,
@@ -15,6 +24,7 @@ from hybrid_vtg.methods.coarse_to_fine_64 import (
 )
 from hybrid_vtg.methods.hmve import HMVE, pack_evidence, propose_boundary_bands, propose_corridors
 from hybrid_vtg.methods.tpsa_query import TPSAQuery
+from hybrid_vtg.methods.uniform_budget import UniformBudget
 from hybrid_vtg.models.qwen import QwenEvidenceBackend
 
 
@@ -287,3 +297,125 @@ def test_vision_prune_indices_preserve_merge_cells():
     survive, new_grid = _prune_indices(grid, 2, 0.25)
     assert len(survive) == 8
     assert new_grid == [[2, 2, 2]]
+
+
+def test_duration_budget_schedule_is_even_and_duration_scaled():
+    assert duration_budget(4.0) == 66
+    assert duration_budget(150.0) == 84
+    assert duration_budget(17 * 60.0) == 192
+    assert all(duration_budget(value) >= 64 and duration_budget(value) % 2 == 0 for value in (1.0, 60.0, 900.0))
+
+
+def test_scout_timestamps_use_fixed_cells_and_report_qwen_padding():
+    timestamps, padding = scout_timestamps(17.0, require_even=True)
+    assert timestamps == (4.0, 12.0, 16.5, 16.5)
+    assert padding == 1
+
+
+def test_presence_aggregation_uses_upper_quartile_mean_not_maximum():
+    evidence = TemporalEvidence(torch.eye(5), (4.0,) * 5, 1)
+    observations = aggregate_query_presence(evidence, torch.tensor([100.0, 1.0, 1.0, 1.0, 1.0]))
+    assert observations[0].aggregate == 50.5
+    assert observations[0].aggregate < 100.0
+
+
+def test_median_mad_states_and_constant_timeline():
+    values = tuple(CoarseObservation(float(index), (score,), score) for index, score in enumerate((0.0, 0.5, 1.0, 2.0)))
+    normalized, calibration = normalize_presence(values)
+    assert {value.state for value in normalized} == {"absent", "present", "uncertain"}
+    assert calibration.mad > 0
+    constant, calibration = normalize_presence(
+        tuple(CoarseObservation(float(index), (1.0,), 1.0) for index in range(4))
+    )
+    assert calibration.constant
+    assert all(value.state == "uncertain" and value.normalized is None for value in constant)
+
+
+def test_persistent_transitions_pair_without_isolated_noise():
+    states = ("absent", "absent", "present", "absent", "absent", "present", "present", "absent", "absent")
+    values = tuple(
+        CoarseObservation(float(index * 8 + 4), (0.0,), 0.0, -1.0 if state == "absent" else 2.0, state)
+        for index, state in enumerate(states)
+    )
+    brackets, _ = detect_boundaries(values, 72.0)
+    pairs = pair_boundaries(brackets, values, 72.0)
+    assert [value.role for value in brackets] == ["start", "end"]
+    assert len(pairs) == 1
+    assert pairs[0].interval == (44.0, 52.0)
+
+
+class _ScriptedBoundaryBackend(ModelBackend):
+    name = "scripted-boundary"
+
+    def __init__(self, rows_per_timestamp=1, ambiguous_refinement=False, maximum=75):
+        self.rows_per_timestamp = rows_per_timestamp
+        self.ambiguous_refinement = ambiguous_refinement
+        self.maximum = maximum
+        self.encoder_calls = 0
+        self.predict_calls = 0
+        self.requested_frames = 0
+
+    @property
+    def capabilities(self):
+        if self.rows_per_timestamp > 1:
+            return frozenset({"encoded-evidence", "spatial-evidence"})
+        return frozenset({"encoded-evidence"})
+
+    @property
+    def maximum_evidence_units(self):
+        return self.maximum
+
+    def encode(self, sample, timestamps):
+        del sample
+        self.encoder_calls += 1
+        self.requested_frames += len(timestamps)
+        expanded = tuple(float(value) for value in timestamps for _ in range(self.rows_per_timestamp))
+        embeddings = torch.arange(len(expanded) * 8, dtype=torch.float32).reshape(len(expanded), 8) + 1
+        return TemporalEvidence(embeddings, expanded, len(timestamps))
+
+    def query_scores(self, evidence, query):
+        del query
+        if self.ambiguous_refinement and self.encoder_calls > 1 and "parts" not in evidence.metadata:
+            return torch.full((evidence.size,), 1.5)
+        return torch.tensor([3.0 if 18.0 <= value <= 30.0 else 0.0 for value in evidence.timestamps])
+
+    def predict(self, sample, evidence, context):
+        del sample, context
+        self.predict_calls += 1
+        assert evidence.size <= self.maximum_evidence_units
+        return Prediction(())
+
+
+def test_uniform_budget_uses_exact_matched_frame_ledger():
+    sample = Sample("uniform", "video", Path(__file__), 150.0, "event")
+    backend = _ScriptedBoundaryBackend()
+    result = UniformBudget().run(sample, backend, Path("unused"))
+    assert backend.requested_frames == result.telemetry["budget"] == duration_budget(sample.duration)
+    assert backend.encoder_calls == backend.predict_calls == 1
+    assert result.telemetry["remaining_frames"] == 0
+    assert result.telemetry["retained_evidence"] <= backend.maximum_evidence_units
+
+
+def test_bgs_refines_directional_brackets_with_one_final_prediction():
+    sample = Sample("bgs", "video", Path(__file__), 48.0, "event", cardinality="multi")
+    backend = _ScriptedBoundaryBackend()
+    result = BoundaryGuidedSparsification().run(sample, backend, Path("unused"))
+    corridors = result.telemetry["boundary_corridors"]
+    assert len(corridors) == 2
+    assert all(value["end"] - value["start"] <= 1.0 for value in corridors)
+    assert backend.predict_calls == result.telemetry["llm_or_fusion_calls"] == 1
+    assert backend.requested_frames == result.telemetry["requested_frames"] == result.telemetry["budget"]
+    assert result.telemetry["remaining_frames"] == 0
+
+
+def test_bgs_supports_qwen_style_rows_and_preserves_ambiguous_corridors():
+    sample = Sample("bgs-spatial", "video", Path(__file__), 48.0, "event")
+    backend = _ScriptedBoundaryBackend(rows_per_timestamp=5, ambiguous_refinement=True, maximum=40)
+    result = BoundaryGuidedSparsification().run(sample, backend, Path("unused"))
+    corridors = result.telemetry["boundary_corridors"]
+    assert corridors
+    assert all(value["status"] == "ambiguous" for value in corridors)
+    assert sum(value["stage"] == "ambiguity-probe" for value in result.telemetry["refinement"]) <= 1
+    assert result.telemetry["duplicate_padding_frames"] >= 0
+    assert result.telemetry["retained_evidence"] <= backend.maximum_evidence_units
+    assert backend.predict_calls == 1

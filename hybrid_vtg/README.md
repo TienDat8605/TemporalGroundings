@@ -1,6 +1,6 @@
 # Hybrid VTG
 
-Hybrid VTG is a small, training-free benchmark runner for video temporal grounding. One command selects exactly one method, one frozen model backend, and one official test split. The package intentionally keeps only three experimental methods.
+Hybrid VTG is a small, training-free benchmark runner for video temporal grounding. One command selects exactly one method, one frozen model backend, and one official test split. The package exposes five experimental methods.
 
 ## Core ideas
 
@@ -14,11 +14,19 @@ TPSA-query means **query-aware evidence selection after the video encoder**. It 
 
 ### `hmve`
 
-HMVE means **hierarchical multi-view evidence**. It makes exactly three visual observation passes: a 0.5 FPS full-video scout, 1 FPS query-relevant corridor refinement, and the densest 2 FPS observation around relevance rises and falls that may indicate event boundaries. Each pass is batched into one encoder call. Evidence from all three passes is merged by absolute timestamp, near-duplicates are removed, one real scout anchor per temporal location is protected, and the compact pack is used for exactly one final prediction. Spatial crops and in-encoder pruning remain future extensions.
+HMVE means **hierarchical multi-view evidence**. It makes exactly three visual observation passes: a 0.5 FPS full-video scout, 1 FPS query-relevant corridor refinement, and the densest 3 FPS observation around relevance rises and falls that may indicate event boundaries. Each pass is batched into one encoder call. Evidence from all three passes is merged by absolute timestamp, near-duplicates are removed, one real scout anchor per temporal location is protected, and the compact pack is used for exactly one final prediction. Spatial crops and in-encoder pruning remain future extensions.
+
+### `boundary-guided-sparsification`
+
+Boundary-guided sparsification (BGS) uses one query-presence observation per fixed eight-second cell, robust median/MAD state assignment, and persistent absent/present transitions to find candidate episode boundaries. It refines paired starts and ends locally with batched midpoint probes, preserves unresolved ambiguity as a corridor, and spends all scout, refinement, and supplementary observations from the duration-scaled budget `B(D) = max(64, even(ceil(D / 8) + 64))`. The frozen backend still makes the only final grounding decision in one prediction call.
+
+### `uniform-budget`
+
+Uniform-budget is the matched experimental baseline for BGS. It samples exactly the same `B(D)` frames uniformly over the complete video, applies the same 12.5% HMVE evidence packing policy, and calls the unchanged final grounder once. BGS IoU and efficiency results should be compared against this baseline under the same model, subset, and retention policy.
 
 ## SemVID relationship
 
-SemVID is no longer a runtime dependency, submodule, baseline, selector, prompt template, or policy source. Hybrid VTG keeps only one low-level implementation lesson from it: when already-encoded Qwen visual embeddings are inserted into a compact multimodal prefill, explicit first-step `position_ids` must survive `prepare_inputs_for_generation`. This is needed because TPSA-query and HMVE pass selected encoder outputs rather than asking the standard processor to encode an untouched video prompt. The three selection methods were reimplemented around the contracts in this repository and do not call SemVID code.
+SemVID is no longer a runtime dependency, submodule, baseline, selector, prompt template, or policy source. Hybrid VTG keeps only one low-level implementation lesson from it: when already-encoded Qwen visual embeddings are inserted into a compact multimodal prefill, explicit first-step `position_ids` must survive `prepare_inputs_for_generation`. This is needed because the post-encoder selection methods pass selected encoder outputs rather than asking the standard processor to encode an untouched video prompt. The selection methods were reimplemented around the contracts in this repository and do not call SemVID code.
 
 ## Install
 

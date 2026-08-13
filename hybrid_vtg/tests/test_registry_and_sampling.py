@@ -14,7 +14,13 @@ def sample(index: int) -> Sample:
 
 def test_builtin_surface_is_exactly_the_requested_matrix():
     load_builtin_plugins()
-    assert METHODS.names() == ("coarse-to-fine-64", "hmve", "tpsa-query")
+    assert METHODS.names() == (
+        "boundary-guided-sparsification",
+        "coarse-to-fine-64",
+        "hmve",
+        "tpsa-query",
+        "uniform-budget",
+    )
     assert MODELS.names() == ("qwen3-vl-4b", "timelens2-4b", "univtg")
     assert BENCHMARKS.names() == ("omtg", "qvhighlights", "tacos")
 
