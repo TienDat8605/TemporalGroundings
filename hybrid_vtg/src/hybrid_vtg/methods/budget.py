@@ -12,10 +12,10 @@ CELL_SECONDS = 8.0
 
 
 def duration_budget(duration: float) -> int:
-    """Return the locked even duration-scaled sampled-frame budget."""
+    """Return the locked two-frames-per-eight-second-cell budget."""
     if duration <= 0:
         raise ValueError("duration must be positive")
-    value = max(64, math.ceil(duration / CELL_SECONDS) + 64)
+    value = max(64, 2 * math.ceil(duration / CELL_SECONDS))
     return value + value % 2
 
 

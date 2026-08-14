@@ -10,7 +10,7 @@ from ...media import uniform_timestamps
 from ..budget import BudgetLedger, duration_budget, temporal_anchor_indices
 from ..hmve import pack_evidence
 
-RETENTION_RATIO = 0.125
+RETENTION_RATIO = 0.25
 
 
 class UniformBudget(Method):

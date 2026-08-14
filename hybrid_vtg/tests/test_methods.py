@@ -6,10 +6,12 @@ from hybrid_vtg.contracts import GroundingContext, ModelBackend, Prediction, Sam
 from hybrid_vtg.methods.boundary_guided_sparsification import (
     BoundaryGuidedSparsification,
     CoarseObservation,
+    PresenceCalibration,
     aggregate_query_presence,
     detect_boundaries,
     normalize_presence,
     pair_boundaries,
+    state_for_score,
 )
 from hybrid_vtg.methods.budget import duplicate_tubelets, duration_budget, scout_timestamps
 from hybrid_vtg.methods.coarse_to_fine_64 import (
@@ -300,9 +302,9 @@ def test_vision_prune_indices_preserve_merge_cells():
 
 
 def test_duration_budget_schedule_is_even_and_duration_scaled():
-    assert duration_budget(4.0) == 66
-    assert duration_budget(150.0) == 84
-    assert duration_budget(17 * 60.0) == 192
+    assert duration_budget(4.0) == 64
+    assert duration_budget(150.0) == 64
+    assert duration_budget(17 * 60.0) == 256
     assert all(duration_budget(value) >= 64 and duration_budget(value) % 2 == 0 for value in (1.0, 60.0, 900.0))
 
 
@@ -341,6 +343,12 @@ def test_median_mad_states_and_constant_timeline():
     )
     assert calibration.constant
     assert all(value.state == "uncertain" and value.normalized is None for value in constant)
+
+
+def test_present_threshold_includes_point_seventy_five_only():
+    calibration = PresenceCalibration(median=0.0, mad=1.0, scale=1.0)
+    assert state_for_score(0.75, calibration) == (0.75, "present")
+    assert state_for_score(0.74, calibration) == (0.74, "uncertain")
 
 
 def test_persistent_transitions_pair_without_isolated_noise():
@@ -406,6 +414,8 @@ def test_uniform_budget_uses_exact_matched_frame_ledger():
     assert backend.encoder_calls == backend.predict_calls == 1
     assert result.telemetry["remaining_frames"] == 0
     assert result.telemetry["retained_evidence"] <= backend.maximum_evidence_units
+    assert UniformBudget().retention_ratio == 0.25
+    assert result.telemetry["retention_target"] == 0.25
 
 
 def test_bgs_refines_directional_brackets_with_one_final_prediction():
@@ -418,6 +428,9 @@ def test_bgs_refines_directional_brackets_with_one_final_prediction():
     assert backend.predict_calls == result.telemetry["llm_or_fusion_calls"] == 1
     assert backend.requested_frames == result.telemetry["requested_frames"] == result.telemetry["budget"]
     assert result.telemetry["remaining_frames"] == 0
+    assert BoundaryGuidedSparsification().retention_ratio == 0.25
+    assert result.telemetry["constants"]["present_threshold"] == 0.75
+    assert result.telemetry["constants"]["retention_ratio"] == 0.25
 
 
 def test_bgs_supports_qwen_style_rows_and_preserves_ambiguous_corridors():
