@@ -94,13 +94,15 @@ hybrid-vtg run \
 
 Append either or both pruning blocks shown above. Runs resume by sample ID. Add `--rerun` to replace prior predictions for that configuration.
 
-Pruning settings are encoded in distinct result directories:
+Each configuration gets one flat run directory. The short suffix is a stable
+configuration ID; the readable hyperparameters are stored in every metrics JSON:
 
 ```text
-results/runs/omtg/qwen3-vl-4b/coarse-to-fine-64/seed-42/
-results/runs/omtg/qwen3-vl-4b--enc-mage-r0.5-l0/coarse-to-fine-64/seed-42/
-results/runs/omtg/qwen3-vl-4b--post-semvid-r0.125/coarse-to-fine-64/seed-42/
-results/runs/omtg/qwen3-vl-4b--enc-mage-r0.5-l0--post-semvid-r0.125/coarse-to-fine-64/seed-42/
+results/runs/omtg--qwen3-vl-4b--coarse-to-fine-64--seed-42--a1b2c3d4e5/
+  manifest.json
+  predictions.jsonl
+  errors.jsonl
+  metrics-p010.json
 ```
 
 ## Run the four matched OMTG experiments in tmux
@@ -161,7 +163,12 @@ hybrid-vtg run \
 
 The benchmark registry contains OMTG, TACoS, and QVHighlights. `--subset` accepts percentages from `0` through `100`; sampling is deterministic over query IDs for a given seed, and smaller percentages are prefixes of larger ones.
 
-Each run writes a manifest, resumable `predictions.jsonl`, errors, and per-subset metrics under `results/runs/`. OMTG is evaluated as multi-interval grounding. TACoS reports single-result moment-retrieval metrics against its references. QVHighlights test labels are hidden, so complete successful runs export a submission instead of local metrics.
+Each run writes its manifest, resumable `predictions.jsonl`, errors, per-subset metrics,
+and (when applicable) submission directly in one directory under `results/runs/`.
+Metrics JSON files include the complete run hyperparameters. OMTG is evaluated as
+multi-interval grounding. TACoS reports single-result moment-retrieval metrics against
+its references. QVHighlights test labels are hidden, so complete successful runs export
+a submission instead of local metrics.
 
 Run the checks with:
 

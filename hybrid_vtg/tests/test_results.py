@@ -17,8 +17,7 @@ def test_result_layout_and_generated_note(tmp_path: Path):
             }
         )
     )
-    (run / "metrics").mkdir()
-    (run / "metrics" / "p010.json").write_text(
+    (run / "metrics-p010.json").write_text(
         json.dumps(
             {
                 "requested": 32,
@@ -35,26 +34,51 @@ def test_result_layout_and_generated_note(tmp_path: Path):
     assert "coarse-to-fine-64" in note
 
 
-def test_pruned_result_uses_its_configuration_name(tmp_path: Path):
-    variant = "qwen3-vl-4b--enc-mage-r0.5-l0"
-    run = run_directory(tmp_path, "omtg", variant, "coarse-to-fine-64", 7)
-    (run / "metrics").mkdir(parents=True)
+def test_hyperparameters_are_kept_in_flat_result_file(tmp_path: Path):
+    hyperparameters = {"encoder_pruning": "mage", "encoder_retention": 0.5}
+    run = run_directory(
+        tmp_path,
+        "omtg",
+        "qwen3-vl-4b",
+        "coarse-to-fine-64",
+        7,
+        hyperparameters=hyperparameters,
+    )
+    run.mkdir(parents=True)
     (run / "manifest.json").write_text(
         json.dumps(
             {
                 "benchmark": "omtg",
                 "model": "qwen3-vl-4b",
-                "result_model": variant,
                 "method": "coarse-to-fine-64",
                 "seed": 7,
             }
         )
     )
-    (run / "metrics" / "p100.json").write_text(
-        json.dumps({"requested": 1, "successful": 1, "failed": 0, "metrics": {}})
+    (run / "metrics-p100.json").write_text(
+        json.dumps(
+            {
+                "requested": 1,
+                "successful": 1,
+                "failed": 0,
+                "metrics": {},
+                "hyperparameters": hyperparameters,
+            }
+        )
     )
 
     refresh_results_index(tmp_path)
 
-    assert variant in (tmp_path / "index.csv").read_text()
-    assert variant in (tmp_path / "RESULTS.md").read_text()
+    assert run.parent == tmp_path / "runs"
+    assert not (run / "metrics").exists()
+    assert hyperparameters == json.loads((run / "metrics-p100.json").read_text())["hyperparameters"]
+    assert "qwen3-vl-4b" in (tmp_path / "RESULTS.md").read_text()
+
+
+def test_flat_run_directories_still_separate_hyperparameter_configurations(tmp_path: Path):
+    common = (tmp_path, "omtg", "qwen3-vl-4b", "coarse-to-fine-64", 42)
+    dense = run_directory(*common, hyperparameters={"encoder_pruning": "none"})
+    mage = run_directory(*common, hyperparameters={"encoder_pruning": "mage"})
+
+    assert dense != mage
+    assert dense.parent == mage.parent == tmp_path / "runs"

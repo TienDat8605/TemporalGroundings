@@ -204,8 +204,6 @@ def run_benchmark(
         post_retention,
     )
     output_method = method_name
-    run_dir = run_directory(results_root, benchmark_name, output_model, output_method, seed)
-    print(f"run directory: {run_dir}", flush=True)
     manifest = {
         "schema": SCHEMA_VERSION,
         "benchmark": benchmark_name,
@@ -263,6 +261,31 @@ def run_benchmark(
             "post_policy": post_pruning,
             "post_retention": post_retention,
         }
+    hyperparameters = {
+        "benchmark": benchmark_name,
+        "model": model_name,
+        "checkpoint": manifest.get("checkpoint"),
+        "base_checkpoint": manifest.get("base_checkpoint"),
+        "model_spec": model_spec,
+        "feature_roots": manifest["feature_roots"],
+        "method": method_name,
+        "seed": seed,
+        "batch_size": manifest["batch_size"],
+        "encoder_pruning": encoder_pruning,
+        "encoder_retention": encoder_retention,
+        "encoder_prune_layer": encoder_prune_layer,
+        "post_pruning": post_pruning,
+        "post_retention": post_retention,
+    }
+    run_dir = run_directory(
+        results_root,
+        benchmark_name,
+        model_name,
+        output_method,
+        seed,
+        hyperparameters=hyperparameters,
+    )
+    print(f"run directory: {run_dir}", flush=True)
     # A rerun intentionally replaces results produced by an older revision or
     # configuration. Normal resume mode still rejects incompatible manifests.
     ensure_manifest(run_dir / "manifest.json", manifest, replace=rerun)
@@ -278,9 +301,10 @@ def run_benchmark(
     pending = [sample for sample in selected if sample.id not in done]
     if pending:
         method = METHODS.create(method_name)
+        method_cache = results_root / "cache" / "methods" / method_name
         # Batch CPU-only preprocessing (e.g. scene detection) runs before the model
         # backend is loaded, so it never competes with GPU memory.
-        method.prepare(pending, results_root / "cache" / "methods" / method_name)
+        method.prepare(pending, method_cache)
         model_options = dict(
             cache_dir=results_root / "cache",
             checkpoint=checkpoint,
@@ -300,7 +324,7 @@ def run_benchmark(
         for sample in progress:
             started = perf_counter()
             try:
-                prediction = method.run(sample, model, run_dir / "cache" / sample.id)
+                prediction = method.run(sample, model, method_cache)
             except Exception as error:
                 append_jsonl(
                     run_dir / "errors.jsonl",
@@ -320,18 +344,19 @@ def run_benchmark(
     values = _evaluation_records(selected, records)
     summary = _evaluation_summary(benchmark, selected, records)
     summary["run_directory"] = str(run_dir)
-    metrics_name = f"{percentage_key(percentage)}.json"
-    write_json(run_dir / "metrics" / metrics_name, summary)
+    summary["hyperparameters"] = {**hyperparameters, "subset_percentage": percentage}
+    metrics_name = f"metrics-{percentage_key(percentage)}.json"
+    write_json(run_dir / metrics_name, summary)
     # Export a submission whenever the benchmark has no local ground truth (hidden-label
     # splits like QVHighlights) or the full test set is evaluated. For hidden-label
     # benchmarks the submission is the only result, so it is produced at any subset.
     if (summary["metrics"] is None or percentage == 100) and summary["failed"] == 0:
         submission = benchmark.export_submission(
             values,
-            results_root / "submissions" / benchmark_name / output_model / output_method / f"seed-{seed}.jsonl",
+            run_dir / f"submission-{percentage_key(percentage)}.jsonl",
         )
         if submission is not None:
             summary["submission"] = str(submission)
-            write_json(run_dir / "metrics" / metrics_name, summary)
+            write_json(run_dir / metrics_name, summary)
     refresh_results_index(results_root)
     return summary

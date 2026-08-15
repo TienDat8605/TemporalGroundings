@@ -3,21 +3,35 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
 
 
-def run_directory(root: Path, benchmark: str, model: str, method: str, seed: int) -> Path:
-    return root / "runs" / benchmark / model / method / f"seed-{seed}"
+def run_directory(
+    root: Path,
+    benchmark: str,
+    model: str,
+    method: str,
+    seed: int,
+    *,
+    hyperparameters: dict[str, Any] | None = None,
+) -> Path:
+    """Return a flat, stable directory for one experiment configuration."""
+    name = f"{benchmark}--{model}--{method}--seed-{seed}"
+    if hyperparameters:
+        encoded = json.dumps(hyperparameters, sort_keys=True, separators=(",", ":"))
+        name += f"--{hashlib.sha256(encoded.encode()).hexdigest()[:10]}"
+    return root / "runs" / name
 
 
 def refresh_results_index(root: Path) -> None:
     rows: list[dict[str, Any]] = []
-    for manifest_path in sorted((root / "runs").glob("*/*/*/seed-*/manifest.json")):
+    for manifest_path in sorted((root / "runs").glob("*/manifest.json")):
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         run_dir = manifest_path.parent
-        for metrics_path in sorted((run_dir / "metrics").glob("p*.json")):
+        for metrics_path in sorted(run_dir.glob("metrics-p*.json")):
             metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
             rows.append(
                 {
@@ -25,7 +39,7 @@ def refresh_results_index(root: Path) -> None:
                     "model": manifest.get("result_model", manifest["model"]),
                     "method": manifest.get("result_method", manifest["method"]),
                     "seed": manifest["seed"],
-                    "subset": metrics_path.stem.removeprefix("p"),
+                    "subset": metrics_path.stem.removeprefix("metrics-p"),
                     "requested": metrics.get("requested", 0),
                     "successful": metrics.get("successful", 0),
                     "failed": metrics.get("failed", 0),
