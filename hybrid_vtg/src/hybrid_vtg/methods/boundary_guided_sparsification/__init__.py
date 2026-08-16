@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
+import json
 import math
 import statistics
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Sequence
 
-from ...contracts import GroundingContext, Method, ModelBackend, Prediction, Sample, TemporalEvidence
+from ...contracts import GroundingContext, Method, ModelBackend, Prediction, Sample, ScoredSpan, TemporalEvidence
 from ...media import uniform_timestamps
 from ..budget import (
     CELL_SECONDS,
+    REFINEMENT_RESERVE_FRAMES,
     BudgetLedger,
     duplicate_tubelets,
     duration_budget,
@@ -25,7 +27,7 @@ from ..hmve import pack_evidence
 PERSISTENCE = 2
 ABSENT_THRESHOLD = 0.0
 PRESENT_THRESHOLD = 0.75
-MAXIMUM_PAIRS = 16
+MAXIMUM_PAIRS = 6
 TARGET_RESOLUTION = 1.0
 AMBIGUITY_PROBE_ROUNDS = 1
 RETENTION_RATIO = 0.25
@@ -278,6 +280,46 @@ def select_episode_pairs(pairs: Sequence[EpisodePair], cardinality: str) -> tupl
     return tuple(sorted(selected, key=lambda value: value.interval))
 
 
+def _boundary_refinement_cost(bracket: BoundaryBracket, even_frames: bool) -> int:
+    if bracket.edge or bracket.end - bracket.start <= TARGET_RESOLUTION:
+        return 0
+    depth = math.ceil(math.log2((bracket.end - bracket.start) / TARGET_RESOLUTION))
+    frames_per_logical_observation = 2 if even_frames else 1
+    # Reserve a directional quarter-probe round for a single uncertain midpoint.
+    return (depth + 2) * frames_per_logical_observation
+
+
+def estimate_refinement_cost(pair: EpisodePair, even_frames: bool) -> int:
+    """Return the worst-case physical-frame cost to finish both boundaries."""
+    return _boundary_refinement_cost(pair.start, even_frames) + _boundary_refinement_cost(pair.end, even_frames)
+
+
+def select_refinement_pairs(
+    pairs: Sequence[EpisodePair],
+    cardinality: str,
+    available_frames: int,
+    even_frames: bool,
+) -> tuple[tuple[EpisodePair, ...], tuple[dict[str, object], ...]]:
+    """Admit complete non-overlapping refinements in deterministic score order."""
+    maximum = MAXIMUM_PAIRS if cardinality == "multi" else 1
+    selected: list[EpisodePair] = []
+    rejected: list[dict[str, object]] = []
+    committed = 0
+    for pair in sorted(pairs, key=lambda value: (-value.score, value.pair_id)):
+        start, end = pair.interval
+        cost = estimate_refinement_cost(pair, even_frames)
+        if any(end > prior.interval[0] and start < prior.interval[1] for prior in selected):
+            rejected.append({"pair_id": pair.pair_id, "reason": "overlap", "estimated_frames": cost})
+        elif len(selected) >= maximum:
+            rejected.append({"pair_id": pair.pair_id, "reason": "pair_cap", "estimated_frames": cost})
+        elif committed + cost > available_frames:
+            rejected.append({"pair_id": pair.pair_id, "reason": "refinement_budget", "estimated_frames": cost})
+        else:
+            selected.append(pair)
+            committed += cost
+    return tuple(sorted(selected, key=lambda value: value.interval)), tuple(rejected)
+
+
 def _normalized(observation: CoarseObservation) -> float:
     return float(observation.normalized) if observation.normalized is not None else 0.0
 
@@ -407,10 +449,16 @@ class BoundaryGuidedSparsification(Method):
 
         brackets, state_runs = detect_boundaries(coarse, sample.duration)
         candidates = pair_boundaries(brackets, coarse, sample.duration)
-        selected = list(select_episode_pairs(candidates, sample.cardinality))
+        refinement_reserve = ledger.remaining_frames
+        selected, rejected_candidates = select_refinement_pairs(
+            candidates,
+            sample.cardinality,
+            refinement_reserve,
+            even_frames,
+        )
+        selected = list(selected)
         pair_scores = {value.pair_id: value.score for value in selected}
         refinement_log: list[dict[str, object]] = []
-        dropped_pair_ids: set[int] = set()
 
         def observe(
             times: Sequence[float],
@@ -480,17 +528,103 @@ class BoundaryGuidedSparsification(Method):
 
         corridors = self._refine(
             selected,
-            pair_scores,
             ledger,
             even_frames,
             observe,
-            dropped_pair_ids,
         )
-        selected = [value for value in selected if value.pair_id not in dropped_pair_ids]
-        selected_ids = {value.pair_id for value in selected}
-        corridors = [value for value in corridors if value.pair_id in selected_ids]
+        brackets_by_pair_role = {
+            (pair.pair_id, bracket.role): bracket
+            for pair in selected
+            for bracket in (pair.start, pair.end)
+        }
+        refinement_log.append(
+            {
+                "stage": "final-witnesses",
+                "boundaries": [
+                    {
+                        **asdict(corridor),
+                        "left_witness": corridor.start,
+                        "right_witness": corridor.end,
+                        "left_state": brackets_by_pair_role[(corridor.pair_id, corridor.role)].left_state,
+                        "right_state": brackets_by_pair_role[(corridor.pair_id, corridor.role)].right_state,
+                    }
+                    for corridor in corridors
+                ],
+            }
+        )
+        primary_spans, omitted_pairs = self._resolved_spans(selected, corridors, pair_scores)
+        constants = {
+            "cell_seconds": CELL_SECONDS,
+            "persistence": PERSISTENCE,
+            "absent_threshold": ABSENT_THRESHOLD,
+            "present_threshold": PRESENT_THRESHOLD,
+            "maximum_pairs": MAXIMUM_PAIRS,
+            "target_resolution": TARGET_RESOLUTION,
+            "ambiguity_probe_rounds": AMBIGUITY_PROBE_ROUNDS,
+            "retention_ratio": self.retention_ratio,
+            "refinement_reserve_frames": REFINEMENT_RESERVE_FRAMES,
+        }
+        common_telemetry = {
+            **ledger.to_dict(),
+            "sampled_frames": ledger.requested_frames,
+            "coarse_cells": len(logical_scout),
+            "scout_logical_frames": len(logical_scout),
+            "scout_physical_frames": len(scout_times),
+            "scout_remaining_frames": refinement_reserve,
+            "coarse_observations": [asdict(value) for value in coarse],
+            "presence_calibration": asdict(calibration),
+            "state_runs": [asdict(value) for value in state_runs],
+            "brackets": [asdict(value) for value in brackets],
+            "candidate_pairs": [asdict(value) for value in candidates],
+            "selected_pair_ids": [value.pair_id for value in selected],
+            "candidate_admission_rejections": list(rejected_candidates),
+            "budget_rejected_candidates": [
+                value for value in rejected_candidates if value["reason"] == "refinement_budget"
+            ],
+            "dropped_pair_ids": [],
+            "refinement": refinement_log,
+            "boundary_corridors": [asdict(value) for value in corridors],
+            "omitted_pairs": omitted_pairs,
+            "encoder_calls": encoder_calls,
+            "query_scoring_calls": query_scoring_calls,
+            "policy": "boundary-guided-sparsification",
+            "budget_schedule": "qwen-tubelet-scout-plus-refinement-reserve",
+            "constants": constants,
+            "qwen_tubelet_duplication": even_frames,
+            "absolute_timestamps_preserved": True,
+        }
+        if primary_spans:
+            return Prediction(
+                tuple(primary_spans),
+                json.dumps([[span.start, span.end] for span in primary_spans]),
+                {
+                    **common_telemetry,
+                    "prediction_source": "bgs-primary",
+                    "resolved_pair_ids": [
+                        pair.pair_id
+                        for pair in selected
+                        if pair.pair_id not in {value["pair_id"] for value in omitted_pairs}
+                    ],
+                    "omitted_pair_ids": [value["pair_id"] for value in omitted_pairs],
+                    "qwen_fallback_used": False,
+                    "fallback_used": False,
+                    "llm_or_fusion_calls": 0,
+                    "created_evidence": sum(value.size for value in evidence_blocks),
+                    "retained_evidence": None,
+                    "retention_ratio": None,
+                    "evidence_packing": "not_required_for_bgs_primary",
+                    "selected_roles": {},
+                    "protected_anchors": 0,
+                    "cap_induced_role_losses": [],
+                },
+            )
 
-        fallback_used = not selected
+        if not candidates:
+            fallback_reason = "no_candidate"
+        elif not selected:
+            fallback_reason = "budget_rejected"
+        else:
+            fallback_reason = "unresolved_boundaries"
         supplement_times, supplement_roles = _supplementary_timestamps(
             sample.duration, selected, ledger.remaining_frames
         )
@@ -499,7 +633,7 @@ class BoundaryGuidedSparsification(Method):
                 supplement_times = supplement_times[:-1]
                 supplement_roles = supplement_roles[:-1]
             if supplement_times:
-                observe(supplement_times, supplement_roles, "fallback-anchors" if fallback_used else "final-evidence")
+                observe(supplement_times, supplement_roles, "fallback-anchors")
 
         if ledger.requested_frames > ledger.budget:
             raise AssertionError(f"BGS exceeded sampled-frame budget {ledger.budget}")
@@ -511,35 +645,14 @@ class BoundaryGuidedSparsification(Method):
         compact, protected, role_losses = self._pack(merged, merged_scores, corridors, pair_scores, model)
         prediction = model.predict(sample, compact, GroundingContext(0.0, sample.duration))
         role_counts = {role: compact.roles.count(role) for role in sorted(set(compact.roles))}
-        constants = {
-            "cell_seconds": CELL_SECONDS,
-            "persistence": PERSISTENCE,
-            "absent_threshold": ABSENT_THRESHOLD,
-            "present_threshold": PRESENT_THRESHOLD,
-            "maximum_pairs": MAXIMUM_PAIRS,
-            "target_resolution": TARGET_RESOLUTION,
-            "ambiguity_probe_rounds": AMBIGUITY_PROBE_ROUNDS,
-            "retention_ratio": self.retention_ratio,
-        }
         return Prediction(
             prediction.spans,
             prediction.raw_output,
             {
                 **prediction.telemetry,
+                **common_telemetry,
                 **ledger.to_dict(),
                 "sampled_frames": ledger.requested_frames,
-                "coarse_cells": len(logical_scout),
-                "scout_logical_frames": len(logical_scout),
-                "scout_physical_frames": len(scout_times),
-                "coarse_observations": [asdict(value) for value in coarse],
-                "presence_calibration": asdict(calibration),
-                "state_runs": [asdict(value) for value in state_runs],
-                "brackets": [asdict(value) for value in brackets],
-                "candidate_pairs": [asdict(value) for value in candidates],
-                "selected_pair_ids": [value.pair_id for value in selected],
-                "dropped_pair_ids": sorted(dropped_pair_ids),
-                "refinement": refinement_log,
-                "boundary_corridors": [asdict(value) for value in corridors],
                 "selected_roles": role_counts,
                 "protected_anchors": len(protected),
                 "cap_induced_role_losses": role_losses,
@@ -549,22 +662,21 @@ class BoundaryGuidedSparsification(Method):
                 "created_evidence": merged.size,
                 "retained_evidence": compact.size,
                 "retention_ratio": compact.size / merged.size,
-                "fallback_used": fallback_used,
-                "policy": "boundary-guided-sparsification",
-                "constants": constants,
-                "qwen_tubelet_duplication": even_frames,
-                "absolute_timestamps_preserved": True,
+                "prediction_source": "qwen-fallback",
+                "resolved_pair_ids": [],
+                "omitted_pair_ids": [value["pair_id"] for value in omitted_pairs],
+                "qwen_fallback_used": True,
+                "fallback_used": True,
+                "fallback_reason": fallback_reason,
             },
         )
 
     def _refine(
         self,
         pairs: Sequence[EpisodePair],
-        pair_scores: dict[int, float],
         ledger: BudgetLedger,
         even_frames: bool,
         observe,
-        dropped_pair_ids: set[int],
     ) -> list[BoundaryCorridor]:
         corridors: list[BoundaryCorridor] = []
         active: list[_ActiveBoundary] = []
@@ -609,16 +721,7 @@ class BoundaryGuidedSparsification(Method):
             active = unfinished
             if not active:
                 break
-            active = self._fit_batch(
-                active,
-                ledger.remaining_frames,
-                even_frames,
-                pair_scores,
-                dropped_pair_ids,
-                frames_per_item=2 if even_frames else 1,
-            )
-            if not active:
-                break
+            self._fit_batch(active, ledger.remaining_frames, even_frames)
             midpoints = [(value.left + value.right) / 2.0 for value in active]
             observations = observe(
                 midpoints,
@@ -645,14 +748,7 @@ class BoundaryGuidedSparsification(Method):
             for value in unresolved:
                 corridors.append(self._ambiguous_corridor(value, "persistent_uncertainty"))
             if probeable:
-                probeable = self._fit_batch(
-                    probeable,
-                    ledger.remaining_frames,
-                    even_frames,
-                    pair_scores,
-                    dropped_pair_ids,
-                    frames_per_item=4 if even_frames else 2,
-                )
+                self._fit_batch(probeable, ledger.remaining_frames, even_frames, logical_observations=2)
                 probe_times = [
                     timestamp
                     for value in probeable
@@ -679,7 +775,7 @@ class BoundaryGuidedSparsification(Method):
                             next_active.append(value)
                         else:
                             corridors.append(self._ambiguous_corridor(value, "ambiguous_quarter_probes"))
-            active = [value for value in next_active if value.pair_id not in dropped_pair_ids]
+            active = next_active
         return corridors
 
     @staticmethod
@@ -687,21 +783,48 @@ class BoundaryGuidedSparsification(Method):
         values: Sequence[_ActiveBoundary],
         available: int,
         even_frames: bool,
+        logical_observations: int = 1,
+    ) -> None:
+        """Defensively verify admission accounted for the next refinement batch."""
+        frame_count = len(values) * logical_observations * (2 if even_frames else 1)
+        if frame_count > available:
+            raise AssertionError(
+                f"admitted refinement requests {frame_count} frames with {available} remaining"
+            )
+
+    @staticmethod
+    def _resolved_spans(
+        pairs: Sequence[EpisodePair],
+        corridors: Sequence[BoundaryCorridor],
         pair_scores: dict[int, float],
-        dropped_pair_ids: set[int],
-        frames_per_item: int = 1,
-    ) -> list[_ActiveBoundary]:
-        kept = list(values)
-        while kept:
-            frame_count = len(kept) * frames_per_item
-            if even_frames and frame_count % 2:
-                frame_count += 1
-            if frame_count <= available:
-                break
-            drop = min({value.pair_id for value in kept}, key=lambda pair_id: (pair_scores[pair_id], -pair_id))
-            dropped_pair_ids.add(drop)
-            kept = [value for value in kept if value.pair_id != drop]
-        return kept
+    ) -> tuple[tuple[ScoredSpan, ...], list[dict[str, object]]]:
+        by_pair_role = {(value.pair_id, value.role): value for value in corridors}
+        spans: list[ScoredSpan] = []
+        omitted: list[dict[str, object]] = []
+        for pair in sorted(pairs, key=lambda value: value.interval):
+            start = by_pair_role.get((pair.pair_id, "start"))
+            end = by_pair_role.get((pair.pair_id, "end"))
+            if start is None or end is None:
+                omitted.append({"pair_id": pair.pair_id, "reason": "missing_boundary"})
+                continue
+            if start.status != "resolved" or end.status != "resolved":
+                omitted.append(
+                    {
+                        "pair_id": pair.pair_id,
+                        "reason": "unresolved_boundary",
+                        "start_status": start.status,
+                        "end_status": end.status,
+                    }
+                )
+                continue
+            start_time = (start.start + start.end) / 2.0
+            end_time = (end.start + end.end) / 2.0
+            if end_time <= start_time:
+                omitted.append({"pair_id": pair.pair_id, "reason": "non_chronological_endpoints"})
+                continue
+            confidence = max(0.0, pair_scores[pair.pair_id] + (start.confidence + end.confidence) / 2.0)
+            spans.append(ScoredSpan(start_time, end_time, confidence))
+        return tuple(sorted(spans, key=lambda value: (value.start, value.end))), omitted
 
     @staticmethod
     def _finished_corridor(value: _ActiveBoundary) -> BoundaryCorridor:
@@ -737,22 +860,27 @@ class BoundaryGuidedSparsification(Method):
             key=lambda value: (-pair_scores.get(value.pair_id, float("-inf")), value.role, value.start),
         )
         role_losses = []
-        for corridor_index, corridor in enumerate(ranked_corridors):
-            if len(protected) == cap:
-                role_losses.extend(
-                    {"pair_id": value.pair_id, "role": value.role}
-                    for value in ranked_corridors[corridor_index:]
+        for corridor in ranked_corridors:
+            witnesses = []
+            for side, boundary in (("left", corridor.start), ("right", corridor.end)):
+                if side == "left":
+                    candidates = [
+                        index for index, timestamp in enumerate(evidence.timestamps) if timestamp <= boundary
+                    ]
+                else:
+                    candidates = [
+                        index for index, timestamp in enumerate(evidence.timestamps) if timestamp >= boundary
+                    ]
+                if not candidates:
+                    candidates = list(range(evidence.size))
+                witnesses.append(
+                    min(candidates, key=lambda index: (abs(evidence.timestamps[index] - boundary), index))
                 )
-                break
-            candidates = [
-                index
-                for index, timestamp in enumerate(evidence.timestamps)
-                if corridor.start <= timestamp <= corridor.end
-            ]
-            if not candidates:
-                center = (corridor.start + corridor.end) / 2.0
-                candidates = [min(range(evidence.size), key=lambda index: abs(evidence.timestamps[index] - center))]
-            protected.add(max(candidates, key=lambda index: (float(scores[index]), -index)))
+            for side, witness in zip(("left", "right"), witnesses):
+                if witness not in protected and len(protected) >= cap:
+                    role_losses.append({"pair_id": corridor.pair_id, "role": corridor.role, "side": side})
+                    continue
+                protected.add(witness)
         target = min(cap, max(base_target, len(protected)))
         coverage_count = min(target, max(2, math.ceil(math.sqrt(target))))
         coverage = sorted(

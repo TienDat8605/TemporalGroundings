@@ -7,7 +7,7 @@ from pathlib import Path
 
 from ...contracts import GroundingContext, Method, ModelBackend, Prediction, Sample
 from ...media import uniform_timestamps
-from ..budget import BudgetLedger, duration_budget, temporal_anchor_indices
+from ..budget import REFINEMENT_RESERVE_FRAMES, BudgetLedger, duration_budget, temporal_anchor_indices
 from ..hmve import pack_evidence
 
 RETENTION_RATIO = 0.25
@@ -54,5 +54,7 @@ class UniformBudget(Method):
                 "retention_target": self.retention_ratio,
                 "protected_anchors": len(anchors),
                 "policy": "uniform",
+                "budget_schedule": "qwen-tubelet-scout-plus-refinement-reserve",
+                "configured_refinement_reserve_frames": REFINEMENT_RESERVE_FRAMES,
             },
         )

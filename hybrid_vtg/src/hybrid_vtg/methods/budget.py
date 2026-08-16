@@ -10,13 +10,19 @@ from ..contracts import ModelBackend, TemporalEvidence
 
 CELL_SECONDS = 8.0
 TUBELET_OFFSET_SECONDS = 0.25
+REFINEMENT_RESERVE_FRAMES = 64
 
 
 def duration_budget(duration: float) -> int:
-    """Return the locked two-frames-per-eight-second-cell budget."""
+    """Return scout tubelets plus the fixed local-refinement frame reserve.
+
+    Two physical frames preserve each logical eight-second scout observation for
+    Qwen temporal tubelets; the reserve pays for boundary refinement.
+    """
     if duration <= 0:
         raise ValueError("duration must be positive")
-    value = max(64, 2 * math.ceil(duration / CELL_SECONDS))
+    coarse_cells = math.ceil(duration / CELL_SECONDS)
+    value = max(REFINEMENT_RESERVE_FRAMES, 2 * coarse_cells + REFINEMENT_RESERVE_FRAMES)
     return value + value % 2
 
 

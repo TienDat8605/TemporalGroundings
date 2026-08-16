@@ -1,3 +1,4 @@
+import math
 from pathlib import Path
 
 import pytest
@@ -12,12 +13,19 @@ from hybrid_vtg.methods.boundary_guided_sparsification import (
     PresenceCalibration,
     aggregate_query_presence,
     detect_boundaries,
+    estimate_refinement_cost,
     normalize_presence,
     pair_boundaries,
     select_episode_pairs,
+    select_refinement_pairs,
     state_for_score,
 )
-from hybrid_vtg.methods.budget import duplicate_tubelets, duration_budget, scout_timestamps
+from hybrid_vtg.methods.budget import (
+    REFINEMENT_RESERVE_FRAMES,
+    duplicate_tubelets,
+    duration_budget,
+    scout_timestamps,
+)
 from hybrid_vtg.methods.coarse_to_fine_64 import (
     FRAME_BUDGET,
     CoarseToFine64,
@@ -306,10 +314,14 @@ def test_vision_prune_indices_preserve_merge_cells():
 
 
 def test_duration_budget_schedule_is_even_and_duration_scaled():
-    assert duration_budget(4.0) == 64
-    assert duration_budget(150.0) == 64
-    assert duration_budget(17 * 60.0) == 256
-    assert all(duration_budget(value) >= 64 and duration_budget(value) % 2 == 0 for value in (1.0, 60.0, 900.0))
+    assert duration_budget(4.0) == 66
+    assert duration_budget(150.0) == 102
+    assert duration_budget(17 * 60.0) == 320
+    assert all(
+        duration_budget(value) >= 2 * math.ceil(value / 8.0) + REFINEMENT_RESERVE_FRAMES
+        and duration_budget(value) % 2 == 0
+        for value in (1.0, 60.0, 900.0)
+    )
 
 
 def test_scout_timestamps_use_fixed_cells_and_report_qwen_padding():
@@ -376,7 +388,7 @@ def test_present_threshold_includes_point_seventy_five_only():
     assert state_for_score(0.74, calibration) == (0.74, "uncertain")
 
 
-def test_select_episode_pairs_caps_multi_to_sixteen_non_overlapping():
+def test_select_episode_pairs_caps_multi_to_six_non_overlapping():
     pairs = []
     for index in range(24):
         start = float(index * 2)
@@ -391,11 +403,28 @@ def test_select_episode_pairs_caps_multi_to_sixteen_non_overlapping():
         )
 
     selected = select_episode_pairs(pairs, "multi")
-    assert len(selected) == 16
-    assert [value.pair_id for value in selected] == list(range(16))
+    assert len(selected) == 6
+    assert [value.pair_id for value in selected] == list(range(6))
     assert all(
         left.interval[1] <= right.interval[0] for left, right in zip(selected, selected[1:])
     )
+
+
+def test_refinement_admission_only_selects_complete_pair_work_that_fits_reserve():
+    pairs = tuple(
+        EpisodePair(
+            pair_id=index,
+            start=BoundaryBracket(index * 20.0, index * 20.0 + 8.0, "absent", "present", "start", 1.0),
+            end=BoundaryBracket(index * 20.0 + 9.0, index * 20.0 + 17.0, "present", "absent", "end", 1.0),
+            score=float(10 - index),
+        )
+        for index in range(4)
+    )
+    selected, rejected = select_refinement_pairs(pairs, "multi", 64, even_frames=True)
+
+    assert [pair.pair_id for pair in selected] == [0, 1, 2]
+    assert sum(estimate_refinement_cost(pair, True) for pair in selected) == 60
+    assert rejected == ({"pair_id": 3, "reason": "refinement_budget", "estimated_frames": 20},)
 
 
 def test_persistent_transitions_pair_without_isolated_noise():
@@ -465,20 +494,38 @@ def test_uniform_budget_uses_exact_matched_frame_ledger():
     assert result.telemetry["retention_target"] == 0.25
 
 
-def test_bgs_refines_directional_brackets_with_one_final_prediction():
+def test_bgs_primary_returns_resolved_directional_brackets_without_prediction_call():
     sample = Sample("bgs", "video", Path(__file__), 48.0, "event", cardinality="multi")
     backend = _ScriptedBoundaryBackend()
     result = BoundaryGuidedSparsification().run(sample, backend, Path("unused"))
     corridors = result.telemetry["boundary_corridors"]
     assert len(corridors) == 2
     assert all(value["end"] - value["start"] <= 1.0 for value in corridors)
-    assert backend.predict_calls == result.telemetry["llm_or_fusion_calls"] == 1
-    assert backend.requested_frames == result.telemetry["requested_frames"] == result.telemetry["budget"]
-    assert result.telemetry["remaining_frames"] == 0
+    assert result.spans and result.spans[0].start < result.spans[0].end
+    assert backend.predict_calls == result.telemetry["llm_or_fusion_calls"] == 0
+    assert result.telemetry["prediction_source"] == "bgs-primary"
+    assert result.telemetry["qwen_fallback_used"] is False
+    assert result.raw_output == "[[17.5, 30.5]]"
+    assert backend.requested_frames == result.telemetry["requested_frames"] < result.telemetry["budget"]
     assert BoundaryGuidedSparsification().retention_ratio == 0.25
     assert result.telemetry["constants"]["present_threshold"] == 0.75
-    assert result.telemetry["constants"]["maximum_pairs"] == 16
+    assert result.telemetry["constants"]["maximum_pairs"] == 6
     assert result.telemetry["constants"]["retention_ratio"] == 0.25
+
+
+def test_bgs_uses_one_qwen_fallback_for_no_candidate_pair():
+    class _NoCandidateBackend(_ScriptedBoundaryBackend):
+        def query_scores(self, evidence, query):
+            del query
+            return torch.zeros(evidence.size)
+
+    sample = Sample("bgs-none", "video", Path(__file__), 48.0, "event")
+    backend = _NoCandidateBackend()
+    result = BoundaryGuidedSparsification().run(sample, backend, Path("unused"))
+
+    assert result.telemetry["prediction_source"] == "qwen-fallback"
+    assert result.telemetry["fallback_reason"] == "no_candidate"
+    assert result.telemetry["llm_or_fusion_calls"] == backend.predict_calls == 1
 
 
 def test_bgs_supports_qwen_style_rows_and_preserves_ambiguous_corridors():
@@ -492,6 +539,8 @@ def test_bgs_supports_qwen_style_rows_and_preserves_ambiguous_corridors():
     assert result.telemetry["duplicate_padding_frames"] >= 0
     assert result.telemetry["retained_evidence"] <= backend.maximum_evidence_units
     assert backend.predict_calls == 1
+    assert result.telemetry["prediction_source"] == "qwen-fallback"
+    assert result.telemetry["fallback_reason"] == "unresolved_boundaries"
 
 
 def test_bgs_counts_qwen_tubelet_duplicates_in_its_frame_ledger():
@@ -502,9 +551,10 @@ def test_bgs_counts_qwen_tubelet_duplicates_in_its_frame_ledger():
     assert result.telemetry["qwen_tubelet_duplication"] is True
     assert result.telemetry["scout_logical_frames"] == 6
     assert result.telemetry["scout_physical_frames"] == 12
+    assert result.telemetry["scout_remaining_frames"] == REFINEMENT_RESERVE_FRAMES
     assert len(result.telemetry["coarse_observations"]) == result.telemetry["coarse_cells"] == 6
     assert result.telemetry["tubelet_duplicate_frames"] >= 6
-    assert backend.requested_frames == result.telemetry["requested_frames"] == result.telemetry["budget"]
+    assert backend.requested_frames == result.telemetry["requested_frames"] < result.telemetry["budget"]
 
 
 def test_qwen_encode_disables_processor_frame_sampling(monkeypatch, tmp_path):
