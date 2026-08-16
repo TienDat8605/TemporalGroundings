@@ -180,6 +180,13 @@ def run_benchmark(
         post_pruning,
         post_retention,
     )
+    if method_name == "anchored-corridor-64" and (
+        encoder_pruning != "none" or post_pruning != "none"
+    ):
+        raise ValueError(
+            "anchored-corridor-64 currently requires dense evidence; run Mage and SemVID "
+            "as separate follow-up ablations"
+        )
     load_builtin_plugins()
     benchmark = BENCHMARKS.create(benchmark_name)
     data = data.expanduser().resolve()
@@ -261,6 +268,20 @@ def run_benchmark(
             "post_policy": post_pruning,
             "post_retention": post_retention,
         }
+    if method_name == "anchored-corridor-64":
+        manifest["method_config"] = {
+            "grounding_frame_budget": 64,
+            "maximum_routed_windows": 16,
+            "router_frames_per_window": 4,
+            "query_views": ["raw", "coarse", "actions", "details"],
+            "raw_query_weight": 0.5,
+            "expanded_query_max_weight": 0.5,
+            "routing_margin": 0.5,
+            "corridor_context_seconds": 4.0,
+            "corridor_max_seconds": 64.0,
+            "maximum_encoder_calls": 1,
+            "maximum_primary_grounder_calls": 1,
+        }
     hyperparameters = {
         "benchmark": benchmark_name,
         "model": model_name,
@@ -276,6 +297,7 @@ def run_benchmark(
         "encoder_prune_layer": encoder_prune_layer,
         "post_pruning": post_pruning,
         "post_retention": post_retention,
+        "method_config": manifest.get("method_config"),
     }
     run_dir = run_directory(
         results_root,

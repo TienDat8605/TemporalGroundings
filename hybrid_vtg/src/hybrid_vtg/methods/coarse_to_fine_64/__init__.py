@@ -38,6 +38,21 @@ ROUTER_WINDOW_WEIGHT = 0.5
 ROUTER_FRAME_MAX_WEIGHT = 0.7
 ROUTER_DIVERSITY_WEIGHT = 0.15
 ROUTER_EMBED_BATCH_SIZE = 4
+ROUTER_QUERY_VIEWS = {
+    "raw": ROUTER_TEXT_INSTRUCTION,
+    "coarse": (
+        "Retrieve video segments matching the high-level intent and complete activity described "
+        "by the query, including semantically equivalent ways the activity may appear"
+    ),
+    "actions": (
+        "Retrieve video segments showing the concrete action sequence implied by the query. "
+        "Emphasize intermediate steps and state transitions"
+    ),
+    "details": (
+        "Retrieve video segments matching the query's actors, objects, interactions, direction, "
+        "and fine motion details, including brief occurrences"
+    ),
+}
 
 
 @dataclass(frozen=True)
@@ -483,6 +498,30 @@ class EmbeddingRouter:
             for (path, _), embedding in zip(batch, embeddings):
                 self._write_cache(path, embedding[None, :])
 
+    def cache_query_views(self, queries: Sequence[str], cache_root: Path) -> None:
+        """Batch every missing multi-granularity text view before grounding."""
+        missing: list[tuple[Path, str, str]] = []
+        seen: set[Path] = set()
+        for query in queries:
+            for instruction in ROUTER_QUERY_VIEWS.values():
+                path = self._query_cache_path(query, cache_root, instruction=instruction)
+                if path in seen or self._read_cache(path, rows=1) is not None:
+                    continue
+                seen.add(path)
+                missing.append((path, query, instruction))
+        for start in range(0, len(missing), ROUTER_EMBED_BATCH_SIZE):
+            batch = missing[start : start + ROUTER_EMBED_BATCH_SIZE]
+            embeddings = self._encode(
+                [
+                    {"text": query, "instruction": instruction}
+                    for _, query, instruction in batch
+                ]
+            )
+            if embeddings.ndim != 2 or embeddings.shape[0] != len(batch) or embeddings.shape[1] == 0:
+                raise RuntimeError(f"router returned invalid query embeddings: {embeddings.shape}")
+            for (path, _, _), embedding in zip(batch, embeddings):
+                self._write_cache(path, embedding[None, :])
+
     def unload(self, *, fallback_device: str = "cpu") -> None:
         """Release router weights before the grounding checkpoint occupies the GPU."""
         used_cuda = self._model is not None and self.device.startswith("cuda")
@@ -522,17 +561,40 @@ class EmbeddingRouter:
         np.savez_compressed(temporary, embeddings=embeddings)
         temporary.replace(path)
 
-    def _query_cache_path(self, query: str, cache_root: Path) -> Path:
+    def _query_cache_path(
+        self,
+        query: str,
+        cache_root: Path,
+        *,
+        instruction: str = ROUTER_TEXT_INSTRUCTION,
+    ) -> Path:
         identity = {
             "schema": ROUTER_CACHE_SCHEMA,
             "policy": ROUTER_POLICY,
             "model_id": self.model_id,
             "revision": self.revision,
-            "instruction": ROUTER_TEXT_INSTRUCTION,
+            "instruction": instruction,
             "query": query,
         }
         digest = hashlib.sha256(json.dumps(identity, sort_keys=True).encode("utf-8")).hexdigest()
         return cache_root / "router" / "queries" / f"{digest}.npz"
+
+    def _query_embedding(
+        self,
+        query: str,
+        cache_root: Path,
+        *,
+        instruction: str,
+    ) -> tuple[np.ndarray, bool, Path]:
+        path = self._query_cache_path(query, cache_root, instruction=instruction)
+        embedding = self._read_cache(path, rows=1)
+        hit = embedding is not None
+        if embedding is None:
+            embedding = self._encode([{"text": query, "instruction": instruction}])
+            if embedding.ndim != 2 or embedding.shape[0] != 1 or embedding.shape[1] == 0:
+                raise RuntimeError(f"router returned invalid query embeddings: {embedding.shape}")
+            self._write_cache(path, embedding)
+        return embedding, hit, path
 
     def _video_cache_path(
         self,
@@ -673,6 +735,102 @@ class EmbeddingRouter:
             },
         }
         return scores
+
+    @staticmethod
+    def _scores_for_query(
+        query: np.ndarray,
+        video_embeddings: np.ndarray,
+        window_count: int,
+        frames_per_window: int,
+    ) -> tuple[list[float], list[float], list[float]]:
+        window_embeddings = video_embeddings[:window_count]
+        frame_embeddings = video_embeddings[window_count:]
+        window_scores = window_embeddings @ query
+        frame_scores = frame_embeddings @ query
+        occurrence_scores: list[float] = []
+        for index in range(window_count):
+            values = np.sort(
+                frame_scores[index * frames_per_window : (index + 1) * frames_per_window]
+            )[::-1]
+            top_two_mean = float(values[: min(2, len(values))].mean())
+            occurrence_scores.append(
+                ROUTER_FRAME_MAX_WEIGHT * float(values[0])
+                + (1.0 - ROUTER_FRAME_MAX_WEIGHT) * top_two_mean
+            )
+        scores = [
+            ROUTER_WINDOW_WEIGHT * float(window_score)
+            + (1.0 - ROUTER_WINDOW_WEIGHT) * occurrence_score
+            for window_score, occurrence_score in zip(window_scores, occurrence_scores)
+        ]
+        return scores, [float(value) for value in window_scores], occurrence_scores
+
+    def rank_multigranular(
+        self,
+        sample: Sample,
+        windows: Sequence[Window],
+        frames_per_window: int,
+        cache_root: Path,
+    ) -> list[float]:
+        """Rank windows through raw, intent, action, and detail query views.
+
+        The embedding model's retrieval instruction supplies deterministic semantic
+        views without loading a second generative checkpoint. The raw score remains
+        half of the aggregate so an expansive view cannot completely override the
+        user's exact wording.
+        """
+        raw_scores = self.rank(sample, windows, frames_per_window, cache_root)
+        raw_telemetry = dict(self.last_telemetry)
+        video_path, _ = self._video_cache_path(sample, windows, frames_per_window, cache_root)
+        expected_rows = len(windows) * (frames_per_window + 1)
+        video_embeddings = self._read_cache(video_path, rows=expected_rows)
+        if video_embeddings is None:
+            raise RuntimeError("router video embeddings disappeared after ranking")
+
+        view_scores = {"raw": raw_scores}
+        view_cache_hits = {"raw": bool(raw_telemetry.get("query_embedding_cache_hit"))}
+        view_cache_paths = {"raw": str(raw_telemetry.get("query_embedding_cache", ""))}
+        for name, instruction in ROUTER_QUERY_VIEWS.items():
+            if name == "raw":
+                continue
+            query, hit, path = self._query_embedding(
+                sample.query,
+                cache_root,
+                instruction=instruction,
+            )
+            if query.shape != (1, video_embeddings.shape[1]):
+                raise RuntimeError(
+                    f"router embedding dimensions differ: query {query.shape}, "
+                    f"video {video_embeddings.shape}"
+                )
+            scores, _, _ = self._scores_for_query(
+                query[0], video_embeddings, len(windows), frames_per_window
+            )
+            view_scores[name] = scores
+            view_cache_hits[name] = hit
+            view_cache_paths[name] = str(path)
+
+        expanded_names = [name for name in ROUTER_QUERY_VIEWS if name != "raw"]
+        expanded_max = [
+            max(view_scores[name][index] for name in expanded_names)
+            for index in range(len(windows))
+        ]
+        aggregate = [
+            0.5 * raw_scores[index] + 0.5 * expanded_max[index]
+            for index in range(len(windows))
+        ]
+        self.last_telemetry = {
+            **raw_telemetry,
+            "embedding_policy": f"{ROUTER_POLICY}-multigranular-v1",
+            "query_views": list(ROUTER_QUERY_VIEWS),
+            "query_view_scores": view_scores,
+            "query_view_cache_hits": view_cache_hits,
+            "query_view_cache_paths": view_cache_paths,
+            "query_view_aggregate": {
+                "raw_weight": 0.5,
+                "expanded_max_weight": 0.5,
+            },
+        }
+        return aggregate
 
 
 class CoarseToFine64(Method):

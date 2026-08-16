@@ -99,6 +99,20 @@ def test_native_allows_unitime_pruning_until_data_validation(tmp_path):
         )
 
 
+def test_anchored_corridor_rejects_pruning_before_loading_data(tmp_path):
+    with pytest.raises(ValueError, match="requires dense evidence"):
+        run_benchmark(
+            benchmark_name="omtg",
+            data=tmp_path / "missing",
+            model_name="timelens2-4b",
+            method_name="anchored-corridor-64",
+            percentage=1,
+            seed=1,
+            post_pruning="semvid",
+            post_retention=0.125,
+        )
+
+
 def test_manifest_mismatch_requires_rerun(tmp_path):
     path = tmp_path / "manifest.json"
     ensure_manifest(path, {"revision": "old"})

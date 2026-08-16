@@ -1,11 +1,36 @@
 # Hybrid VTG
 
-Hybrid VTG is a test-only runner for frozen-model video temporal grounding. This branch intentionally contains two inference methods:
+Hybrid VTG is a test-only runner for frozen-model video temporal grounding. This branch contains three inference methods:
 
+- `anchored-corridor-64`: multi-view semantic routing, safe full-video fallback, and one globally anchored grounding call with exactly 64 evidence frames.
 - `coarse-to-fine-64`: scene-window routing and local grounding under a strict 64 source-frame budget.
 - `native`: checkpoint-native inference for UniTime, TimeLens, and TimeLens2.
 
 No training or fine-tuning is performed. The reusable Qwen backends still support independent Mage encoder pruning and SemVID post-encoder pruning.
+
+## One-call anchored corridor grounding
+
+`anchored-corridor-64` is the one-call successor experiment to the independent-window baseline:
+
+1. Reuse cached content-aware windows and the Qwen3-VL-Embedding-2B visual index.
+2. Rank with raw, coarse-intent, action-sequence, and object/motion-detail query views.
+3. Accept hard routing only when query views and visual views agree and the robust score margin is at least `0.5`; otherwise fail open to uniform full-video evidence.
+4. Protect one global anchor for every routed macro-window and spend the rest of exactly 64 grounding frames inside the selected corridor(s).
+5. Encode the chronological evidence plan once and make one primary grounding call in original-video time.
+
+The router index has a separate cold/cache ledger and is not hidden inside the 64-frame grounding budget. This first implementation requires dense evidence; Mage and SemVID remain separate follow-up ablations until anchor-aware pruning is validated.
+
+Run the full OMTG experiment with the stronger `tmp3` backend:
+
+```bash
+hybrid-vtg run \
+  --benchmark omtg \
+  --data ./assets/datasets/omtg \
+  --model timelens2-4b \
+  --method anchored-corridor-64 \
+  --subset 100 \
+  --seed 42
+```
 
 ## Scene-window coarse-to-fine grounding
 

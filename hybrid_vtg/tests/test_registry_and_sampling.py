@@ -15,6 +15,7 @@ def sample(index: int) -> Sample:
 def test_builtin_surface_is_exactly_the_requested_matrix():
     load_builtin_plugins()
     assert METHODS.names() == (
+        "anchored-corridor-64",
         "coarse-to-fine-64",
         "native",
     )
