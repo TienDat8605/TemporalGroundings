@@ -9,6 +9,7 @@ from typing import Sequence
 from ..contracts import ModelBackend, TemporalEvidence
 
 CELL_SECONDS = 8.0
+TUBELET_OFFSET_SECONDS = 0.25
 
 
 def duration_budget(duration: float) -> int:
@@ -47,17 +48,30 @@ def duplicate_tubelets(
     timestamps: Sequence[float],
     roles: Sequence[str],
     qwen_tubelets: bool,
-) -> tuple[tuple[float, ...], tuple[str, ...], int]:
-    """Duplicate logical observations into two-frame identical Qwen tubelets."""
+    duration: float | None = None,
+) -> tuple[tuple[float, ...], tuple[str, ...], int, tuple[int, ...]]:
+    """Expand logical observations into two-frame Qwen tubelets plus logical mapping."""
     values = tuple(float(value) for value in timestamps)
     values_roles = tuple(roles)
     if len(values) != len(values_roles):
         raise ValueError("timestamps and roles must align")
     if not qwen_tubelets:
-        return values, values_roles, 0
-    duplicated_timestamps = tuple(value for value in values for _ in range(2))
-    duplicated_roles = tuple(role for role in values_roles for _ in range(2))
-    return duplicated_timestamps, duplicated_roles, len(values)
+        return values, values_roles, 0, tuple(range(len(values)))
+    if duration is None or duration <= 0:
+        raise ValueError("duration must be positive when qwen_tubelets is enabled")
+    duplicated_timestamps: list[float] = []
+    duplicated_roles: list[str] = []
+    logical_indices: list[int] = []
+    for logical_index, (value, role) in enumerate(zip(values, values_roles)):
+        duplicated_timestamps.extend(
+            (
+                max(0.0, value - TUBELET_OFFSET_SECONDS),
+                min(float(duration), value + TUBELET_OFFSET_SECONDS),
+            )
+        )
+        duplicated_roles.extend((role, role))
+        logical_indices.extend((logical_index, logical_index))
+    return tuple(duplicated_timestamps), tuple(duplicated_roles), len(values), tuple(logical_indices)
 
 
 @dataclass

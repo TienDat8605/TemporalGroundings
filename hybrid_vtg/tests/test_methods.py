@@ -1,16 +1,20 @@
 from pathlib import Path
 
+import pytest
 import torch
 
 from hybrid_vtg.contracts import GroundingContext, ModelBackend, Prediction, Sample, TemporalEvidence
 from hybrid_vtg.methods.boundary_guided_sparsification import (
+    BoundaryBracket,
     BoundaryGuidedSparsification,
     CoarseObservation,
+    EpisodePair,
     PresenceCalibration,
     aggregate_query_presence,
     detect_boundaries,
     normalize_presence,
     pair_boundaries,
+    select_episode_pairs,
     state_for_score,
 )
 from hybrid_vtg.methods.budget import duplicate_tubelets, duration_budget, scout_timestamps
@@ -314,16 +318,23 @@ def test_scout_timestamps_use_fixed_cells_and_report_qwen_padding():
     assert padding == 1
 
 
-def test_duplicate_tubelets_preserve_logical_timestamp_roles():
-    timestamps, roles, duplicates = duplicate_tubelets((4.0, 12.0, 20.0), ("a", "b", "c"), True)
-    assert timestamps == (4.0, 4.0, 12.0, 12.0, 20.0, 20.0)
+def test_duplicate_tubelets_create_clamped_micro_windows_with_logical_mapping():
+    timestamps, roles, duplicates, logical_indices = duplicate_tubelets(
+        (0.1, 12.0, 20.0),
+        ("a", "b", "c"),
+        True,
+        duration=20.1,
+    )
+    assert timestamps == pytest.approx((0.0, 0.35, 11.75, 12.25, 19.75, 20.1))
     assert roles == ("a", "a", "b", "b", "c", "c")
     assert duplicates == 3
+    assert logical_indices == (0, 0, 1, 1, 2, 2)
 
-    timestamps, roles, duplicates = duplicate_tubelets((4.0,), ("a",), False)
+    timestamps, roles, duplicates, logical_indices = duplicate_tubelets((4.0,), ("a",), False)
     assert timestamps == (4.0,)
     assert roles == ("a",)
     assert duplicates == 0
+    assert logical_indices == (0,)
 
 
 def test_presence_aggregation_uses_upper_quartile_mean_not_maximum():
@@ -331,6 +342,20 @@ def test_presence_aggregation_uses_upper_quartile_mean_not_maximum():
     observations = aggregate_query_presence(evidence, torch.tensor([100.0, 1.0, 1.0, 1.0, 1.0]))
     assert observations[0].aggregate == 50.5
     assert observations[0].aggregate < 100.0
+
+
+def test_presence_aggregation_can_group_qwen_micro_windows_by_logical_index():
+    evidence = TemporalEvidence(torch.eye(4), (3.75, 4.25, 11.75, 12.25), 4)
+    observations = aggregate_query_presence(
+        evidence,
+        torch.tensor([1.0, 3.0, 2.0, 4.0]),
+        logical_indices=(0, 0, 1, 1),
+    )
+    assert len(observations) == 2
+    assert observations[0].timestamp == pytest.approx(4.0)
+    assert observations[1].timestamp == pytest.approx(12.0)
+    assert observations[0].aggregate == 3.0
+    assert observations[1].aggregate == 4.0
 
 
 def test_median_mad_states_and_constant_timeline():
@@ -349,6 +374,28 @@ def test_present_threshold_includes_point_seventy_five_only():
     calibration = PresenceCalibration(median=0.0, mad=1.0, scale=1.0)
     assert state_for_score(0.75, calibration) == (0.75, "present")
     assert state_for_score(0.74, calibration) == (0.74, "uncertain")
+
+
+def test_select_episode_pairs_caps_multi_to_sixteen_non_overlapping():
+    pairs = []
+    for index in range(24):
+        start = float(index * 2)
+        end = start + 1.0
+        pairs.append(
+            EpisodePair(
+                pair_id=index,
+                start=BoundaryBracket(start - 0.5, start, "absent", "present", "start", 1.0),
+                end=BoundaryBracket(end, end + 0.5, "present", "absent", "end", 1.0),
+                score=float(100 - index),
+            )
+        )
+
+    selected = select_episode_pairs(pairs, "multi")
+    assert len(selected) == 16
+    assert [value.pair_id for value in selected] == list(range(16))
+    assert all(
+        left.interval[1] <= right.interval[0] for left, right in zip(selected, selected[1:])
+    )
 
 
 def test_persistent_transitions_pair_without_isolated_noise():
@@ -430,6 +477,7 @@ def test_bgs_refines_directional_brackets_with_one_final_prediction():
     assert result.telemetry["remaining_frames"] == 0
     assert BoundaryGuidedSparsification().retention_ratio == 0.25
     assert result.telemetry["constants"]["present_threshold"] == 0.75
+    assert result.telemetry["constants"]["maximum_pairs"] == 16
     assert result.telemetry["constants"]["retention_ratio"] == 0.25
 
 
@@ -454,6 +502,7 @@ def test_bgs_counts_qwen_tubelet_duplicates_in_its_frame_ledger():
     assert result.telemetry["qwen_tubelet_duplication"] is True
     assert result.telemetry["scout_logical_frames"] == 6
     assert result.telemetry["scout_physical_frames"] == 12
+    assert len(result.telemetry["coarse_observations"]) == result.telemetry["coarse_cells"] == 6
     assert result.telemetry["tubelet_duplicate_frames"] >= 6
     assert backend.requested_frames == result.telemetry["requested_frames"] == result.telemetry["budget"]
 

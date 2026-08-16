@@ -25,7 +25,7 @@ from ..hmve import pack_evidence
 PERSISTENCE = 2
 ABSENT_THRESHOLD = 0.0
 PRESENT_THRESHOLD = 0.75
-MAXIMUM_PAIRS = 6
+MAXIMUM_PAIRS = 16
 TARGET_RESOLUTION = 1.0
 AMBIGUITY_PROBE_ROUNDS = 1
 RETENTION_RATIO = 0.25
@@ -106,21 +106,36 @@ class _ActiveBoundary:
     ambiguity_probes: int = 0
 
 
-def aggregate_query_presence(evidence: TemporalEvidence, scores) -> tuple[CoarseObservation, ...]:
+def aggregate_query_presence(
+    evidence: TemporalEvidence,
+    scores,
+    logical_indices: Sequence[int] | None = None,
+) -> tuple[CoarseObservation, ...]:
     """Aggregate spatial rows at each timestamp with an upper-quartile mean."""
-    grouped: dict[float, list[tuple[float, int]]] = {}
-    for index, (timestamp, score) in enumerate(zip(evidence.timestamps, scores.tolist())):
-        grouped.setdefault(round(float(timestamp), 6), []).append((float(score), index))
+    grouped: dict[int | float, list[tuple[float, int, float]]] = {}
+    if logical_indices is not None:
+        if len(logical_indices) != evidence.size:
+            raise ValueError("logical_indices must align with evidence rows")
+        for index, (logical, timestamp, score) in enumerate(
+            zip(logical_indices, evidence.timestamps, scores.tolist())
+        ):
+            grouped.setdefault(int(logical), []).append((float(score), index, float(timestamp)))
+        ordered = sorted(grouped.items(), key=lambda value: value[0])
+    else:
+        for index, (timestamp, score) in enumerate(zip(evidence.timestamps, scores.tolist())):
+            grouped.setdefault(round(float(timestamp), 6), []).append((float(score), index, float(timestamp)))
+        ordered = sorted(grouped.items(), key=lambda value: float(value[0]))
     observations = []
-    for timestamp, values in sorted(grouped.items()):
-        ranked = sorted((value for value, _ in values), reverse=True)
+    for _, values in ordered:
+        ranked = sorted((value for value, _, _ in values), reverse=True)
         count = max(1, math.ceil(len(ranked) / 4))
+        timestamp = sum(value_timestamp for _, _, value_timestamp in values) / len(values)
         observations.append(
             CoarseObservation(
                 timestamp=timestamp,
-                raw_scores=tuple(value for value, _ in values),
+                raw_scores=tuple(value for value, _, _ in values),
                 aggregate=sum(ranked[:count]) / count,
-                row_indices=tuple(index for _, index in values),
+                row_indices=tuple(index for _, index, _ in values),
             )
         )
     return tuple(observations)
@@ -305,6 +320,19 @@ def _evidence_roles(evidence: TemporalEvidence, timestamps: Sequence[float], rol
     )
 
 
+def _evidence_logical_indices(
+    evidence: TemporalEvidence,
+    timestamps: Sequence[float],
+    logical_indices: Sequence[int],
+) -> tuple[int, ...]:
+    if len(timestamps) != len(logical_indices):
+        raise ValueError("timestamps and logical_indices must align")
+    return tuple(
+        int(logical_indices[min(range(len(timestamps)), key=lambda index: (abs(timestamps[index] - value), index))])
+        for value in evidence.timestamps
+    )
+
+
 def _nearest_observation(observations: Sequence[CoarseObservation], timestamp: float) -> CoarseObservation:
     return min(observations, key=lambda value: (abs(value.timestamp - timestamp), value.timestamp))
 
@@ -345,10 +373,11 @@ class BoundaryGuidedSparsification(Method):
         query_scoring_calls = 0
 
         logical_scout, _ = scout_timestamps(sample.duration)
-        scout_times, _, scout_duplicates = duplicate_tubelets(
+        scout_times, _, scout_duplicates, scout_logical_indices = duplicate_tubelets(
             logical_scout,
             ("global_anchor",) * len(logical_scout),
             even_frames,
+            sample.duration,
         )
         ledger.reserve(scout_times, tubelet_duplicates=scout_duplicates)
         scout = model.encode(sample, scout_times)
@@ -356,7 +385,13 @@ class BoundaryGuidedSparsification(Method):
         scout.roles = ("global_anchor",) * scout.size
         scout_scores = model.query_scores(scout, sample.query)
         query_scoring_calls += 1
-        coarse_raw = aggregate_query_presence(scout, scout_scores)
+        coarse_raw = aggregate_query_presence(
+            scout,
+            scout_scores,
+            logical_indices=(
+                _evidence_logical_indices(scout, scout_times, scout_logical_indices) if even_frames else None
+            ),
+        )
         if even_frames and len(coarse_raw) != len(logical_scout):
             raise AssertionError(
                 f"Qwen produced {len(coarse_raw)} scout units for "
@@ -365,6 +400,7 @@ class BoundaryGuidedSparsification(Method):
         coarse, calibration = normalize_presence(coarse_raw)
         scout.metadata["logical_timestamps"] = [float(value) for value in logical_scout]
         scout.metadata["physical_timestamps"] = [float(value) for value in scout_times]
+        scout.metadata["logical_indices"] = [int(value) for value in scout_logical_indices]
         scout.metadata["effective_temporal_units"] = len(coarse_raw)
         scout.metadata["query_presence"] = [asdict(value) for value in coarse]
         evidence_blocks.append(scout)
@@ -385,12 +421,18 @@ class BoundaryGuidedSparsification(Method):
         ) -> tuple[CoarseObservation, ...]:
             nonlocal encoder_calls, query_scoring_calls
             if preserve_logical_observations:
-                physical_times, physical_roles, tubelet_duplicates = duplicate_tubelets(times, roles, even_frames)
+                physical_times, physical_roles, tubelet_duplicates, logical_indices = duplicate_tubelets(
+                    times,
+                    roles,
+                    even_frames,
+                    sample.duration,
+                )
                 padding = 0
             else:
                 physical_times, padding = pad_even(times, even_frames)
                 physical_roles = tuple(roles) + ((roles[-1],) if padding else ())
                 tubelet_duplicates = 0
+                logical_indices = tuple(range(len(physical_times)))
             if len(physical_times) > ledger.remaining_frames:
                 raise AssertionError(
                     f"{stage} requests {len(physical_times)} frames with {ledger.remaining_frames} remaining"
@@ -401,7 +443,15 @@ class BoundaryGuidedSparsification(Method):
             evidence.roles = _evidence_roles(evidence, physical_times, physical_roles)
             scores = model.query_scores(evidence, sample.query)
             query_scoring_calls += 1
-            raw = aggregate_query_presence(evidence, scores)
+            raw = aggregate_query_presence(
+                evidence,
+                scores,
+                logical_indices=(
+                    _evidence_logical_indices(evidence, physical_times, logical_indices)
+                    if preserve_logical_observations and even_frames
+                    else None
+                ),
+            )
             if preserve_logical_observations and even_frames and len(raw) != len(times):
                 raise AssertionError(
                     f"Qwen temporal collapse in {stage}: "
@@ -419,6 +469,7 @@ class BoundaryGuidedSparsification(Method):
                     "stage": stage,
                     "requested_timestamps": [float(value) for value in times],
                     "physical_timestamps": [float(value) for value in physical_times],
+                    "logical_indices": [int(value) for value in logical_indices],
                     "padding_frames": padding,
                     "tubelet_duplicate_frames": tubelet_duplicates,
                     "effective_temporal_units": len(raw),
