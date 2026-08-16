@@ -68,6 +68,7 @@ Python 3.10 or newer is required. Install a PyTorch build compatible with the ma
 python -m venv .venv
 source .venv/bin/activate
 pip install -e '.[downloads,test]'
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
 ```
 
 The base dependencies include headless OpenCV, PySceneDetect, Transformers, Sentence Transformers, and the Qwen video utilities. CUDA is strongly recommended for the generative grounder; the embedding router intentionally stays on CPU.
