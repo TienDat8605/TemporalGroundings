@@ -11,6 +11,7 @@ from typing import Sequence
 
 from ...contracts import GroundingContext, Method, ModelBackend, Prediction, Sample, ScoredSpan, TemporalEvidence
 from ...media import uniform_timestamps
+from ...postprocess import temporal_nms
 from ..budget import (
     CELL_SECONDS,
     REFINEMENT_RESERVE_FRAMES,
@@ -31,6 +32,14 @@ MAXIMUM_PAIRS = 6
 TARGET_RESOLUTION = 1.0
 AMBIGUITY_PROBE_ROUNDS = 1
 RETENTION_RATIO = 0.25
+RESCUE_RESERVE_FRAMES = 16
+RESCUE_SUBCELLS = 2
+CANDIDATE_WINDOW_PADDING = 2.0
+MAXIMUM_CONSERVATIVE_BOUNDARY_WIDTH = 8.0
+AMBIGUITY_CONFIDENCE_PENALTY = 0.5
+INTERVAL_LENGTH_PENALTY = 0.05
+INTERIOR_CONSISTENCY_PENALTY = 1.0
+MAXIMUM_PAIR_INTERVAL = CELL_SECONDS * 4
 
 
 @dataclass(frozen=True)
@@ -257,15 +266,103 @@ def pair_boundaries(
             provisional = EpisodePair(len(pairs), pending, bracket, 0.0)
             start, end = provisional.interval
             if end > start:
-                inside = [_normalized(value) for value in observations if start <= value.timestamp <= end]
-                before = [_normalized(value) for value in observations if value.timestamp < start]
-                after = [_normalized(value) for value in observations if value.timestamp > end]
-                immediate_outside = before[-1:] + after[:1]
-                contrast = _mean(inside) - _mean(immediate_outside)
-                score = pending.confidence + bracket.confidence + contrast
+                score = _pair_reliability(pending, bracket, observations, start, end)
                 pairs.append(replace(provisional, score=score))
             pending = None
     return tuple(pairs)
+
+
+def _pair_reliability(
+    start_bracket: BoundaryBracket,
+    end_bracket: BoundaryBracket,
+    observations: Sequence[CoarseObservation],
+    start: float,
+    end: float,
+) -> float:
+    interior = [value for value in observations if start <= value.timestamp <= end]
+    present = [value for value in interior if value.state == "present"]
+    confident_ratio = len(present) / len(interior) if interior else 0.0
+    witness_strength = _magnitude(_nearest_observation(observations, start)) + _magnitude(
+        _nearest_observation(observations, end)
+    )
+    compactness = 1.0 / (1.0 + (end - start) / CELL_SECONDS)
+    return (
+        start_bracket.confidence
+        + end_bracket.confidence
+        + witness_strength
+        + confident_ratio
+        + compactness
+        - INTERVAL_LENGTH_PENALTY * (end - start)
+    )
+
+
+def reject_invalid_pairs(
+    pairs: Sequence[EpisodePair], observations: Sequence[CoarseObservation]
+) -> tuple[tuple[EpisodePair, ...], tuple[dict[str, object], ...]]:
+    valid: list[EpisodePair] = []
+    rejected: list[dict[str, object]] = []
+    for pair in pairs:
+        start, end = pair.interval
+        if end - start > MAXIMUM_PAIR_INTERVAL:
+            rejected.append({"pair_id": pair.pair_id, "reason": "distant_interval"})
+            continue
+        interior = [value for value in observations if start < value.timestamp < end]
+        absent_run = 0
+        maximum_absent_run = 0
+        for value in interior:
+            if value.state == "absent" and _magnitude(value) >= INTERIOR_CONSISTENCY_PENALTY:
+                absent_run += 1
+                maximum_absent_run = max(maximum_absent_run, absent_run)
+            else:
+                absent_run = 0
+        if maximum_absent_run >= PERSISTENCE:
+            rejected.append({"pair_id": pair.pair_id, "reason": "absent_interior_run"})
+            continue
+        valid.append(pair)
+    return tuple(valid), tuple(rejected)
+
+
+def rescue_timestamps(
+    observations: Sequence[CoarseObservation], duration: float, maximum: int
+) -> tuple[tuple[float, ...], tuple[dict[str, object], ...]]:
+    ranked = sorted(
+        enumerate(observations),
+        key=lambda item: (
+            not (
+                item[1].state == "present"
+                and (item[0] == 0 or observations[item[0] - 1].state != "present")
+                and (item[0] == len(observations) - 1 or observations[item[0] + 1].state != "present")
+            ),
+            item[1].state != "uncertain",
+            -abs(_normalized(item[1])),
+            item[1].timestamp,
+        ),
+    )
+    timestamps: list[float] = []
+    candidates: list[dict[str, object]] = []
+    for index, observation in ranked:
+        isolated_present = (
+            observation.state == "present"
+            and (index == 0 or observations[index - 1].state != "present")
+            and (index == len(observations) - 1 or observations[index + 1].state != "present")
+        )
+        if not isolated_present and observation.state != "uncertain":
+            continue
+        if len(timestamps) + RESCUE_SUBCELLS > maximum:
+            break
+        cell_start = max(0.0, observation.timestamp - CELL_SECONDS / 2.0)
+        cell_end = min(duration, observation.timestamp + CELL_SECONDS / 2.0)
+        values = (cell_start + (cell_end - cell_start) * 0.25, cell_start + (cell_end - cell_start) * 0.75)
+        values = tuple(value for value in values if value not in timestamps)
+        if len(values) != RESCUE_SUBCELLS:
+            continue
+        timestamps.extend(values)
+        candidates.append({"cell_index": index, "timestamp": observation.timestamp, "state": observation.state, "timestamps": list(values)})
+    return tuple(sorted(timestamps)), tuple(candidates)
+
+
+def _merge_observations(*blocks: Sequence[CoarseObservation]) -> tuple[CoarseObservation, ...]:
+    return tuple(sorted((value for block in blocks for value in block), key=lambda value: value.timestamp))
 
 
 def select_episode_pairs(pairs: Sequence[EpisodePair], cardinality: str) -> tuple[EpisodePair, ...]:
@@ -446,18 +543,8 @@ class BoundaryGuidedSparsification(Method):
         scout.metadata["effective_temporal_units"] = len(coarse_raw)
         scout.metadata["query_presence"] = [asdict(value) for value in coarse]
         evidence_blocks.append(scout)
+        scout_remaining_frames = ledger.remaining_frames
 
-        brackets, state_runs = detect_boundaries(coarse, sample.duration)
-        candidates = pair_boundaries(brackets, coarse, sample.duration)
-        refinement_reserve = ledger.remaining_frames
-        selected, rejected_candidates = select_refinement_pairs(
-            candidates,
-            sample.cardinality,
-            refinement_reserve,
-            even_frames,
-        )
-        selected = list(selected)
-        pair_scores = {value.pair_id: value.score for value in selected}
         refinement_log: list[dict[str, object]] = []
 
         def observe(
@@ -526,6 +613,34 @@ class BoundaryGuidedSparsification(Method):
             )
             return observations
 
+        # Spend only the fixed rescue allocation, then admit refinement against the
+        # actual remaining ledger rather than the nominal post-scout reserve.
+        rescue_capacity = min(
+            RESCUE_RESERVE_FRAMES,
+            ledger.remaining_frames,
+        )
+        rescue_logical_capacity = rescue_capacity // (2 if even_frames else 1)
+        rescue_times, rescue_candidates = rescue_timestamps(coarse, sample.duration, rescue_logical_capacity)
+        rescue_observations: tuple[CoarseObservation, ...] = ()
+        rescue_before = ledger.requested_frames
+        if rescue_times:
+            rescue_observations = observe(
+                rescue_times,
+                ("rescue_scout",) * len(rescue_times),
+                "rescue-scout",
+                preserve_logical_observations=True,
+            )
+        timeline = _merge_observations(coarse, rescue_observations)
+        brackets, state_runs = detect_boundaries(timeline, sample.duration)
+        raw_candidates = pair_boundaries(brackets, timeline, sample.duration)
+        candidates, invalid_pair_rejections = reject_invalid_pairs(raw_candidates, timeline)
+        refinement_reserve = ledger.remaining_frames
+        selected, rejected_candidates = select_refinement_pairs(
+            candidates, sample.cardinality, refinement_reserve, even_frames
+        )
+        selected = list(selected)
+        pair_scores = {value.pair_id: value.score for value in candidates}
+
         corridors = self._refine(
             selected,
             ledger,
@@ -552,7 +667,7 @@ class BoundaryGuidedSparsification(Method):
                 ],
             }
         )
-        primary_spans, omitted_pairs = self._resolved_spans(selected, corridors, pair_scores)
+        primary_spans, omitted_pairs, provenance = self._eligible_spans(selected, corridors, pair_scores)
         constants = {
             "cell_seconds": CELL_SECONDS,
             "persistence": PERSISTENCE,
@@ -563,6 +678,8 @@ class BoundaryGuidedSparsification(Method):
             "ambiguity_probe_rounds": AMBIGUITY_PROBE_ROUNDS,
             "retention_ratio": self.retention_ratio,
             "refinement_reserve_frames": REFINEMENT_RESERVE_FRAMES,
+            "rescue_reserve_frames": RESCUE_RESERVE_FRAMES,
+            "maximum_conservative_boundary_width": MAXIMUM_CONSERVATIVE_BOUNDARY_WIDTH,
         }
         common_telemetry = {
             **ledger.to_dict(),
@@ -570,11 +687,23 @@ class BoundaryGuidedSparsification(Method):
             "coarse_cells": len(logical_scout),
             "scout_logical_frames": len(logical_scout),
             "scout_physical_frames": len(scout_times),
-            "scout_remaining_frames": refinement_reserve,
-            "coarse_observations": [asdict(value) for value in coarse],
+            "scout_remaining_frames": scout_remaining_frames,
+            "refinement_remaining_frames": refinement_reserve,
+            "coarse_observations": [asdict(value) for value in timeline],
+            "scout_observations": [asdict(value) for value in coarse],
+            "rescue": {
+                "candidates": list(rescue_candidates),
+                "requested_logical_timestamps": [float(value) for value in rescue_times],
+                "requested_physical_frames": ledger.requested_frames - rescue_before,
+                "frames_consumed": ledger.requested_frames - rescue_before,
+                "observations": [asdict(value) for value in rescue_observations],
+                "effective_temporal_units": len(rescue_observations),
+            },
             "presence_calibration": asdict(calibration),
             "state_runs": [asdict(value) for value in state_runs],
             "brackets": [asdict(value) for value in brackets],
+            "raw_transition_pairs": [asdict(value) for value in raw_candidates],
+            "invalid_pair_rejections": list(invalid_pair_rejections),
             "candidate_pairs": [asdict(value) for value in candidates],
             "selected_pair_ids": [value.pair_id for value in selected],
             "candidate_admission_rejections": list(rejected_candidates),
@@ -603,8 +732,12 @@ class BoundaryGuidedSparsification(Method):
                     "resolved_pair_ids": [
                         pair.pair_id
                         for pair in selected
-                        if pair.pair_id not in {value["pair_id"] for value in omitted_pairs}
+                        if provenance.get(pair.pair_id) == "resolved"
                     ],
+                    "conservative_pair_ids": [
+                        pair_id for pair_id, value in provenance.items() if value != "resolved"
+                    ],
+                    "span_provenance": provenance,
                     "omitted_pair_ids": [value["pair_id"] for value in omitted_pairs],
                     "qwen_fallback_used": False,
                     "fallback_used": False,
@@ -643,10 +776,18 @@ class BoundaryGuidedSparsification(Method):
         merged_scores = model.query_scores(merged, sample.query)
         query_scoring_calls += 1
         compact, protected, role_losses = self._pack(merged, merged_scores, corridors, pair_scores, model)
-        prediction = model.predict(sample, compact, GroundingContext(0.0, sample.duration))
+        support_windows = self._candidate_windows(selected or list(candidates), sample.duration, sample.cardinality)
+        context = GroundingContext(
+            0.0,
+            sample.duration,
+            candidate_windows=support_windows,
+            maximum_occurrences=len(support_windows) if support_windows else None,
+        )
+        prediction = model.predict(sample, compact, context)
+        constrained, fallback_filter = self._filter_fallback(prediction.spans, support_windows)
         role_counts = {role: compact.roles.count(role) for role in sorted(set(compact.roles))}
         return Prediction(
-            prediction.spans,
+            constrained,
             prediction.raw_output,
             {
                 **prediction.telemetry,
@@ -668,6 +809,9 @@ class BoundaryGuidedSparsification(Method):
                 "qwen_fallback_used": True,
                 "fallback_used": True,
                 "fallback_reason": fallback_reason,
+                "fallback_support_windows": [list(value) for value in support_windows],
+                "fallback_occurrence_cap": len(support_windows) if support_windows else None,
+                "fallback_filtering": fallback_filter,
             },
         )
 
@@ -793,27 +937,36 @@ class BoundaryGuidedSparsification(Method):
             )
 
     @staticmethod
-    def _resolved_spans(
+    def _eligible_spans(
         pairs: Sequence[EpisodePair],
         corridors: Sequence[BoundaryCorridor],
         pair_scores: dict[int, float],
-    ) -> tuple[tuple[ScoredSpan, ...], list[dict[str, object]]]:
+    ) -> tuple[tuple[ScoredSpan, ...], list[dict[str, object]], dict[int, str]]:
         by_pair_role = {(value.pair_id, value.role): value for value in corridors}
         spans: list[ScoredSpan] = []
         omitted: list[dict[str, object]] = []
+        provenance: dict[int, str] = {}
         for pair in sorted(pairs, key=lambda value: value.interval):
             start = by_pair_role.get((pair.pair_id, "start"))
             end = by_pair_role.get((pair.pair_id, "end"))
             if start is None or end is None:
                 omitted.append({"pair_id": pair.pair_id, "reason": "missing_boundary"})
                 continue
-            if start.status != "resolved" or end.status != "resolved":
+            start_width = start.end - start.start
+            end_width = end.end - end.start
+            if (
+                start.status != "resolved" and start_width > MAXIMUM_CONSERVATIVE_BOUNDARY_WIDTH
+            ) or (
+                end.status != "resolved" and end_width > MAXIMUM_CONSERVATIVE_BOUNDARY_WIDTH
+            ):
                 omitted.append(
                     {
                         "pair_id": pair.pair_id,
-                        "reason": "unresolved_boundary",
+                        "reason": "overwide_ambiguous_boundary",
                         "start_status": start.status,
                         "end_status": end.status,
+                        "start_width": start_width,
+                        "end_width": end_width,
                     }
                 )
                 continue
@@ -822,9 +975,70 @@ class BoundaryGuidedSparsification(Method):
             if end_time <= start_time:
                 omitted.append({"pair_id": pair.pair_id, "reason": "non_chronological_endpoints"})
                 continue
-            confidence = max(0.0, pair_scores[pair.pair_id] + (start.confidence + end.confidence) / 2.0)
+            ambiguous_start = start.status != "resolved"
+            ambiguous_end = end.status != "resolved"
+            penalty = 0.0
+            if ambiguous_start:
+                penalty += AMBIGUITY_CONFIDENCE_PENALTY + start_width / MAXIMUM_CONSERVATIVE_BOUNDARY_WIDTH
+            if ambiguous_end:
+                penalty += AMBIGUITY_CONFIDENCE_PENALTY + end_width / MAXIMUM_CONSERVATIVE_BOUNDARY_WIDTH
+            confidence = max(
+                0.0,
+                pair_scores[pair.pair_id] + (start.confidence + end.confidence) / 2.0 - penalty,
+            )
             spans.append(ScoredSpan(start_time, end_time, confidence))
-        return tuple(sorted(spans, key=lambda value: (value.start, value.end))), omitted
+            if ambiguous_start and ambiguous_end:
+                provenance[pair.pair_id] = "conservative-both"
+            elif ambiguous_start:
+                provenance[pair.pair_id] = "conservative-start"
+            elif ambiguous_end:
+                provenance[pair.pair_id] = "conservative-end"
+            else:
+                provenance[pair.pair_id] = "resolved"
+        return tuple(sorted(spans, key=lambda value: (value.start, value.end))), omitted, provenance
+
+    @staticmethod
+    def _candidate_windows(
+        pairs: Sequence[EpisodePair], duration: float, cardinality: str
+    ) -> tuple[tuple[float, float], ...]:
+        selected = select_episode_pairs(pairs, cardinality)
+        windows: list[tuple[float, float]] = []
+        for pair in selected:
+            start, end = pair.interval
+            window = (max(0.0, start - CANDIDATE_WINDOW_PADDING), min(duration, end + CANDIDATE_WINDOW_PADDING))
+            if windows and window[0] <= windows[-1][1]:
+                windows[-1] = (windows[-1][0], max(windows[-1][1], window[1]))
+            else:
+                windows.append(window)
+        return tuple(windows)
+
+    @staticmethod
+    def _filter_fallback(
+        spans: Sequence[ScoredSpan], windows: Sequence[tuple[float, float]]
+    ) -> tuple[tuple[ScoredSpan, ...], dict[str, object]]:
+        if not windows:
+            return tuple(spans), {"original_spans": [asdict(value) for value in spans], "constrained": False}
+        clipped: list[ScoredSpan] = []
+        dropped: list[dict[str, object]] = []
+        for span in spans:
+            overlaps = [
+                (max(span.start, start), min(span.end, end), index)
+                for index, (start, end) in enumerate(windows)
+                if min(span.end, end) > max(span.start, start)
+            ]
+            if not overlaps:
+                dropped.append({"span": asdict(span), "reason": "zero_support_overlap"})
+                continue
+            start, end, _ = max(overlaps, key=lambda value: (value[1] - value[0], -value[2]))
+            clipped.append(ScoredSpan(start, end, span.score))
+        filtered = temporal_nms(clipped, maximum=len(windows))
+        return filtered, {
+            "original_spans": [asdict(value) for value in spans],
+            "dropped": dropped,
+            "clipped_spans": [asdict(value) for value in clipped],
+            "final_spans": [asdict(value) for value in filtered],
+            "constrained": True,
+        }
 
     @staticmethod
     def _finished_corridor(value: _ActiveBoundary) -> BoundaryCorridor:

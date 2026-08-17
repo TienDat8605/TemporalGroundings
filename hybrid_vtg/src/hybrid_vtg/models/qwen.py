@@ -296,6 +296,17 @@ class QwenEvidenceBackend(ModelBackend):
 
     @staticmethod
     def _prompt(sample: Sample, context: GroundingContext) -> str:
+        constraints = ""
+        if context.candidate_windows:
+            windows = ", ".join(
+                f"[{start - context.start:.3f}, {end - context.start:.3f}]"
+                for start, end in context.candidate_windows
+            )
+            constraints = (
+                f" Restrict every returned interval to these candidate windows in source-video seconds: {windows}."
+            )
+            if context.maximum_occurrences is not None:
+                constraints += f" Return no more than {context.maximum_occurrences} occurrence(s)."
         if sample.cardinality == "multi":
             return (
                 f"The event '{sample.query}' may occur MULTIPLE times in this video. "
@@ -304,11 +315,13 @@ class QwenEvidenceBackend(ModelBackend):
                 "Return ONLY a JSON array of [start, end] pairs, e.g. [[1.0, 3.0], [7.5, 9.0]]. "
                 f"Do NOT return the whole video as a single pair like [0, {context.duration:.3f}]. "
                 "Return [] if the event never occurs."
+                + constraints
             )
         return (
             f"Find the best interval where this event occurs: {sample.query!r}. "
             f"Use seconds relative to this evidence window, from 0 to {context.duration:.3f}. "
             "Return only a JSON array of [start, end] pairs. Return [] if absent."
+            + constraints
         )
 
     def _evidence_prompt(self, sample: Sample, evidence: TemporalEvidence, context: GroundingContext):
@@ -390,6 +403,11 @@ class QwenEvidenceBackend(ModelBackend):
                 "backend": self.name,
                 "checkpoint": self.checkpoint,
                 "evidence_units": evidence.size,
-                "context": {"start": context.start, "end": context.end},
+                "context": {
+                    "start": context.start,
+                    "end": context.end,
+                    "candidate_windows": context.candidate_windows,
+                    "maximum_occurrences": context.maximum_occurrences,
+                },
             },
         )

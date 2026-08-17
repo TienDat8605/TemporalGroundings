@@ -117,6 +117,8 @@ class TemporalEvidence:
 class GroundingContext:
     start: float
     end: float
+    candidate_windows: tuple[tuple[float, float], ...] = ()
+    maximum_occurrences: int | None = None
 
     @property
     def duration(self) -> float:

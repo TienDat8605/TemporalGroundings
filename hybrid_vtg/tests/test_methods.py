@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 import torch
 
-from hybrid_vtg.contracts import GroundingContext, ModelBackend, Prediction, Sample, TemporalEvidence
+from hybrid_vtg.contracts import GroundingContext, ModelBackend, Prediction, Sample, ScoredSpan, TemporalEvidence
 from hybrid_vtg.methods.boundary_guided_sparsification import (
     BoundaryBracket,
     BoundaryGuidedSparsification,
@@ -16,6 +16,7 @@ from hybrid_vtg.methods.boundary_guided_sparsification import (
     estimate_refinement_cost,
     normalize_presence,
     pair_boundaries,
+    reject_invalid_pairs,
     select_episode_pairs,
     select_refinement_pairs,
     state_for_score,
@@ -182,6 +183,18 @@ def test_multi_cardinality_prompt_forces_enumerated_occurrences(tmp_path):
     assert "[[1.0, 3.0], [7.5, 9.0]]" in multi_prompt
     assert "Do NOT return the whole video" in multi_prompt
     assert "the best interval" in single_prompt and "MULTIPLE" not in single_prompt
+
+
+def test_qwen_prompt_includes_optional_candidate_constraints(tmp_path):
+    video = tmp_path / "video.mp4"
+    video.touch()
+    sample = Sample("1", "v", video, 100.0, "a person drinks", cardinality="multi")
+    prompt = QwenEvidenceBackend._prompt(
+        sample,
+        GroundingContext(0.0, 100.0, candidate_windows=((10.0, 20.0),), maximum_occurrences=1),
+    )
+    assert "[10.000, 20.000]" in prompt
+    assert "no more than 1" in prompt
 
 
 def test_hmve_boundary_pass_targets_relevance_rises_and_falls():
@@ -440,6 +453,22 @@ def test_persistent_transitions_pair_without_isolated_noise():
     assert pairs[0].interval == (44.0, 52.0)
 
 
+def test_pair_filter_rejects_distant_absent_interior_run():
+    pair = EpisodePair(
+        0,
+        BoundaryBracket(0.0, 1.0, "absent", "present", "start", 2.0),
+        BoundaryBracket(30.0, 31.0, "present", "absent", "end", 2.0),
+        4.0,
+    )
+    observations = (
+        CoarseObservation(8.0, (0.0,), 0.0, -2.0, "absent"),
+        CoarseObservation(16.0, (0.0,), 0.0, -2.0, "absent"),
+    )
+    valid, rejected = reject_invalid_pairs((pair,), observations)
+    assert valid == ()
+    assert rejected == ({"pair_id": 0, "reason": "absent_interior_run"},)
+
+
 class _ScriptedBoundaryBackend(ModelBackend):
     name = "scripted-boundary"
 
@@ -528,7 +557,7 @@ def test_bgs_uses_one_qwen_fallback_for_no_candidate_pair():
     assert result.telemetry["llm_or_fusion_calls"] == backend.predict_calls == 1
 
 
-def test_bgs_supports_qwen_style_rows_and_preserves_ambiguous_corridors():
+def test_bgs_returns_conservative_primary_for_bounded_ambiguous_corridors():
     sample = Sample("bgs-spatial", "video", Path(__file__), 48.0, "event")
     backend = _ScriptedBoundaryBackend(rows_per_timestamp=5, ambiguous_refinement=True, maximum=40)
     result = BoundaryGuidedSparsification().run(sample, backend, Path("unused"))
@@ -537,10 +566,35 @@ def test_bgs_supports_qwen_style_rows_and_preserves_ambiguous_corridors():
     assert all(value["status"] == "ambiguous" for value in corridors)
     assert sum(value["stage"] == "ambiguity-probe" for value in result.telemetry["refinement"]) <= 1
     assert result.telemetry["duplicate_padding_frames"] >= 0
-    assert result.telemetry["retained_evidence"] <= backend.maximum_evidence_units
-    assert backend.predict_calls == 1
-    assert result.telemetry["prediction_source"] == "qwen-fallback"
-    assert result.telemetry["fallback_reason"] == "unresolved_boundaries"
+    assert result.spans
+    assert result.telemetry["span_provenance"]
+    assert backend.predict_calls == 0
+    assert result.telemetry["prediction_source"] == "bgs-primary"
+
+
+def test_bgs_rescue_scout_preserves_qwen_logical_observations():
+    class _RescueBackend(_ScriptedBoundaryBackend):
+        def query_scores(self, evidence, query):
+            del query
+            return torch.tensor([3.0 if 17.0 <= value <= 23.0 else 0.0 for value in evidence.timestamps])
+
+    sample = Sample("bgs-rescue", "video", Path(__file__), 48.0, "event")
+    backend = _RescueBackend(rows_per_timestamp=5)
+    result = BoundaryGuidedSparsification().run(sample, backend, Path("unused"))
+
+    rescue = result.telemetry["rescue"]
+    assert rescue["frames_consumed"] <= 16
+    assert rescue["effective_temporal_units"] == len(rescue["requested_logical_timestamps"])
+    assert rescue["requested_logical_timestamps"]
+    assert result.telemetry["prediction_source"] == "bgs-primary"
+
+
+def test_bgs_filters_fallback_spans_to_candidate_windows():
+    method = BoundaryGuidedSparsification()
+    spans = (ScoredSpan(0.0, 2.0, 1.0), ScoredSpan(9.0, 15.0, 0.8), ScoredSpan(30.0, 40.0, 0.6))
+    filtered, telemetry = method._filter_fallback(spans, ((10.0, 12.0), (32.0, 34.0)))
+    assert [(span.start, span.end) for span in filtered] == [(10.0, 12.0), (32.0, 34.0)]
+    assert telemetry["dropped"][0]["reason"] == "zero_support_overlap"
 
 
 def test_bgs_counts_qwen_tubelet_duplicates_in_its_frame_ledger():
