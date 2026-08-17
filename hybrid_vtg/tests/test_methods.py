@@ -638,14 +638,16 @@ def test_qwen_encode_disables_processor_frame_sampling(monkeypatch, tmp_path):
     class _Visual(torch.nn.Module):
         def __init__(self):
             super().__init__()
-            self.marker = torch.nn.Parameter(torch.zeros(1))
+            self.marker = torch.nn.Parameter(torch.zeros(1, dtype=torch.bfloat16))
 
     class _InnerModel:
         def __init__(self):
             self.visual = _Visual()
+            self.received_dtype = None
 
         def get_video_features(self, pixels, grids):
-            del pixels, grids
+            self.received_dtype = pixels.dtype
+            del grids
             return [torch.ones((2, 4))], None
 
     class _Model:
@@ -658,8 +660,9 @@ def test_qwen_encode_disables_processor_frame_sampling(monkeypatch, tmp_path):
             )()
 
     processor = _Processor()
+    loaded = _Model()
     backend = QwenEvidenceBackend("unused", tmp_path, name="qwen-test")
-    monkeypatch.setattr(backend, "_load", lambda: (_Model(), processor))
+    monkeypatch.setattr(backend, "_load", lambda: (loaded, processor))
     monkeypatch.setattr("hybrid_vtg.models.qwen.extract_frames", lambda *args: frame_paths)
     evidence = backend.encode(Sample("qwen", "video", Path(__file__), 20.0, "event"), (1.0, 2.0, 3.0, 4.0))
 
@@ -667,3 +670,4 @@ def test_qwen_encode_disables_processor_frame_sampling(monkeypatch, tmp_path):
     assert evidence.metadata["processor_do_sample_frames"] is False
     assert evidence.metadata["effective_temporal_units"] == 2
     assert evidence.metadata["temporal_patch_size"] == 2
+    assert loaded.model.received_dtype == torch.bfloat16

@@ -218,6 +218,10 @@ class QwenEvidenceBackend(ModelBackend):
     def _device(module: Any):
         return next(module.parameters()).device
 
+    @staticmethod
+    def _dtype(module: Any):
+        return next(module.parameters()).dtype
+
     def encode(self, sample: Sample, timestamps: Sequence[float]) -> TemporalEvidence:
         import numpy as np
         import torch
@@ -241,7 +245,9 @@ class QwenEvidenceBackend(ModelBackend):
             do_sample_frames=False,
         )
         device = self._device(model.model.visual)
-        pixels = inputs["pixel_values_videos"].to(device)
+        # The processor emits float32 pixels even when the auto-loaded vision tower
+        # uses bfloat16. Align them before entering the tower's projection layers.
+        pixels = inputs["pixel_values_videos"].to(device=device, dtype=self._dtype(model.model.visual))
         grids = inputs["video_grid_thw"].to(device)
         with torch.inference_mode():
             features, _ = model.model.get_video_features(pixels, grids)
