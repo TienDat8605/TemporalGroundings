@@ -24,6 +24,8 @@ TARGETS = (
     "omtg",
     "tacos",
     "qvhighlights",
+    "qvhighlights-timelens",
+    "momentseeker",
     "unitime",
     "timelens2-4b",
     "timelens-8b",
@@ -44,6 +46,28 @@ SOURCES = {
             "https://huggingface.co/datasets/jwnt4/qvhighlights-test/resolve/main/videos.tar.gz?download=true"
         ),
         "selection": "single archive containing the highlight_test_release.jsonl videos only",
+    },
+    "qvhighlights-timelens": {
+        "annotation": (
+            "https://huggingface.co/datasets/TencentARC/TimeLens-Bench/resolve/main/qvhighlights-timelens.json?download=true"
+        ),
+        "video_shards": (
+            "https://huggingface.co/datasets/TencentARC/TimeLens-Bench/resolve/main/video_shards/qvhighlights/qvhighlights_shard_01.tar.gz?download=true",
+            "https://huggingface.co/datasets/TencentARC/TimeLens-Bench/resolve/main/video_shards/qvhighlights/qvhighlights_shard_02.tar.gz?download=true",
+            "https://huggingface.co/datasets/TencentARC/TimeLens-Bench/resolve/main/video_shards/qvhighlights/qvhighlights_shard_03.tar.gz?download=true",
+        ),
+        "variant": "TimeLens-Bench QVHighlights-TimeLens (1,511 videos, 1,541 queries)",
+    },
+    "momentseeker": {
+        "annotation": (
+            "https://huggingface.co/datasets/avery00/MomentSeeker/resolve/main/t2v.json?download=true"
+        ),
+        "video_shards": (
+            "https://huggingface.co/datasets/avery00/MomentSeeker/resolve/main/videos.tar.gz.part_aa?download=true",
+            "https://huggingface.co/datasets/avery00/MomentSeeker/resolve/main/videos.tar.gz.part_ab?download=true",
+            "https://huggingface.co/datasets/avery00/MomentSeeker/resolve/main/videos.tar.gz.part_ac?download=true",
+        ),
+        "variant": "MomentSeeker Text-to-Moment (265 long videos, 1,000 queries)",
     },
     "tacos": {
         "annotation": (
@@ -79,6 +103,8 @@ def asset_paths(root: Path) -> dict[str, Path]:
         "omtg": root / "datasets" / "omtg",
         "tacos": root / "datasets" / "tacos",
         "qvhighlights": root / "datasets" / "qvhighlights",
+        "qvhighlights-timelens": root / "datasets" / "qvhighlights-timelens",
+        "momentseeker": root / "datasets" / "momentseeker",
         "unitime": root / "checkpoints" / "unitime",
         "timelens2-4b": root / "checkpoints" / "timelens2-4b",
         "timelens-8b": root / "checkpoints" / "timelens-8b",
@@ -106,15 +132,40 @@ def _http_headers(url: str, *, offset: int, hf_token: str | None) -> dict[str, s
 
 
 def _download_http(url: str, destination: Path, *, hf_token: str | None = None) -> Path:
-    from tqdm.auto import tqdm
-
     if destination.is_file():
         return destination
     destination.parent.mkdir(parents=True, exist_ok=True)
+    print(f"download: {url}\n      -> {destination}")
+    aria2c = shutil.which("aria2c")
+    if aria2c:
+        import subprocess
+
+        cmd = [
+            aria2c,
+            "-x",
+            "16",
+            "-s",
+            "16",
+            "-k",
+            "1M",
+            "--allow-overwrite=true",
+            "--auto-file-renaming=false",
+            "-d",
+            str(destination.parent),
+            "-o",
+            destination.name,
+            url,
+        ]
+        if hf_token:
+            cmd.append(f"--header=Authorization: Bearer {hf_token}")
+        subprocess.run(cmd, check=True)
+        return destination
+
+    from tqdm.auto import tqdm
+
     partial = destination.with_suffix(destination.suffix + ".part")
     offset = partial.stat().st_size if partial.is_file() else 0
     request = urllib.request.Request(url, headers=_http_headers(url, offset=offset, hf_token=hf_token))
-    print(f"download: {url}\n      -> {destination}")
     with urllib.request.urlopen(request) as response:
         append = offset > 0 and getattr(response, "status", None) == 206
         initial = offset if append else 0
@@ -373,6 +424,85 @@ def _download_tacos(root: Path, destination: Path, hf_token: str | None) -> dict
     return value
 
 
+def _download_qvhighlights_timelens(root: Path, destination: Path, hf_token: str | None) -> dict[str, Any]:
+    marker = destination / ".complete.json"
+    annotation = destination / "qvhighlights-timelens.json"
+    videos = destination / "videos"
+    if marker.is_file() and annotation.is_file() and videos.is_dir():
+        value = json.loads(marker.read_text(encoding="utf-8"))
+        if value.get("source") == SOURCES["qvhighlights-timelens"]:
+            return value
+
+    destination.mkdir(parents=True, exist_ok=True)
+    _download_http(SOURCES["qvhighlights-timelens"]["annotation"], annotation, hf_token=hf_token)
+    with annotation.open(encoding="utf-8") as handle:
+        data = json.load(handle)
+    expected_video_ids = frozenset(data.keys())
+
+    videos.mkdir(parents=True, exist_ok=True)
+    for shard_idx, shard_url in enumerate(SOURCES["qvhighlights-timelens"]["video_shards"], start=1):
+        archive_name = f"qvhighlights-timelens-shard-{shard_idx:02d}.tar.gz"
+        archive = _download_http(shard_url, root / ".downloads" / archive_name, hf_token=hf_token)
+        _extract_tar(archive, videos)
+        archive.unlink()
+
+    _require_videos(videos)
+    found_count = len({p.stem for p in videos.rglob("*") if p.is_file() and p.suffix.lower() in VIDEO_SUFFIXES})
+    value = _complete(
+        destination,
+        SOURCES["qvhighlights-timelens"],
+        video_count=found_count,
+        expected_videos=len(expected_video_ids),
+    )
+    return value
+
+
+def _download_momentseeker(root: Path, destination: Path, hf_token: str | None) -> dict[str, Any]:
+    import subprocess
+
+    marker = destination / ".complete.json"
+    annotation = destination / "t2v.json"
+    videos = destination / "videos"
+    if marker.is_file() and annotation.is_file() and videos.is_dir():
+        value = json.loads(marker.read_text(encoding="utf-8"))
+        if value.get("source") == SOURCES["momentseeker"]:
+            return value
+
+    destination.mkdir(parents=True, exist_ok=True)
+    _download_http(SOURCES["momentseeker"]["annotation"], annotation, hf_token=hf_token)
+    with annotation.open(encoding="utf-8") as handle:
+        data = json.load(handle)
+    expected_video_ids = frozenset(Path(item.get("src_video_path", "")).stem for item in data)
+
+    downloads_dir = root / ".downloads"
+    downloads_dir.mkdir(parents=True, exist_ok=True)
+    parts = []
+    for shard_idx, shard_url in enumerate(SOURCES["momentseeker"]["video_shards"], start=1):
+        part_name = f"momentseeker-part-{shard_idx:02d}"
+        part_path = _download_http(shard_url, downloads_dir / part_name, hf_token=hf_token)
+        parts.append(part_path)
+
+    combined_tar = downloads_dir / "momentseeker-videos.tar.gz"
+    concat_cmd = f"cat {' '.join(str(p) for p in parts)} > {combined_tar}"
+    subprocess.run(concat_cmd, shell=True, check=True)
+    for p in parts:
+        p.unlink(missing_ok=True)
+
+    _extract_tar(combined_tar, destination)
+    combined_tar.unlink(missing_ok=True)
+    _require_videos(videos)
+
+    found_count = len({p.stem for p in videos.rglob("*") if p.is_file() and p.suffix.lower() in VIDEO_SUFFIXES})
+    value = _complete(
+        destination,
+        SOURCES["momentseeker"],
+        video_count=found_count,
+        expected_videos=len(expected_video_ids),
+        split="test",
+    )
+    return value
+
+
 def _snapshot(repository: str, destination: Path, hf_token: str | None) -> None:
     from huggingface_hub import snapshot_download
 
@@ -431,6 +561,8 @@ DOWNLOADERS: dict[str, Callable[[Path, Path, str | None], dict[str, Any]]] = {
     "omtg": _download_omtg,
     "tacos": _download_tacos,
     "qvhighlights": _download_qvhighlights,
+    "qvhighlights-timelens": _download_qvhighlights_timelens,
+    "momentseeker": _download_momentseeker,
     "unitime": _download_unitime,
     "timelens2-4b": _download_timelens2,
     "timelens-8b": _download_timelens8,

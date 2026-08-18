@@ -28,6 +28,8 @@ def test_download_layout_is_one_predictable_assets_tree(tmp_path: Path):
     assert paths["omtg"] == (tmp_path / "assets" / "datasets" / "omtg").resolve()
     assert paths["tacos"] == (tmp_path / "assets" / "datasets" / "tacos").resolve()
     assert paths["qvhighlights"] == (tmp_path / "assets" / "datasets" / "qvhighlights").resolve()
+    assert paths["qvhighlights-timelens"] == (tmp_path / "assets" / "datasets" / "qvhighlights-timelens").resolve()
+    assert paths["momentseeker"] == (tmp_path / "assets" / "datasets" / "momentseeker").resolve()
     assert paths["unitime"] == (tmp_path / "assets" / "checkpoints" / "unitime").resolve()
     assert paths["timelens2-4b"] == (tmp_path / "assets" / "checkpoints" / "timelens2-4b").resolve()
     assert paths["timelens-8b"] == (tmp_path / "assets" / "checkpoints" / "timelens-8b").resolve()
@@ -37,6 +39,8 @@ def test_download_layout_is_one_predictable_assets_tree(tmp_path: Path):
         "omtg",
         "tacos",
         "qvhighlights",
+        "qvhighlights-timelens",
+        "momentseeker",
         "unitime",
         "timelens2-4b",
         "timelens-8b",

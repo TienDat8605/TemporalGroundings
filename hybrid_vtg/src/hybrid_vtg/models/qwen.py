@@ -21,10 +21,12 @@ from .pruning import mage_cell_plan, motion_residual_importance, semvid_select
 
 
 def _attention_options() -> dict[str, str]:
-    """Use FlashAttention 2 when its validated Transformers integration is available."""
+    """Use FlashAttention 2 when its validated Transformers integration is available, else SDPA."""
     from transformers.utils import is_flash_attn_2_available
 
-    return {"attn_implementation": "flash_attention_2"} if is_flash_attn_2_available() else {}
+    if is_flash_attn_2_available():
+        return {"attn_implementation": "flash_attention_2"}
+    return {"attn_implementation": "sdpa"}
 
 
 def _generation_token_budget(sample: Sample) -> int:
@@ -225,12 +227,15 @@ class QwenEvidenceBackend(ModelBackend):
             previous = hf_logging.get_verbosity()
             hf_logging.set_verbosity_error()
             try:
+                import torch
+
                 self._processor = AutoProcessor.from_pretrained(self.checkpoint)
+                target_dtype = torch.float16 if torch.cuda.is_available() else "auto"
                 self._model = (
                     _model_class()
                     .from_pretrained(
                         self.checkpoint,
-                        torch_dtype="auto",
+                        torch_dtype=target_dtype,
                         device_map="auto",
                         low_cpu_mem_usage=True,
                         **_attention_options(),

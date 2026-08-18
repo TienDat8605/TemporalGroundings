@@ -405,19 +405,28 @@ class EmbeddingRouter:
         model_id: str = ROUTER_MODEL_ID,
         revision: str | None = None,
         device: str = "cpu",
+        batch_size: int | None = None,
     ) -> None:
         self.model_id = model_id
         self.revision = (
             ROUTER_MODEL_REVISION if revision is None and model_id == ROUTER_MODEL_ID else revision
         )
         self.device = device
+        self._batch_size = batch_size
         self._model: Any = None
         self._processor: Any = None
         self._loading_info: dict[str, Any] = {}
         self.last_telemetry: dict[str, Any] = {}
 
+    @property
+    def batch_size(self) -> int:
+        if self._batch_size is not None:
+            return self._batch_size
+        return 16 if self.device.startswith("cuda") else ROUTER_EMBED_BATCH_SIZE
+
     def _load(self) -> Any:
         if self._model is None:
+            import torch
             from transformers import AutoModel, AutoProcessor
 
             # Run on CPU: the 4B grounder stays resident on the GPU for the whole run, so
@@ -426,12 +435,17 @@ class EmbeddingRouter:
                 "revision": self.revision,
                 "trust_remote_code": True,
             }
+            if self.device.startswith("cuda"):
+                source_options["attn_implementation"] = "sdpa"
+                target_dtype = torch.float16
+            else:
+                target_dtype = "auto"
             self._processor = AutoProcessor.from_pretrained(self.model_id, **source_options)
             loaded = AutoModel.from_pretrained(
                 self.model_id,
                 **source_options,
                 device_map={"": self.device},
-                torch_dtype="auto",
+                torch_dtype=target_dtype,
                 low_cpu_mem_usage=True,
                 output_loading_info=True,
             )
@@ -457,21 +471,25 @@ class EmbeddingRouter:
         return self._model
 
     def _encode(self, inputs: list[dict[str, Any]]) -> np.ndarray:
+        import torch
+
         model = self._load()
-        return self._array(
-            model.encode(
-                inputs,
-                processor=self._processor,
-                normalize=True,
-                return_tensor=True,
-                device=self.device,
+        with torch.inference_mode():
+            return self._array(
+                model.encode(
+                    inputs,
+                    processor=self._processor,
+                    normalize=True,
+                    return_tensor=True,
+                    device=self.device,
+                )
             )
-        )
 
     def _encode_batched(self, inputs: list[dict[str, Any]]) -> np.ndarray:
+        batch_size = self.batch_size
         batches = [
-            self._encode(inputs[start : start + ROUTER_EMBED_BATCH_SIZE])
-            for start in range(0, len(inputs), ROUTER_EMBED_BATCH_SIZE)
+            self._encode(inputs[start : start + batch_size])
+            for start in range(0, len(inputs), batch_size)
         ]
         return np.concatenate(batches, axis=0)
 
@@ -485,8 +503,9 @@ class EmbeddingRouter:
                 continue
             seen.add(path)
             missing.append((path, query))
-        for start in range(0, len(missing), ROUTER_EMBED_BATCH_SIZE):
-            batch = missing[start : start + ROUTER_EMBED_BATCH_SIZE]
+        batch_size = self.batch_size
+        for start in range(0, len(missing), batch_size):
+            batch = missing[start : start + batch_size]
             embeddings = self._encode(
                 [
                     {"text": query, "instruction": ROUTER_TEXT_INSTRUCTION}
@@ -509,8 +528,9 @@ class EmbeddingRouter:
                     continue
                 seen.add(path)
                 missing.append((path, query, instruction))
-        for start in range(0, len(missing), ROUTER_EMBED_BATCH_SIZE):
-            batch = missing[start : start + ROUTER_EMBED_BATCH_SIZE]
+        batch_size = self.batch_size
+        for start in range(0, len(missing), batch_size):
+            batch = missing[start : start + batch_size]
             embeddings = self._encode(
                 [
                     {"text": query, "instruction": instruction}
@@ -849,12 +869,27 @@ class CoarseToFine64(Method):
         """
         self._prepare_root = cache_root
         prepared: set[Path] = set()
+        unique_samples: list[Sample] = []
         for sample in samples:
             cache_path = scene_cache_path(sample, cache_root)
             if cache_path in prepared:
                 continue
-            cached_content_windows(sample, cache_root)
             prepared.add(cache_path)
+            unique_samples.append(sample)
+
+        import os
+        from concurrent.futures import ThreadPoolExecutor
+
+        cpu_workers = min(12, max(2, (os.cpu_count() or 4)))
+        with ThreadPoolExecutor(max_workers=cpu_workers) as executor:
+            list(
+                tqdm(
+                    executor.map(lambda s: cached_content_windows(s, cache_root), unique_samples),
+                    total=len(unique_samples),
+                    desc="scene cache (cpu parallel)",
+                    unit="video",
+                )
+            )
 
         jobs: list[tuple[Sample, list[Window], int]] = []
         for sample in samples:
@@ -877,6 +912,36 @@ class CoarseToFine64(Method):
                     sample, routed, frames_per_window, cache_root
                 )
                 unique_visual_jobs.setdefault(path, (sample, routed, frames_per_window))
+
+            # Pre-extract frames across CPU cores in parallel so GPU never waits for OpenCV I/O
+            frame_tasks = []
+            for sample, routed, frames_per_window in unique_visual_jobs.values():
+                path, timestamps = self.router._video_cache_path(
+                    sample, routed, frames_per_window, cache_root
+                )
+                if self.router._read_cache(path, rows=len(routed) * (frames_per_window + 1)) is not None:
+                    continue
+                frame_root = cache_root / "router" / "frames" / path.stem
+                for index, values in enumerate(timestamps):
+                    frame_tasks.append((sample.video_path, values, frame_root / f"window-{index}"))
+
+            if frame_tasks:
+                def _safe_extract(task: tuple[Path, Sequence[float], Path]) -> None:
+                    try:
+                        extract_frames(task[0], task[1], task[2])
+                    except Exception:
+                        pass
+
+                with ThreadPoolExecutor(max_workers=cpu_workers) as executor:
+                    list(
+                        tqdm(
+                            executor.map(_safe_extract, frame_tasks),
+                            total=len(frame_tasks),
+                            desc="frame extract (cpu parallel)",
+                            unit="window",
+                        )
+                    )
+
             for sample, routed, frames_per_window in tqdm(
                 unique_visual_jobs.values(),
                 desc=f"router cache ({self.router.device})",

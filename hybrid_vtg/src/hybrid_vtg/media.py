@@ -113,6 +113,11 @@ def extract_frames(
                 capture.set(cv2.CAP_PROP_POS_MSEC, float(timestamp) * 1000.0)
                 ok, frame = capture.read()
                 if not ok:
+                    total_frames = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
+                    if total_frames > 0:
+                        capture.set(cv2.CAP_PROP_POS_FRAMES, max(0, total_frames - 1))
+                        ok, frame = capture.read()
+                if not ok:
                     raise RuntimeError(f"cannot decode {video_path} at {timestamp:.3f}s")
                 height, width = frame.shape[:2]
                 if width > maximum_width:

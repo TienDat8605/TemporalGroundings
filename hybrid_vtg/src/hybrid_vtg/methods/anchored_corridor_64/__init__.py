@@ -215,13 +215,31 @@ class AnchoredCorridor64(Method):
         return coalesce_windows(windows, min(len(windows), MAX_ROUTED_WINDOWS))
 
     def prepare(self, samples: Sequence[Sample], cache_root: Path) -> None:
+        import os
+        from concurrent.futures import ThreadPoolExecutor
+
+        from ...media import extract_frames
+
         self._prepare_root = cache_root
         prepared: set[Path] = set()
+        unique_samples: list[Sample] = []
         for sample in samples:
             path = scene_cache_path(sample, cache_root)
             if path not in prepared:
-                cached_content_windows(sample, cache_root)
                 prepared.add(path)
+                unique_samples.append(sample)
+
+        cpu_workers = min(12, max(2, (os.cpu_count() or 4)))
+        with ThreadPoolExecutor(max_workers=cpu_workers) as executor:
+            list(
+                tqdm(
+                    executor.map(lambda s: cached_content_windows(s, cache_root), unique_samples),
+                    total=len(unique_samples),
+                    desc="scene cache (cpu parallel)",
+                    unit="video",
+                )
+            )
+
         jobs = []
         for sample in samples:
             windows, _ = cached_content_windows(sample, cache_root)
@@ -244,6 +262,36 @@ class AnchoredCorridor64(Method):
                     cache_root,
                 )
                 unique_visual_jobs.setdefault(path, (sample, windows))
+
+            # Pre-extract frames across CPU cores in parallel so GPU never waits for OpenCV I/O
+            frame_tasks = []
+            for sample, windows in unique_visual_jobs.values():
+                path, timestamps = self.router._video_cache_path(
+                    sample, windows, ROUTER_FRAMES_PER_WINDOW, cache_root
+                )
+                if self.router._read_cache(path, rows=len(windows) * (ROUTER_FRAMES_PER_WINDOW + 1)) is not None:
+                    continue
+                frame_root = cache_root / "router" / "frames" / path.stem
+                for index, values in enumerate(timestamps):
+                    frame_tasks.append((sample.video_path, values, frame_root / f"window-{index}"))
+
+            if frame_tasks:
+                def _safe_extract(task: tuple[Path, Sequence[float], Path]) -> None:
+                    try:
+                        extract_frames(task[0], task[1], task[2])
+                    except Exception:
+                        pass
+
+                with ThreadPoolExecutor(max_workers=cpu_workers) as executor:
+                    list(
+                        tqdm(
+                            executor.map(_safe_extract, frame_tasks),
+                            total=len(frame_tasks),
+                            desc="frame extract (cpu parallel)",
+                            unit="window",
+                        )
+                    )
+
             for sample, windows in tqdm(
                 unique_visual_jobs.values(),
                 desc=f"anchored visual cache ({self.router.device})",

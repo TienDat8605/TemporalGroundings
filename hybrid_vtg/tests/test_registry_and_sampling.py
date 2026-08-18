@@ -28,7 +28,13 @@ def test_builtin_surface_is_exactly_the_requested_matrix():
         "unitime",
         "univtg",
     )
-    assert BENCHMARKS.names() == ("omtg", "qvhighlights", "tacos")
+    assert BENCHMARKS.names() == (
+        "momentseeker",
+        "omtg",
+        "qvhighlights",
+        "qvhighlights-timelens",
+        "tacos",
+    )
 
 
 def test_all_qwen3_backends_get_4096_evidence_cap(tmp_path):
