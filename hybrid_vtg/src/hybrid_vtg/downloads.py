@@ -132,7 +132,8 @@ def _http_headers(url: str, *, offset: int, hf_token: str | None) -> dict[str, s
 
 
 def _download_http(url: str, destination: Path, *, hf_token: str | None = None) -> Path:
-    if destination.is_file():
+    aria_control = Path(str(destination) + ".aria2")
+    if destination.is_file() and not aria_control.exists():
         return destination
     destination.parent.mkdir(parents=True, exist_ok=True)
     print(f"download: {url}\n      -> {destination}")
@@ -150,15 +151,26 @@ def _download_http(url: str, destination: Path, *, hf_token: str | None = None) 
             "1M",
             "--allow-overwrite=true",
             "--auto-file-renaming=false",
-            "-d",
-            str(destination.parent),
-            "-o",
-            destination.name,
-            url,
         ]
-        if hf_token:
-            cmd.append(f"--header=Authorization: Bearer {hf_token}")
-        subprocess.run(cmd, check=True)
+        headers = _http_headers(url, offset=0, hf_token=hf_token)
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=destination.parent,
+            prefix=".aria2-input-",
+            delete=False,
+        ) as handle:
+            input_path = Path(handle.name)
+            handle.write(f"{url}\n")
+            handle.write(f"  dir={destination.parent}\n")
+            handle.write(f"  out={destination.name}\n")
+            for name, value in headers.items():
+                handle.write(f"  header={name}: {value}\n")
+        input_path.chmod(0o600)
+        try:
+            subprocess.run([*cmd, f"--input-file={input_path}"], check=True)
+        finally:
+            input_path.unlink(missing_ok=True)
         return destination
 
     from tqdm.auto import tqdm
@@ -263,10 +275,15 @@ def _preflight_dependencies(selected: Sequence[str]) -> None:
         raise RuntimeError("Hugging Face checkpoint downloads require: pip install -e '.[downloads]'")
 
 
-def _complete(destination: Path, source: dict[str, str], **extra: Any) -> dict[str, Any]:
+def _complete(destination: Path, source: dict[str, Any], **extra: Any) -> dict[str, Any]:
     value = {"complete": True, "destination": str(destination), "source": source, **extra}
     write_json(destination / ".complete.json", value)
     return value
+
+
+def _source_matches(value: Any, source: dict[str, Any]) -> bool:
+    """Compare a JSON-loaded marker with sources that may contain tuples."""
+    return value == json.loads(json.dumps(source))
 
 
 def _require_videos(destination: Path) -> None:
@@ -369,7 +386,7 @@ def _download_qvhighlights(root: Path, destination: Path, hf_token: str | None) 
     marker = destination / ".complete.json"
     if marker.is_file():
         value = json.loads(marker.read_text(encoding="utf-8"))
-        if value.get("source") == SOURCES["qvhighlights"]:
+        if _source_matches(value.get("source"), SOURCES["qvhighlights"]):
             return value
     annotation = destination / "annotations" / "highlight_test_release.jsonl"
     _download_http(SOURCES["qvhighlights"]["annotation"], annotation)
@@ -430,7 +447,7 @@ def _download_qvhighlights_timelens(root: Path, destination: Path, hf_token: str
     videos = destination / "videos"
     if marker.is_file() and annotation.is_file() and videos.is_dir():
         value = json.loads(marker.read_text(encoding="utf-8"))
-        if value.get("source") == SOURCES["qvhighlights-timelens"]:
+        if _source_matches(value.get("source"), SOURCES["qvhighlights-timelens"]):
             return value
 
     destination.mkdir(parents=True, exist_ok=True)
@@ -447,7 +464,7 @@ def _download_qvhighlights_timelens(root: Path, destination: Path, hf_token: str
         archive.unlink()
 
     _require_videos(videos)
-    found_count = len({p.stem for p in videos.rglob("*") if p.is_file() and p.suffix.lower() in VIDEO_SUFFIXES})
+    found_count = _verify_qvhighlights_videos(videos, expected_video_ids)
     value = _complete(
         destination,
         SOURCES["qvhighlights-timelens"],
@@ -465,7 +482,7 @@ def _download_momentseeker(root: Path, destination: Path, hf_token: str | None) 
     videos = destination / "videos"
     if marker.is_file() and annotation.is_file() and videos.is_dir():
         value = json.loads(marker.read_text(encoding="utf-8"))
-        if value.get("source") == SOURCES["momentseeker"]:
+        if _source_matches(value.get("source"), SOURCES["momentseeker"]):
             return value
 
     destination.mkdir(parents=True, exist_ok=True)

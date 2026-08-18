@@ -98,6 +98,32 @@ pip install torch torchvision torchaudio --index-url https://download.pytorch.or
 
 The base dependencies include headless OpenCV, PySceneDetect, Transformers, Sentence Transformers, and the Qwen video utilities. CUDA is strongly recommended for the generative grounder; the embedding router intentionally stays on CPU.
 
+## Precompute QVHighlights-TimeLens scout features
+
+The resumable preparation script downloads the 1,511-video TimeLens-Bench QVHighlights
+release with `aria2c`, samples frames at 1 FPS, and embeds frames and all 1,541 queries
+with the pinned `nvidia/llama-nemotron-embed-vl-1b-v2` revision:
+
+```bash
+scripts/prepare_qvhighlights_nemotron.sh
+```
+
+The model uses one 512-pixel image tile per video frame by default so the base FP16
+checkpoint can run on a 4 GB GPU. Outputs are normalized float16 vectors compatible
+with the existing scout artifact layout:
+
+```text
+assets/features/scouts/nvidia--llama-nemotron-embed-vl-1b-v2/qvhighlights-timelens/
+  manifest.json
+  queries.npz
+  video_embeddings/<video-id>.npz
+assets/features/scouts/scout_nvidia--llama-nemotron-embed-vl-1b-v2_qvhighlights-timelens.tar.gz
+```
+
+Each video NPZ is written atomically and validated before reuse, so rerunning the script
+resumes at the first missing video. Override extraction settings by appending arguments
+such as `--device cuda:1`, `--fps 0.5`, or `--batch-size 2`.
+
 ## Run one experiment
 
 Download OMTG:

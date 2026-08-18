@@ -1,4 +1,5 @@
 import io
+import subprocess
 import sys
 import tarfile
 import types
@@ -9,12 +10,14 @@ import pytest
 
 from hybrid_vtg.downloads import (
     SOURCES,
+    _download_http,
     _extract_tar,
     _extract_zip,
     _gdown_folder,
     _http_headers,
     _qvhighlights_video_ids,
     _retain_tacos_test_videos,
+    _source_matches,
     _tacos_test_video_ids,
     _verify_qvhighlights_videos,
     asset_paths,
@@ -122,6 +125,36 @@ def test_hugging_face_token_is_only_sent_to_hugging_face():
     external = _http_headers("https://example.com/file", offset=0, hf_token="secret")
     assert "Authorization" not in external
     assert "Range" not in external
+
+
+def test_download_marker_sources_survive_json_tuple_conversion():
+    source = {"video_shards": ("first", "second")}
+    serialized = {"video_shards": ["first", "second"]}
+    assert _source_matches(serialized, source)
+
+
+def test_aria2_credentials_are_not_exposed_in_process_arguments(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    destination = tmp_path / "archive.tar.gz"
+    captured = {}
+
+    monkeypatch.setattr("hybrid_vtg.downloads.shutil.which", lambda name: f"/usr/bin/{name}")
+
+    def fake_run(command, check):
+        assert check is True
+        captured["command"] = command
+        input_path = Path(next(value.split("=", 1)[1] for value in command if value.startswith("--input-file=")))
+        captured["input"] = input_path.read_text(encoding="utf-8")
+        captured["mode"] = input_path.stat().st_mode & 0o777
+        destination.touch()
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    _download_http("https://huggingface.co/org/repo/file", destination, hf_token="secret")
+
+    assert "secret" not in " ".join(captured["command"])
+    assert "header=Authorization: Bearer secret" in captured["input"]
+    assert captured["mode"] == 0o600
+    assert not any(tmp_path.glob(".aria2-input-*"))
 
 
 def test_gdown_folder_supports_legacy_signature(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
