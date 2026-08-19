@@ -8,13 +8,14 @@ from typing import Sequence
 
 from tqdm import tqdm
 
-from ...contracts import GroundingContext, Method, ModelBackend, Prediction, Sample
+from ...contracts import Method, ModelBackend, Prediction, Sample
 from .planning import (
     DEFAULT_CONTEXT_SECONDS,
     DEFAULT_NUM_ANCHORS,
     FRAME_BUDGET,
     Observation,
     assign_observation_roles,
+    plan_sgde_corridor,
     plan_sgde_evidence,
 )
 from .proposals import CandidateProposal, extract_candidate_proposals
@@ -86,34 +87,12 @@ class SGDE64(Method):
             route_mode = "full-video-fallback"
             selected_candidates = []
 
-        if route_mode == "scout-guided" and selected_candidates:
-            cand_span = max(c.end for c in selected_candidates) - min(c.start for c in selected_candidates)
-            if cand_span <= 80.0:
-                c_start = min(c.start for c in selected_candidates)
-                c_end = max(c.end for c in selected_candidates)
-            else:
-                top_cand = selected_candidates[0]
-                c_start, c_end = top_cand.start, top_cand.end
-            margin = max(self.context_seconds, min(12.0, (c_end - c_start) * 0.25))
-            w_start = max(0.0, c_start - margin)
-            w_end = min(sample.duration, c_end + margin)
-            min_window = min(30.0, sample.duration)
-            if w_end - w_start < min_window:
-                mid = (w_start + w_end) / 2.0
-                w_start = max(0.0, mid - min_window / 2.0)
-                w_end = min(sample.duration, w_start + min_window)
-                w_start = max(0.0, w_end - min_window)
-            context = GroundingContext(w_start, w_end)
-        else:
-            context = GroundingContext(0.0, sample.duration)
-
-        # Stage 2: 64-Frame Evidence Planning
-        observations = plan_sgde_evidence(
+        # Stage 2: 64-Frame Corridor Planning
+        observations, context = plan_sgde_corridor(
             selected_candidates,
             sample.duration,
             budget=self.frame_budget,
             context_seconds=self.context_seconds,
-            num_anchors=self.num_anchors,
         )
         timestamps = tuple(obs.timestamp for obs in observations)
 

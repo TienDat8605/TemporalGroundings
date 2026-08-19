@@ -7,7 +7,7 @@ from typing import Sequence
 
 import numpy as np
 
-from ...contracts import TemporalEvidence
+from ...contracts import GroundingContext, TemporalEvidence
 from ...media import uniform_timestamps
 from .proposals import CandidateProposal
 
@@ -30,22 +30,21 @@ class Observation:
         }
 
 
-def plan_sgde_evidence(
+def plan_sgde_corridor(
     candidates: Sequence[CandidateProposal],
     duration: float,
     *,
     budget: int = FRAME_BUDGET,
     context_seconds: float = DEFAULT_CONTEXT_SECONDS,
-    num_anchors: int = DEFAULT_NUM_ANCHORS,
-) -> tuple[Observation, ...]:
-    """Allocate exactly 64 frames across the scout-guided candidate corridor window."""
+) -> tuple[tuple[Observation, ...], GroundingContext]:
+    """Compute the corridor GroundingContext and allocate exactly 64 frames uniformly within it."""
     if duration <= 0 or budget <= 0:
         raise ValueError("duration and frame budget must be positive")
 
-    # If no candidates provided, fail-open to uniform full-video exploration
-    if not candidates:
+    if not candidates or duration <= 45.0:
         timestamps = uniform_timestamps(0.0, duration, budget)
-        return tuple(Observation(t, "exploration") for t in timestamps)
+        obs = tuple(Observation(t, "exploration") for t in timestamps)
+        return obs, GroundingContext(0.0, duration)
 
     cand_span = max(c.end for c in candidates) - min(c.start for c in candidates)
     if cand_span <= 80.0:
@@ -54,6 +53,7 @@ def plan_sgde_evidence(
     else:
         top_cand = candidates[0]
         c_start, c_end = top_cand.start, top_cand.end
+
     margin = max(context_seconds, min(12.0, (c_end - c_start) * 0.25))
     w_start = max(0.0, c_start - margin)
     w_end = min(duration, c_end + margin)
@@ -64,6 +64,7 @@ def plan_sgde_evidence(
         w_end = min(duration, w_start + min_window)
         w_start = max(0.0, w_end - min_window)
 
+    context = GroundingContext(w_start, w_end)
     timestamps = uniform_timestamps(w_start, w_end, budget)
     observations = []
     for t in timestamps:
@@ -75,7 +76,25 @@ def plan_sgde_evidence(
             role = "post_context"
         observations.append(Observation(t, role))
 
-    return tuple(observations)
+    return tuple(observations), context
+
+
+def plan_sgde_evidence(
+    candidates: Sequence[CandidateProposal],
+    duration: float,
+    *,
+    budget: int = FRAME_BUDGET,
+    context_seconds: float = DEFAULT_CONTEXT_SECONDS,
+    num_anchors: int = DEFAULT_NUM_ANCHORS,
+) -> tuple[Observation, ...]:
+    """Compatibility wrapper returning observations tuple."""
+    obs, _ = plan_sgde_corridor(
+        candidates,
+        duration,
+        budget=budget,
+        context_seconds=context_seconds,
+    )
+    return obs
 
 
 def assign_observation_roles(
