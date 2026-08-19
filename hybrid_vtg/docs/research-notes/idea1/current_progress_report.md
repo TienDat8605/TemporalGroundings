@@ -191,6 +191,9 @@ Before either proposal is claimed:
 
 ## Related project notes
 
+- [Current strict-64 coarse-to-fine implementation](current_coarse_to_fine_implementation.md)
+- [Current Mage and SemVID pruning implementation](current_pruning_implementation.md)
+- [OMTG full-split Mage 0.8 + SemVID 0.25 model report](omtg_mage08_semvid025_model_report.md)
 - [Temporal failure diagnosis](temporal_sparsification_failure_note.md)
 - [Safe temporal routing implementation](next_implementation_safe_temporal_routing.md)
 - [Original implementation plan](implementation_plan.md)

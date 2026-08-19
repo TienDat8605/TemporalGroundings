@@ -180,11 +180,11 @@ def run_benchmark(
         post_pruning,
         post_retention,
     )
-    if method_name == "anchored-corridor-64" and (
+    if method_name in {"anchored-corridor-64", "sgde-64"} and (
         encoder_pruning != "none" or post_pruning != "none"
     ):
         raise ValueError(
-            "anchored-corridor-64 currently requires dense evidence; run Mage and SemVID "
+            f"{method_name} currently requires dense evidence; run Mage and SemVID "
             "as separate follow-up ablations"
         )
     load_builtin_plugins()
@@ -282,6 +282,15 @@ def run_benchmark(
             "maximum_encoder_calls": 1,
             "maximum_primary_grounder_calls": 1,
         }
+    elif method_name == "sgde-64":
+        manifest["method_config"] = {
+            "grounding_frame_budget": 64,
+            "scout_fps": 1.0,
+            "context_seconds": 4.0,
+            "num_anchors": 6,
+            "maximum_encoder_calls": 1,
+            "maximum_primary_grounder_calls": 1,
+        }
     hyperparameters = {
         "benchmark": benchmark_name,
         "model": model_name,
@@ -322,7 +331,10 @@ def run_benchmark(
     done = {str(record["id"]) for record in existing}
     pending = [sample for sample in selected if sample.id not in done]
     if pending:
-        method = METHODS.create(method_name)
+        method_options = {}
+        if method_name == "sgde-64" and feature_roots:
+            method_options["feature_roots"] = feature_roots
+        method = METHODS.create(method_name, **method_options)
         method_cache = results_root / "cache" / "methods" / method_name
         # Batch CPU-only preprocessing (e.g. scene detection) runs before the model
         # backend is loaded, so it never competes with GPU memory.

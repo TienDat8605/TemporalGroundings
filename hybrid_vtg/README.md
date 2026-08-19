@@ -1,12 +1,41 @@
 # Hybrid VTG
 
-Hybrid VTG is a test-only runner for frozen-model video temporal grounding. This branch contains three inference methods:
+Hybrid VTG is a test-only runner for frozen-model video temporal grounding. This branch contains four inference methods:
 
+- `sgde-64`: scout-guided dense evidence grounding (Idea 3) separating cheap global scouting from dense anchored local LVLM verification under a 64-frame budget.
 - `anchored-corridor-64`: multi-view semantic routing, safe full-video fallback, and one globally anchored grounding call with exactly 64 evidence frames.
 - `coarse-to-fine-64`: scene-window routing and local grounding under a strict 64 source-frame budget.
 - `native`: checkpoint-native inference for UniTime, TimeLens, and TimeLens2.
 
 No training or fine-tuning is performed. The reusable Qwen backends still support independent Mage encoder pruning and SemVID post-encoder pruning.
+
+## Scout-guided dense evidence grounding (SGDE-64)
+
+`sgde-64` implements the two-stage **Scout-Guided Dense Evidence Grounding (Idea 3)** paradigm:
+
+1. **Stage 1 (Scout Timeline & Candidate Extraction)**:
+   - Computes or reuses cached 1 FPS visual scout embeddings (e.g. `google/siglip2-base-patch16-224`, `nvidia/llama-nemotron-embed-vl-1b-v2`, or `Qwen/Qwen3-VL-Embedding-2B`).
+   - Normalizes timeline with robust median and MAD: $z(t) = \frac{s(t) - \operatorname{median}(s)}{\operatorname{MAD}(s) + \epsilon}$ with conservative smoothing.
+   - Extracts candidate proposals using hysteresis connected components, penalized interval scoring $J(a,b)$, and multi-scale density windows.
+   - Applies 1D temporal NMS to retain diverse high-confidence candidates.
+
+2. **Stage 2 (64-Frame Anchored Dense Evidence & Grounding)**:
+   - Allocates global timeline anchors across the full video.
+   - Concentrates remaining frames on pre/post context padding, candidate interiors, and boundary transitions.
+   - If scout confidence is low, safely fails open to uniform full-video exploration.
+   - Encodes evidence once and performs single-call LVLM temporal verification and grounding.
+
+Run SGDE on QVHighlights-TimeLens with `timelens2-4b`:
+
+```bash
+hybrid-vtg run \
+  --benchmark qvhighlights-timelens \
+  --data ./assets/datasets/qvhighlights-timelens \
+  --model timelens2-4b \
+  --method sgde-64 \
+  --subset 10 \
+  --seed 42
+```
 
 ## One-call anchored corridor grounding
 

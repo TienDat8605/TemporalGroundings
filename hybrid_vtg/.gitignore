@@ -10,5 +10,7 @@ assets/
 results/cache/
 results/runs/
 results/submissions/
+results/omtg-*/
+results/tmp*/
 *.log
 .env*

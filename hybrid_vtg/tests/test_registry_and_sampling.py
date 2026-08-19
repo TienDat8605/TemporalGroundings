@@ -18,6 +18,7 @@ def test_builtin_surface_is_exactly_the_requested_matrix():
         "anchored-corridor-64",
         "coarse-to-fine-64",
         "native",
+        "sgde-64",
     )
     assert MODELS.names() == (
         "qwen2-vl-7b",
