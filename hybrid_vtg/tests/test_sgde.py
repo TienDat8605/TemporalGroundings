@@ -128,8 +128,8 @@ def test_extract_candidate_proposals_confidence():
     )
     cands, confident = extract_candidate_proposals(good_timeline, 100.0, cardinality="single")
     assert confident
-    assert len(cands) == 1
-    assert 48.0 <= cands[0].start <= 52.0
+    assert len(cands) >= 1
+    assert 45.0 <= cands[0].start <= 52.0
 
 
 def test_plan_sgde_evidence_budget_and_roles():

@@ -76,9 +76,9 @@ class SGDE64(Method):
         )
         scout_seconds = perf_counter() - scout_started
 
-        if sample.duration <= 10.0:
-            route_mode = "single-window-bypass"
-            selected_candidates = candidates
+        if sample.duration <= 45.0:
+            route_mode = "full-video-fallback"
+            selected_candidates = []
         elif is_confident and candidates:
             route_mode = "scout-guided"
             selected_candidates = candidates
@@ -87,13 +87,14 @@ class SGDE64(Method):
             selected_candidates = []
 
         if route_mode == "scout-guided" and selected_candidates:
-            if sample.cardinality == "single":
-                top_cand = selected_candidates[0]
-                c_start, c_end = top_cand.start, top_cand.end
-            else:
+            cand_span = max(c.end for c in selected_candidates) - min(c.start for c in selected_candidates)
+            if cand_span <= 80.0:
                 c_start = min(c.start for c in selected_candidates)
                 c_end = max(c.end for c in selected_candidates)
-            margin = max(self.context_seconds, min(12.0, (c_end - c_start) * 0.3))
+            else:
+                top_cand = selected_candidates[0]
+                c_start, c_end = top_cand.start, top_cand.end
+            margin = max(self.context_seconds, min(12.0, (c_end - c_start) * 0.25))
             w_start = max(0.0, c_start - margin)
             w_end = min(sample.duration, c_end + margin)
             min_window = min(30.0, sample.duration)

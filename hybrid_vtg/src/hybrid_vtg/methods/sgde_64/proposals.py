@@ -278,8 +278,8 @@ def extract_candidate_proposals(
     hysteresis = extract_hysteresis_components(
         timeline.timestamps,
         timeline.z_scores,
-        high_threshold=1.0,
-        low_threshold=0.3,
+        high_threshold=0.8,
+        low_threshold=0.25,
     )
     all_proposals.extend(hysteresis)
 
@@ -287,8 +287,8 @@ def extract_candidate_proposals(
     penalized = extract_penalized_intervals(
         timeline.timestamps,
         timeline.z_scores,
-        tau=0.5,
-        lambda_len=0.05,
+        tau=0.4,
+        lambda_len=0.02,
     )
     all_proposals.extend(penalized)
 
@@ -297,14 +297,14 @@ def extract_candidate_proposals(
         timeline.timestamps,
         timeline.z_scores,
         duration,
-        scales=(2.0, 5.0, 10.0, 20.0, 40.0),
+        scales=(6.0, 12.0, 24.0, 48.0),
     )
     all_proposals.extend(multiscale)
 
     if not all_proposals:
         return [], False
 
-    max_k = 1 if cardinality == "single" else max_multi_candidates
+    max_k = 2 if cardinality == "single" else max_multi_candidates
     selected = temporal_nms(all_proposals, iou_threshold=nms_iou, max_candidates=max_k)
 
     # Confidence check

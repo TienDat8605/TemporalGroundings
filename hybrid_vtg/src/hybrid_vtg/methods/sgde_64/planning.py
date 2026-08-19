@@ -47,9 +47,14 @@ def plan_sgde_evidence(
         timestamps = uniform_timestamps(0.0, duration, budget)
         return tuple(Observation(t, "exploration") for t in timestamps)
 
-    c_start = min(c.start for c in candidates)
-    c_end = max(c.end for c in candidates)
-    margin = max(context_seconds, min(12.0, (c_end - c_start) * 0.3))
+    cand_span = max(c.end for c in candidates) - min(c.start for c in candidates)
+    if cand_span <= 80.0:
+        c_start = min(c.start for c in candidates)
+        c_end = max(c.end for c in candidates)
+    else:
+        top_cand = candidates[0]
+        c_start, c_end = top_cand.start, top_cand.end
+    margin = max(context_seconds, min(12.0, (c_end - c_start) * 0.25))
     w_start = max(0.0, c_start - margin)
     w_end = min(duration, c_end + margin)
     min_window = min(30.0, duration)
