@@ -434,19 +434,18 @@ class QwenEvidenceBackend(ModelBackend):
 
         model, processor = self._load()
         tokenizer = processor.tokenizer
-        groups: list[tuple[float, int, str]] = []
+        groups: list[tuple[float, int]] = []
         for index, timestamp in enumerate(evidence.timestamps):
             relative = max(0.0, timestamp - context.start)
-            role = evidence.roles[index] if evidence.roles else ""
             if groups and abs(groups[-1][0] - relative) < 1e-5:
-                groups[-1] = (relative, groups[-1][1] + 1, groups[-1][2])
+                groups[-1] = (relative, groups[-1][1] + 1)
             else:
-                groups.append((relative, 1, role))
+                groups.append((relative, 1))
         visual = "".join(
-            f"<{timestamp:.2f} seconds>{f', {role}' if role else ''}{processor.vision_start_token}"
+            f"<{timestamp:.2f} seconds>{processor.vision_start_token}"
             + processor.video_token * count
             + processor.vision_end_token
-            for timestamp, count, role in groups
+            for timestamp, count in groups
         )
         text = f"<|im_start|>user\n{self._prompt(sample, context)}\n{visual}<|im_end|>\n<|im_start|>assistant\n"
         encoded = tokenizer(text, return_tensors="pt", add_special_tokens=False)

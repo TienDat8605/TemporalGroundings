@@ -12,8 +12,8 @@ from ...media import uniform_timestamps
 from .proposals import CandidateProposal
 
 FRAME_BUDGET = 64
-DEFAULT_NUM_ANCHORS = 6
-DEFAULT_CONTEXT_SECONDS = 4.0
+DEFAULT_NUM_ANCHORS = 16
+DEFAULT_CONTEXT_SECONDS = 6.0
 
 
 @dataclass(frozen=True)
@@ -60,43 +60,43 @@ def plan_sgde_evidence(
 
     observations: dict[float, Observation] = {}
 
-    # 1. Global anchors across full video
-    anchor_count = min(num_anchors, budget // 4)
+    # 1. Global anchors across full video (guarantees macro temporal structure)
+    anchor_count = min(num_anchors, budget // 3)
     for t in uniform_timestamps(0.0, duration, anchor_count):
         _add_obs(observations, Observation(t, "global_anchor"))
 
-    # 2. Candidate allocations
-    remaining = budget - len(observations)
-    if remaining > 0 and candidates:
-        per_cand_budget = remaining // len(candidates)
-        for cand_idx, cand in enumerate(candidates):
-            c_start = max(0.0, cand.start)
-            c_end = min(duration, cand.end)
-            pre_start = max(0.0, c_start - context_seconds)
-            post_end = min(duration, c_end + context_seconds)
+    # 2. Density-capped candidate allocations (1.0 - 1.5 FPS max local density)
+    for cand_idx, cand in enumerate(candidates):
+        c_start = max(0.0, cand.start)
+        c_end = min(duration, cand.end)
+        cand_dur = c_end - c_start
+        pre_start = max(0.0, c_start - context_seconds)
+        post_end = min(duration, c_end + context_seconds)
 
-            # Boundary transitions (high priority)
-            _add_obs(observations, Observation(c_start, "boundary_transition", cand_idx))
-            _add_obs(observations, Observation(c_end, "boundary_transition", cand_idx))
-            if c_start > 0.5:
-                _add_obs(observations, Observation(max(0.0, c_start - 0.5), "boundary_transition", cand_idx))
-            if c_end < duration - 0.5:
-                _add_obs(observations, Observation(min(duration, c_end + 0.5), "boundary_transition", cand_idx))
+        # Boundary transitions (boundary precision)
+        _add_obs(observations, Observation(c_start, "boundary_transition", cand_idx))
+        _add_obs(observations, Observation(c_end, "boundary_transition", cand_idx))
+        if c_start > 0.5:
+            _add_obs(observations, Observation(max(0.0, c_start - 0.5), "boundary_transition", cand_idx))
+        if c_end < duration - 0.5:
+            _add_obs(observations, Observation(min(duration, c_end + 0.5), "boundary_transition", cand_idx))
 
-            # Pre-context frames
-            if c_start > pre_start + 0.2:
-                for t in uniform_timestamps(pre_start, c_start, 2):
-                    _add_obs(observations, Observation(t, "pre_context", cand_idx))
+        # Pre-context frames (1 frame every 2-3s)
+        if c_start > pre_start + 0.5:
+            pre_count = max(2, int(np.ceil((c_start - pre_start) * 0.5)))
+            for t in uniform_timestamps(pre_start, c_start, pre_count):
+                _add_obs(observations, Observation(t, "pre_context", cand_idx))
 
-            # Interior candidate frames
-            interior_budget = max(4, per_cand_budget - 6)
-            for t in uniform_timestamps(c_start, c_end, interior_budget):
-                _add_obs(observations, Observation(t, "candidate", cand_idx))
+        # Interior candidate frames (proportional to duration: ~1.0 FPS, max 28 per candidate)
+        interior_budget = max(4, min(28, int(np.round(cand_dur * 1.0))))
+        for t in uniform_timestamps(c_start, c_end, interior_budget):
+            _add_obs(observations, Observation(t, "candidate", cand_idx))
 
-            # Post-context frames
-            if post_end > c_end + 0.2:
-                for t in uniform_timestamps(c_end, post_end, 2):
-                    _add_obs(observations, Observation(t, "post_context", cand_idx))
+        # Post-context frames (1 frame every 2-3s)
+        if post_end > c_end + 0.5:
+            post_count = max(2, int(np.ceil((post_end - c_end) * 0.5)))
+            for t in uniform_timestamps(c_end, post_end, post_count):
+                _add_obs(observations, Observation(t, "post_context", cand_idx))
 
     # If exceeding budget, trim lowest-priority observations
     if len(observations) > budget:

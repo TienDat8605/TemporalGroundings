@@ -43,8 +43,8 @@ def _interval_metrics(
     z_scores: np.ndarray,
     start: float,
     end: float,
-    tau: float = 0.5,
-    lambda_len: float = 0.05,
+    tau: float = 0.3,
+    lambda_len: float = 0.01,
 ) -> tuple[float, float, float]:
     """Compute peak_z, mean_z, and penalized_score J(a, b) for a time interval [start, end]."""
     mask = (timestamps >= start - 1e-4) & (timestamps <= end + 1e-4)
@@ -64,18 +64,18 @@ def _interval_metrics(
 
 
 def _composite_score(peak_z: float, mean_z: float, penalized_score: float, duration: float) -> float:
-    """Combine peak, mean, and duration-penalized score into a unified ranking metric."""
-    norm_penalized = penalized_score / max(1.0, duration)
-    return float(0.4 * peak_z + 0.35 * mean_z + 0.25 * norm_penalized)
+    """Combine peak and positive energy without penalizing natural event duration."""
+    excess_energy = max(0.0, penalized_score)
+    return float(peak_z + 0.5 * excess_energy + 0.2 * max(0.0, mean_z))
 
 
 def extract_hysteresis_components(
     timestamps: np.ndarray,
     z_scores: np.ndarray,
     *,
-    high_threshold: float = 1.0,
-    low_threshold: float = 0.3,
-    min_duration: float = 1.0,
+    high_threshold: float = 0.8,
+    low_threshold: float = 0.25,
+    min_duration: float = 3.0,
 ) -> list[CandidateProposal]:
     """Extract connected components where score reaches high_threshold and stays above low_threshold."""
     if len(timestamps) == 0:
@@ -105,19 +105,20 @@ def extract_hysteresis_components(
                     end_idx = i - 1
                     t_start = float(timestamps[start_idx])
                     t_end = float(timestamps[end_idx])
-                    if t_end - t_start >= min_duration or start_idx == end_idx:
-                        t_end = max(t_end, t_start + min_duration)
-                        peak_z, mean_z, pen = _interval_metrics(timestamps, z_scores, t_start, t_end)
-                        score = _composite_score(peak_z, mean_z, pen, t_end - t_start)
-                        proposals.append(CandidateProposal(t_start, t_end, peak_z, mean_z, pen, score, "hysteresis"))
+                    dur = max(t_end - t_start, min_duration)
+                    t_end = t_start + dur
+                    peak_z, mean_z, pen = _interval_metrics(timestamps, z_scores, t_start, t_end)
+                    score = _composite_score(peak_z, mean_z, pen, dur)
+                    proposals.append(CandidateProposal(t_start, t_end, peak_z, mean_z, pen, score, "hysteresis"))
 
     # Tail component
     if in_component and has_high:
         t_start = float(timestamps[start_idx])
         t_end = float(timestamps[n - 1])
-        t_end = max(t_end, t_start + min_duration)
+        dur = max(t_end - t_start, min_duration)
+        t_end = t_start + dur
         peak_z, mean_z, pen = _interval_metrics(timestamps, z_scores, t_start, t_end)
-        score = _composite_score(peak_z, mean_z, pen, t_end - t_start)
+        score = _composite_score(peak_z, mean_z, pen, dur)
         proposals.append(CandidateProposal(t_start, t_end, peak_z, mean_z, pen, score, "hysteresis"))
 
     return proposals
@@ -199,7 +200,7 @@ def extract_multiscale_density_windows(
     z_scores: np.ndarray,
     video_duration: float,
     *,
-    scales: Sequence[float] = (2.0, 5.0, 10.0, 20.0, 40.0),
+    scales: Sequence[float] = (6.0, 12.0, 24.0, 48.0),
     min_peak_z: float = 0.5,
 ) -> list[CandidateProposal]:
     """Find local score peaks at several candidate durations."""
