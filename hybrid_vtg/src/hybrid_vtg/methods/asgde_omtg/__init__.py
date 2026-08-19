@@ -31,7 +31,10 @@ def extract_asgde_candidates(timeline: ScoutTimeline, duration: float) -> tuple[
 
 
 def assign_observation_roles(evidence: TemporalEvidence, observations: Sequence[Observation]) -> None:
-    evidence.roles = tuple(next(value.role for value in observations if abs(value.timestamp - timestamp) < 1e-5) for timestamp in evidence.timestamps)
+    evidence.roles = tuple(
+        min(observations, key=lambda value: abs(value.timestamp - float(timestamp))).role
+        for timestamp in evidence.timestamps
+    )
     evidence.metadata["observation_plan"] = [value.to_dict() for value in observations]
 
 
