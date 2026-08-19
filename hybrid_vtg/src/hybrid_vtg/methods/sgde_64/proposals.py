@@ -281,24 +281,16 @@ def extract_candidate_proposals(
         high_threshold=0.8,
         low_threshold=0.25,
     )
-    if hysteresis:
-        all_proposals = hysteresis
-    else:
-        # Fallback to penalized intervals and multiscale density windows
-        penalized = extract_penalized_intervals(
-            timeline.timestamps,
-            timeline.z_scores,
-            tau=0.4,
-            lambda_len=0.02,
-        )
-        all_proposals.extend(penalized)
-        multiscale = extract_multiscale_density_windows(
-            timeline.timestamps,
-            timeline.z_scores,
-            duration,
-            scales=(6.0, 12.0, 24.0, 48.0),
-        )
-        all_proposals.extend(multiscale)
+    all_proposals.extend(hysteresis)
+
+    # 2. Multiscale density windows (scales 8s, 16s, 32s)
+    multiscale = extract_multiscale_density_windows(
+        timeline.timestamps,
+        timeline.z_scores,
+        duration,
+        scales=(8.0, 16.0, 32.0),
+    )
+    all_proposals.extend(multiscale)
 
     if not all_proposals:
         return [], False
