@@ -86,6 +86,21 @@ class SGDE64(Method):
             route_mode = "full-video-fallback"
             selected_candidates = []
 
+        if route_mode == "scout-guided" and selected_candidates:
+            c_start = min(c.start for c in selected_candidates)
+            c_end = max(c.end for c in selected_candidates)
+            w_start = max(0.0, c_start - self.context_seconds)
+            w_end = min(sample.duration, c_end + self.context_seconds)
+            min_window = min(20.0, sample.duration)
+            if w_end - w_start < min_window:
+                mid = (w_start + w_end) / 2.0
+                w_start = max(0.0, mid - min_window / 2.0)
+                w_end = min(sample.duration, w_start + min_window)
+                w_start = max(0.0, w_end - min_window)
+            context = GroundingContext(w_start, w_end)
+        else:
+            context = GroundingContext(0.0, sample.duration)
+
         # Stage 2: 64-Frame Evidence Planning
         observations = plan_sgde_evidence(
             selected_candidates,
@@ -107,7 +122,7 @@ class SGDE64(Method):
         result = model.predict(
             sample,
             evidence,
-            GroundingContext(0.0, sample.duration),
+            context,
         )
         predict_seconds = perf_counter() - predict_started
 

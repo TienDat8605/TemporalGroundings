@@ -30,17 +30,6 @@ class Observation:
         }
 
 
-def _add_obs(output: dict[float, Observation], obs: Observation) -> None:
-    key = round(obs.timestamp, 6)
-    existing = output.get(key)
-    if existing is None:
-        output[key] = obs
-    elif obs.role == "global_anchor" and existing.role != "global_anchor":
-        output[key] = obs
-    elif obs.role == "boundary_transition" and existing.role not in {"global_anchor", "boundary_transition"}:
-        output[key] = obs
-
-
 def plan_sgde_evidence(
     candidates: Sequence[CandidateProposal],
     duration: float,
@@ -49,94 +38,38 @@ def plan_sgde_evidence(
     context_seconds: float = DEFAULT_CONTEXT_SECONDS,
     num_anchors: int = DEFAULT_NUM_ANCHORS,
 ) -> tuple[Observation, ...]:
-    """Allocate exactly 64 frames across global anchors, context padding, candidate interiors, and boundaries."""
+    """Allocate exactly 64 frames across the scout-guided candidate corridor window."""
     if duration <= 0 or budget <= 0:
         raise ValueError("duration and frame budget must be positive")
 
-    # If no candidates provided, fail-open to uniform exploration
+    # If no candidates provided, fail-open to uniform full-video exploration
     if not candidates:
         timestamps = uniform_timestamps(0.0, duration, budget)
         return tuple(Observation(t, "exploration") for t in timestamps)
 
-    observations: dict[float, Observation] = {}
+    c_start = min(c.start for c in candidates)
+    c_end = max(c.end for c in candidates)
+    w_start = max(0.0, c_start - context_seconds)
+    w_end = min(duration, c_end + context_seconds)
+    min_window = min(20.0, duration)
+    if w_end - w_start < min_window:
+        mid = (w_start + w_end) / 2.0
+        w_start = max(0.0, mid - min_window / 2.0)
+        w_end = min(duration, w_start + min_window)
+        w_start = max(0.0, w_end - min_window)
 
-    # 1. Global anchors across full video (guarantees macro temporal structure)
-    anchor_count = min(num_anchors, budget // 3)
-    for t in uniform_timestamps(0.0, duration, anchor_count):
-        _add_obs(observations, Observation(t, "global_anchor"))
+    timestamps = uniform_timestamps(w_start, w_end, budget)
+    observations = []
+    for t in timestamps:
+        if c_start <= t <= c_end:
+            role = "candidate"
+        elif t < c_start:
+            role = "pre_context"
+        else:
+            role = "post_context"
+        observations.append(Observation(t, role))
 
-    # 2. Density-capped candidate allocations (1.0 - 1.5 FPS max local density)
-    for cand_idx, cand in enumerate(candidates):
-        c_start = max(0.0, cand.start)
-        c_end = min(duration, cand.end)
-        cand_dur = c_end - c_start
-        pre_start = max(0.0, c_start - context_seconds)
-        post_end = min(duration, c_end + context_seconds)
-
-        # Boundary transitions (boundary precision)
-        _add_obs(observations, Observation(c_start, "boundary_transition", cand_idx))
-        _add_obs(observations, Observation(c_end, "boundary_transition", cand_idx))
-        if c_start > 0.5:
-            _add_obs(observations, Observation(max(0.0, c_start - 0.5), "boundary_transition", cand_idx))
-        if c_end < duration - 0.5:
-            _add_obs(observations, Observation(min(duration, c_end + 0.5), "boundary_transition", cand_idx))
-
-        # Pre-context frames (1 frame every 2-3s)
-        if c_start > pre_start + 0.5:
-            pre_count = max(2, int(np.ceil((c_start - pre_start) * 0.5)))
-            for t in uniform_timestamps(pre_start, c_start, pre_count):
-                _add_obs(observations, Observation(t, "pre_context", cand_idx))
-
-        # Interior candidate frames (proportional to duration: ~1.0 FPS, max 28 per candidate)
-        interior_budget = max(4, min(28, int(np.round(cand_dur * 1.0))))
-        for t in uniform_timestamps(c_start, c_end, interior_budget):
-            _add_obs(observations, Observation(t, "candidate", cand_idx))
-
-        # Post-context frames (1 frame every 2-3s)
-        if post_end > c_end + 0.5:
-            post_count = max(2, int(np.ceil((post_end - c_end) * 0.5)))
-            for t in uniform_timestamps(c_end, post_end, post_count):
-                _add_obs(observations, Observation(t, "post_context", cand_idx))
-
-    # If exceeding budget, trim lowest-priority observations
-    if len(observations) > budget:
-        # Priority order: global_anchor > boundary_transition > candidate > pre_context > post_context > exploration
-        priority = {
-            "global_anchor": 5,
-            "boundary_transition": 4,
-            "candidate": 3,
-            "pre_context": 2,
-            "post_context": 2,
-            "exploration": 1,
-        }
-        sorted_obs = sorted(
-            observations.values(),
-            key=lambda o: (-priority.get(o.role, 0), o.timestamp),
-        )
-        kept = sorted_obs[:budget]
-        observations = {round(o.timestamp, 6): o for o in kept}
-
-    # If below budget, fill deterministically from a fine grid
-    if len(observations) < budget:
-        for t in uniform_timestamps(0.0, duration, budget * 8):
-            _add_obs(observations, Observation(t, "exploration"))
-            if len(observations) == budget:
-                break
-
-    if len(observations) != budget:
-        # Final safety check: if grid rounding missed exact count, pad or slice
-        times = sorted(observations.keys())
-        if len(times) > budget:
-            times = times[:budget]
-            observations = {t: observations[t] for t in times}
-        elif len(times) < budget:
-            for t in uniform_timestamps(0.0, duration, budget):
-                if round(t, 6) not in observations:
-                    observations[round(t, 6)] = Observation(t, "exploration")
-                    if len(observations) == budget:
-                        break
-
-    return tuple(sorted(observations.values(), key=lambda o: o.timestamp))
+    return tuple(observations)
 
 
 def assign_observation_roles(

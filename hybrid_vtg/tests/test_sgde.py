@@ -145,9 +145,8 @@ def test_plan_sgde_evidence_budget_and_roles():
     assert times == sorted(times)
 
     roles = {o.role for o in observations}
-    assert "global_anchor" in roles
     assert "candidate" in roles
-    assert "boundary_transition" in roles
+    assert "pre_context" in roles or "post_context" in roles
 
 
 def test_plan_sgde_evidence_empty_fallback():
