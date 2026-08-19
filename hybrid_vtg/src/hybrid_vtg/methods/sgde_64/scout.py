@@ -93,8 +93,15 @@ class ScoutProvider:
                 if benchmark and (root / benchmark).is_dir():
                     candidates.append(root / benchmark)
 
-        # Standard project locations
-        project_root = Path(__file__).resolve().parents[3]
+        # Dynamically locate project root containing assets/ or pyproject.toml
+        project_root = None
+        for parent in Path(__file__).resolve().parents:
+            if (parent / "assets").is_dir() or (parent / "pyproject.toml").is_file():
+                project_root = parent
+                break
+        if project_root is None:
+            project_root = Path.cwd()
+
         assets_scout = project_root / "assets" / "features" / "scouts"
         if assets_scout.is_dir():
             for sub in assets_scout.iterdir():
@@ -123,8 +130,8 @@ class ScoutProvider:
         video_id: str,
         cache_root: Path,
         benchmark: str = "",
-    ) -> tuple[np.ndarray, np.ndarray] | None:
-        """Attempt to load cached video embeddings (timestamps, embeddings)."""
+    ) -> tuple[np.ndarray, np.ndarray, str] | None:
+        """Attempt to load cached video embeddings (timestamps, embeddings, model_id)."""
         search_dirs = self._discover_feature_dirs(cache_root, benchmark)
         for directory in search_dirs:
             # Check direct or video_embeddings subfolder
@@ -138,7 +145,8 @@ class ScoutProvider:
                             ts = cached["timestamps"].astype(np.float32)
                             emb = cached["embeddings"].astype(np.float32)
                             if ts.ndim == 1 and emb.ndim == 2 and len(ts) == len(emb):
-                                return ts, emb
+                                model_name = directory.parent.name if directory.name == benchmark else directory.name
+                                return ts, emb, model_name
                     except Exception:
                         continue
         return None
@@ -208,9 +216,10 @@ class ScoutProvider:
         video_emb: np.ndarray
         query_emb: np.ndarray
         was_cached = False
+        detected_model = self.model_id
 
         if cached_vid is not None:
-            timestamps, video_emb = cached_vid
+            timestamps, video_emb, detected_model = cached_vid
         else:
             # Compute on the fly and cache
             timestamps = sample_timestamps(sample.duration, self.fps)
@@ -278,6 +287,6 @@ class ScoutProvider:
             median=med,
             mad=mad,
             peak_z=peak_z,
-            model_id=self.model_id,
+            model_id=detected_model,
             cached=was_cached,
         )
