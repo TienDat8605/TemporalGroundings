@@ -274,32 +274,31 @@ def extract_candidate_proposals(
 
     all_proposals: list[CandidateProposal] = []
 
-    # 1. Hysteresis connected components
+    # 1. Hysteresis connected components (natural data-driven event boundaries)
     hysteresis = extract_hysteresis_components(
         timeline.timestamps,
         timeline.z_scores,
         high_threshold=0.8,
         low_threshold=0.25,
     )
-    all_proposals.extend(hysteresis)
-
-    # 2. Penalized intervals
-    penalized = extract_penalized_intervals(
-        timeline.timestamps,
-        timeline.z_scores,
-        tau=0.4,
-        lambda_len=0.02,
-    )
-    all_proposals.extend(penalized)
-
-    # 3. Multi-scale density windows
-    multiscale = extract_multiscale_density_windows(
-        timeline.timestamps,
-        timeline.z_scores,
-        duration,
-        scales=(6.0, 12.0, 24.0, 48.0),
-    )
-    all_proposals.extend(multiscale)
+    if hysteresis:
+        all_proposals = hysteresis
+    else:
+        # Fallback to penalized intervals and multiscale density windows
+        penalized = extract_penalized_intervals(
+            timeline.timestamps,
+            timeline.z_scores,
+            tau=0.4,
+            lambda_len=0.02,
+        )
+        all_proposals.extend(penalized)
+        multiscale = extract_multiscale_density_windows(
+            timeline.timestamps,
+            timeline.z_scores,
+            duration,
+            scales=(6.0, 12.0, 24.0, 48.0),
+        )
+        all_proposals.extend(multiscale)
 
     if not all_proposals:
         return [], False
