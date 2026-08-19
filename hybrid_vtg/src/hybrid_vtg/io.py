@@ -16,10 +16,20 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
         return [json.loads(line) for line in handle if line.strip()]
 
 
+def _json_default(obj: Any) -> Any:
+    if hasattr(obj, "item"):
+        return obj.item()
+    if hasattr(obj, "tolist"):
+        return obj.tolist()
+    if isinstance(obj, Path):
+        return str(obj)
+    raise TypeError(f"Object of type {obj.__class__.__name__} is not JSON serializable")
+
+
 def append_jsonl(path: Path, record: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+        handle.write(json.dumps(record, default=_json_default, ensure_ascii=False) + "\n")
         handle.flush()
         os.fsync(handle.fileno())
 
@@ -29,7 +39,7 @@ def write_jsonl(path: Path, records: Iterable[dict[str, Any]], *, mode: str = "w
     file_mode = "w" if mode == "write" else "a"
     with path.open(file_mode, encoding="utf-8") as handle:
         for record in records:
-            handle.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
+            handle.write(json.dumps(record, default=_json_default, ensure_ascii=False, sort_keys=True) + "\n")
 
 
 def completed_ids(records: Iterable[dict[str, Any]]) -> set[str]:
@@ -63,5 +73,5 @@ def ensure_manifest(path: Path, value: dict[str, Any], *, replace: bool = False)
 def write_json(path: Path, value: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    temporary.write_text(json.dumps(value, default=_json_default, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     temporary.replace(path)
