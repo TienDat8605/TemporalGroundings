@@ -411,8 +411,12 @@ class QwenEvidenceBackend(ModelBackend):
         text = self._query_embeddings(query).to(visual.device)
         return torch.matmul(visual, text.T).amax(dim=-1)
 
-    @staticmethod
-    def _prompt(sample: Sample, context: GroundingContext) -> str:
+    def _prompt(self, sample: Sample, context: GroundingContext) -> str:
+        if self.name == "timelens2-4b":
+            return (
+                f'Given the query: "{sample.query}", return ALL time spans (in seconds) where the query is relevant.\n'
+                "Output format MUST be a JSON array of [start, end] pairs.\n"
+            )
         if sample.cardinality == "multi":
             return (
                 f"The event '{sample.query}' may occur MULTIPLE times in this video. "
@@ -447,7 +451,11 @@ class QwenEvidenceBackend(ModelBackend):
             + processor.vision_end_token
             for timestamp, count in groups
         )
-        text = f"<|im_start|>user\n{self._prompt(sample, context)}\n{visual}<|im_end|>\n<|im_start|>assistant\n"
+        prompt_text = self._prompt(sample, context)
+        if self.name == "timelens2-4b":
+            text = f"<|im_start|>user\n{visual}{prompt_text}<|im_end|>\n<|im_start|>assistant\n"
+        else:
+            text = f"<|im_start|>user\n{prompt_text}\n{visual}<|im_end|>\n<|im_start|>assistant\n"
         encoded = tokenizer(text, return_tensors="pt", add_special_tokens=False)
         input_ids = encoded["input_ids"]
         positions = (input_ids == processor.video_token_id).nonzero(as_tuple=False)[:, 1]
