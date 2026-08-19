@@ -180,7 +180,7 @@ def run_benchmark(
         post_pruning,
         post_retention,
     )
-    if method_name in {"anchored-corridor-64", "sgde-64"} and (
+    if method_name in {"anchored-corridor-64", "sgde-64", "asgde-omtg"} and (
         encoder_pruning != "none" or post_pruning != "none"
     ):
         raise ValueError(
@@ -291,6 +291,14 @@ def run_benchmark(
             "maximum_encoder_calls": 1,
             "maximum_primary_grounder_calls": 1,
         }
+    elif method_name == "asgde-omtg":
+        manifest["method_config"] = {
+            "scout_model": "google/siglip2-base-patch16-224", "scout_revision": "75de2d55ec2d0b4efc50b3e9ad70dba96a7b2fa2", "scout_fps": 1.0,
+            "smoothing_window": 3, "grounding_frame_budgets": [64, 128], "peak_budget_threshold": 2,
+            "maximum_corridors": 4, "global_anchors": {"64": 12, "128": 16},
+            "frame_budget_scope": "one shared grounding plan", "maximum_encoder_calls": 1,
+            "maximum_primary_grounder_calls": 1,
+        }
     hyperparameters = {
         "benchmark": benchmark_name,
         "model": model_name,
@@ -332,7 +340,7 @@ def run_benchmark(
     pending = [sample for sample in selected if sample.id not in done]
     if pending:
         method_options = {}
-        if method_name == "sgde-64" and feature_roots:
+        if method_name in {"sgde-64", "asgde-omtg"} and feature_roots:
             method_options["feature_roots"] = feature_roots
         method = METHODS.create(method_name, **method_options)
         method_cache = results_root / "cache" / "methods" / method_name

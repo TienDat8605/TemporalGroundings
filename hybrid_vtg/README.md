@@ -1,8 +1,9 @@
 # Hybrid VTG
 
-Hybrid VTG is a test-only runner for frozen-model video temporal grounding. This branch contains four inference methods:
+Hybrid VTG is a test-only runner for frozen-model video temporal grounding. This branch contains five inference methods:
 
 - `sgde-64`: scout-guided dense evidence grounding (Idea 3) separating cheap global scouting from dense anchored local LVLM verification under a 64-frame budget.
+- `asgde-omtg`: OMTG-specific absolute-source-time SGDE using frozen SigLIP2 scouting and one Qwen3-VL-4B multi-span grounding call.
 - `anchored-corridor-64`: multi-view semantic routing, safe full-video fallback, and one globally anchored grounding call with exactly 64 evidence frames.
 - `coarse-to-fine-64`: scene-window routing and local grounding under a strict 64 source-frame budget.
 - `native`: checkpoint-native inference for UniTime, TimeLens, and TimeLens2.
@@ -10,6 +11,16 @@ Hybrid VTG is a test-only runner for frozen-model video temporal grounding. This
 No training or fine-tuning is performed. The reusable Qwen backends still support independent Mage encoder pruning and SemVID post-encoder pruning.
 
 ## Scout-guided dense evidence grounding (SGDE-64)
+
+`sgde-64` remains the generic/QVHighlights experiment. Its configuration and semantics are not OMTG evidence.
+
+## ASGDE for OMTG
+
+`asgde-omtg` pins the scout to `google/siglip2-base-patch16-224` at 1 FPS, routes one/zero confident peak to 64 source frames and two or more separated peaks to 128 source frames, then sends one chronological sparse global evidence pack to frozen `qwen3-vl-4b`. It preserves absolute source-video timestamps and returns all visually supported spans separately.
+
+```bash
+hybrid-vtg run --benchmark omtg --data ./assets/datasets/omtg --model qwen3-vl-4b --method asgde-omtg --seed 42
+```
 
 `sgde-64` implements the two-stage **Scout-Guided Dense Evidence Grounding (Idea 3)** paradigm:
 

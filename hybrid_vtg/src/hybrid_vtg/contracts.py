@@ -132,6 +132,7 @@ class TemporalEvidence:
 class GroundingContext:
     start: float
     end: float
+    prompt_mode: str | None = None
 
     @property
     def duration(self) -> float:

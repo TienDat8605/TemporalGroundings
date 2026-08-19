@@ -159,6 +159,10 @@ The main LVLM receives:
 
 ## Main-LVLM Grounding
 
+### OMTG ASGDE variant
+
+`asgde-omtg` is a benchmark-specific variant, not a replacement for generic `sgde-64`. It uses frozen `google/siglip2-base-patch16-224` at 1 FPS for full-video proposals and frozen `Qwen/Qwen3-VL-4B-Instruct` for exactly one global, absolute-source-time multi-span prediction. It uses 64 frames for zero/one confident separated peak and 128 for two or more, with global anchors plus at most four independent candidate corridors. QVHighlights results must not be reused as OMTG evidence.
+
 The main LVLM is prompted to:
 
 1. verify that the complete query is visually supported;

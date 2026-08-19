@@ -62,6 +62,16 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def video_identity(path: Path) -> str:
+    """Cheap revision identity for cache invalidation without decoding the video."""
+    stat = path.stat()
+    return f"{path.name}:{stat.st_size}:{stat.st_mtime_ns}"
+
+
+def query_identity(query: str) -> str:
+    return hashlib.sha256(query.encode("utf-8")).hexdigest()
+
+
 def _atomic_npz(path: Path, **arrays: np.ndarray) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp", delete=False) as handle:
@@ -148,6 +158,13 @@ def _load_model(model_id: str, revision: str, device: str) -> Any:
         dtype = torch.float32
         device_map = {"": device}
     checkpoint = snapshot_download(repo_id=model_id, revision=revision)
+    if model_id.startswith("google/siglip2-"):
+        from transformers import AutoProcessor
+
+        model = AutoModel.from_pretrained(
+            checkpoint, dtype=dtype, device_map=device_map, low_cpu_mem_usage=True
+        ).eval()
+        return _SigLIP2Adapter(model, AutoProcessor.from_pretrained(checkpoint), device)
     return AutoModel.from_pretrained(
         checkpoint,
         trust_remote_code=True,
@@ -155,6 +172,26 @@ def _load_model(model_id: str, revision: str, device: str) -> Any:
         device_map=device_map,
         low_cpu_mem_usage=True,
     ).eval()
+
+
+class _SigLIP2Adapter:
+    """Give standard Transformers SigLIP2 the scout encoder interface."""
+
+    def __init__(self, model: Any, processor: Any, device: str) -> None:
+        self.model = model
+        self.processor = processor
+        self.device = device
+
+    def _inputs(self, values: Any) -> dict[str, Any]:
+        return {name: value.to(self.device) if hasattr(value, "to") else value for name, value in values.items()}
+
+    def encode_queries(self, queries: Sequence[str]) -> Any:
+        values = self._inputs(self.processor(text=list(queries), padding=True, return_tensors="pt"))
+        return self.model.get_text_features(**values)
+
+    def encode_documents(self, *, images: Sequence[Image.Image]) -> Any:
+        values = self._inputs(self.processor(images=list(images), return_tensors="pt"))
+        return self.model.get_image_features(**values)
 
 
 def _encode_queries(model: Any, queries: Sequence[str], batch_size: int) -> np.ndarray:
@@ -182,7 +219,7 @@ def _encode_video(
     return np.concatenate(encoded, axis=0)
 
 
-def _valid_video_cache(path: Path, timestamps: np.ndarray, dimension: int) -> bool:
+def _valid_video_cache(path: Path, timestamps: np.ndarray, dimension: int, identity: str) -> bool:
     if not path.is_file():
         return False
     try:
@@ -195,6 +232,7 @@ def _valid_video_cache(path: Path, timestamps: np.ndarray, dimension: int) -> bo
                 and embeddings.shape == (len(timestamps), dimension)
                 and np.array_equal(cached_timestamps, timestamps)
                 and np.isfinite(embeddings).all()
+                and str(value["video_identity"].item()) == identity
             )
     except (KeyError, OSError, ValueError):
         return False
@@ -241,17 +279,31 @@ def extract_scout_features(
     video_output = feature_dir / "video_embeddings"
     feature_dir.mkdir(parents=True, exist_ok=True)
     model = _load_model(model_id, revision, device)
-    model.processor.p_max_length = 2048
-    model.processor.max_input_tiles = max_input_tiles
-    model.processor.use_thumbnail = True
+    if hasattr(model.processor, "p_max_length"):
+        model.processor.p_max_length = 2048
+        model.processor.max_input_tiles = max_input_tiles
+        model.processor.use_thumbnail = True
 
     query_path = feature_dir / "queries.npz"
-    if not query_path.is_file():
+    query_is_current = False
+    if query_path.is_file():
+        try:
+            with np.load(query_path, allow_pickle=False) as value:
+                query_is_current = (
+                    np.array_equal(value["ids"], np.asarray(query_ids))
+                    and np.array_equal(value["query_identities"], np.asarray([query_identity(query) for query in queries]))
+                    and value["embeddings"].ndim == 2
+                    and np.isfinite(value["embeddings"]).all()
+                )
+        except (KeyError, OSError, ValueError):
+            query_is_current = False
+    if not query_is_current:
         query_embeddings = _encode_queries(model, queries, query_batch_size)
         _atomic_npz(
             query_path,
             ids=np.asarray(query_ids),
             embeddings=query_embeddings,
+            query_identities=np.asarray([query_identity(query) for query in queries]),
         )
     with np.load(query_path, allow_pickle=False) as query_cache:
         if not np.array_equal(query_cache["ids"], np.asarray(query_ids)):
@@ -266,7 +318,7 @@ def extract_scout_features(
         duration = float(annotation[video_id]["duration"])
         timestamps = sample_timestamps(duration, fps)
         destination = video_output / f"{video_id}.npz"
-        if _valid_video_cache(destination, timestamps, dimension):
+        if _valid_video_cache(destination, timestamps, dimension, video_identity(videos[video_id])):
             completed += 1
             continue
         embeddings = _encode_video(model, videos[video_id], timestamps, batch_size)
@@ -275,11 +327,14 @@ def extract_scout_features(
                 f"unexpected embedding shape for {video_id}: {embeddings.shape}, "
                 f"expected {(len(timestamps), dimension)}"
             )
-        _atomic_npz(destination, timestamps=timestamps, embeddings=embeddings)
+        _atomic_npz(
+            destination, timestamps=timestamps, embeddings=embeddings,
+            video_identity=np.asarray(video_identity(videos[video_id])),
+        )
         completed += 1
 
     manifest = {
-        "schema_version": 1,
+        "schema_version": 2,
         "model": model_id,
         "model_revision": revision,
         "benchmark": benchmark,
@@ -312,5 +367,7 @@ __all__ = [
     "create_archive",
     "extract_scout_features",
     "model_slug",
+    "query_identity",
     "sample_timestamps",
+    "video_identity",
 ]

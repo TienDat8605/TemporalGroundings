@@ -418,6 +418,15 @@ class QwenEvidenceBackend(ModelBackend):
                 "Output format MUST be a JSON array of [start, end] pairs.\n"
             )
         if sample.cardinality == "multi":
+            if context.prompt_mode == "asgde-sparse-global":
+                return (
+                    f"The event '{sample.query}' may occur MULTIPLE times in this video. "
+                    "Frame labels are absolute source-video seconds. The evidence is sparse and may "
+                    "contain temporal gaps. List EVERY visually supported occurrence as its own [start, end] "
+                    "pair in chronological order; keep distinct occurrences separate and omit unsupported "
+                    "intervals. Return ONLY a JSON array of [start, end] pairs, e.g. "
+                    "[[1.0, 3.0], [7.5, 9.0]]. Return [] if the event never occurs."
+                )
             return (
                 f"The event '{sample.query}' may occur MULTIPLE times in this video. "
                 f"List EVERY occurrence as its own [start, end] pair, in chronological order. "

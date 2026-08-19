@@ -1,6 +1,7 @@
 """Unit and integration tests for SGDE-64 (Idea 3)."""
 
 from pathlib import Path
+import json
 
 import numpy as np
 import torch
@@ -29,6 +30,7 @@ from hybrid_vtg.methods.sgde_64.proposals import (
     temporal_nms,
 )
 from hybrid_vtg.methods.sgde_64.scout import normalize_timeline, smooth_timeline
+from hybrid_vtg.scout_features import query_identity, video_identity
 
 
 def test_smooth_and_normalize_timeline():
@@ -312,23 +314,29 @@ def test_sgde_64_multi_candidate(tmp_path: Path):
 def test_scout_provider_cache_discovery(tmp_path: Path):
     feature_dir = tmp_path / "custom_features" / "google--siglip2-base-patch16-224" / "omtg"
     feature_dir.mkdir(parents=True)
+    (feature_dir / "manifest.json").write_text(json.dumps({
+        "schema_version": 2, "model": "google/siglip2-base-patch16-224", "model_revision": "75de2d55ec2d0b4efc50b3e9ad70dba96a7b2fa2",
+        "benchmark": "omtg", "fps": 1.0, "embedding_dimension": 64, "embedding_dtype": "float16",
+    }), encoding="utf-8")
     video_dir = feature_dir / "video_embeddings"
     video_dir.mkdir(parents=True)
 
     # Save mock video embedding
     timestamps = np.array([0.5, 1.5, 2.5], dtype=np.float32)
     embeddings = np.ones((3, 64), dtype=np.float16)
-    np.savez_compressed(video_dir / "sample_vid.npz", timestamps=timestamps, embeddings=embeddings)
+    np.savez_compressed(video_dir / "sample_vid.npz", timestamps=timestamps, embeddings=embeddings, video_identity=np.asarray(video_identity(Path(__file__))))
 
     # Save mock query embedding
     np.savez_compressed(
         feature_dir / "queries.npz",
         ids=np.array(["sample_id::0"]),
         embeddings=np.ones((1, 64), dtype=np.float16),
+        query_identities=np.array([query_identity("mock query")]),
     )
 
     provider = ScoutProvider(
         model_id="google/siglip2-base-patch16-224",
+        revision="75de2d55ec2d0b4efc50b3e9ad70dba96a7b2fa2",
         feature_roots=(tmp_path / "custom_features",),
     )
 

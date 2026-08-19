@@ -16,6 +16,7 @@ def test_builtin_surface_is_exactly_the_requested_matrix():
     load_builtin_plugins()
     assert METHODS.names() == (
         "anchored-corridor-64",
+        "asgde-omtg",
         "coarse-to-fine-64",
         "native",
         "sgde-64",
