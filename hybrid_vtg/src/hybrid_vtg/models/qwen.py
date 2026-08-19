@@ -470,9 +470,22 @@ class QwenEvidenceBackend(ModelBackend):
                 device=device,
                 dtype=inputs_embeds.dtype,
             )
-        position_ids = torch.arange(input_ids.shape[1], device=device).view(1, 1, -1).expand(3, 1, -1)
-        model.model.rope_deltas = torch.zeros((1, 1), device=device, dtype=torch.long)
-        return input_ids, attention, inputs_embeds, position_ids
+        coordinates = evidence.metadata.get("cell_coordinates")
+        valid_coordinates = isinstance(coordinates, list) and len(coordinates) == evidence.size
+        group_cursor = 0
+        coordinate_groups = []
+        for _, count in groups:
+            if valid_coordinates:
+                coordinate_groups.append(coordinates[group_cursor : group_cursor + count])
+            else:
+                coordinate_groups.append([[0, idx // 16, idx % 16] for idx in range(count)])
+            group_cursor += count
+
+        from .unitime import compact_mrope_positions
+
+        positions = compact_mrope_positions(input_ids, processor.video_token_id, coordinate_groups)
+        model.model.rope_deltas = positions.max().reshape(1, 1) + 1 - input_ids.shape[1]
+        return input_ids, attention, inputs_embeds, positions
 
     def predict(
         self,

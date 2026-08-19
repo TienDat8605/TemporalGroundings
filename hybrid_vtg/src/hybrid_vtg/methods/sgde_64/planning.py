@@ -49,9 +49,10 @@ def plan_sgde_evidence(
 
     c_start = min(c.start for c in candidates)
     c_end = max(c.end for c in candidates)
-    w_start = max(0.0, c_start - context_seconds)
-    w_end = min(duration, c_end + context_seconds)
-    min_window = min(20.0, duration)
+    margin = max(context_seconds, min(12.0, (c_end - c_start) * 0.3))
+    w_start = max(0.0, c_start - margin)
+    w_end = min(duration, c_end + margin)
+    min_window = min(30.0, duration)
     if w_end - w_start < min_window:
         mid = (w_start + w_end) / 2.0
         w_start = max(0.0, mid - min_window / 2.0)

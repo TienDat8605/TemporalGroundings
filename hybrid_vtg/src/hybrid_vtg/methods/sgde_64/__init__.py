@@ -87,11 +87,16 @@ class SGDE64(Method):
             selected_candidates = []
 
         if route_mode == "scout-guided" and selected_candidates:
-            c_start = min(c.start for c in selected_candidates)
-            c_end = max(c.end for c in selected_candidates)
-            w_start = max(0.0, c_start - self.context_seconds)
-            w_end = min(sample.duration, c_end + self.context_seconds)
-            min_window = min(20.0, sample.duration)
+            if sample.cardinality == "single":
+                top_cand = selected_candidates[0]
+                c_start, c_end = top_cand.start, top_cand.end
+            else:
+                c_start = min(c.start for c in selected_candidates)
+                c_end = max(c.end for c in selected_candidates)
+            margin = max(self.context_seconds, min(12.0, (c_end - c_start) * 0.3))
+            w_start = max(0.0, c_start - margin)
+            w_end = min(sample.duration, c_end + margin)
+            min_window = min(30.0, sample.duration)
             if w_end - w_start < min_window:
                 mid = (w_start + w_end) / 2.0
                 w_start = max(0.0, mid - min_window / 2.0)
