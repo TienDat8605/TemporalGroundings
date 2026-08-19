@@ -496,6 +496,96 @@ class QwenEvidenceBackend(ModelBackend):
         import torch
 
         model, processor = self._load()
+        is_dense_timelens = (
+            self.name in {"timelens2-4b", "timelens-8b"}
+            and self.post_pruning == "none"
+            and self.encoder_pruning == "none"
+        )
+        if is_dense_timelens:
+            frame_paths = evidence.metadata.get("frame_paths")
+            if frame_paths and len(frame_paths) > 0:
+                from PIL import Image
+                from qwen_vl_utils import process_vision_info
+
+                frames = []
+                for p in frame_paths:
+                    with Image.open(p) as img:
+                        frames.append(img.convert("RGB"))
+
+                prompt_text = self._prompt(sample, context)
+                duration = max(0.1, context.duration)
+                video_ele = {
+                    "type": "video",
+                    "video": frames,
+                    "sample_fps": len(frames) / duration,
+                    "min_pixels": 32 * 32,
+                    "max_pixels": 480 * 480,
+                    "total_pixels": 4096 * 32 * 32,
+                }
+                messages = [{"role": "user", "content": [video_ele, {"type": "text", "text": prompt_text}]}]
+                text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+                images, videos, video_kwargs = process_vision_info(
+                    messages,
+                    image_patch_size=16,
+                    return_video_kwargs=True,
+                    return_video_metadata=True,
+                )
+                v_tensors, v_meta = zip(*videos) if videos else (None, None)
+                inputs = processor(
+                    text=[text],
+                    images=images,
+                    videos=list(v_tensors) if v_tensors else None,
+                    video_metadata=list(v_meta) if v_meta else None,
+                    do_resize=False,
+                    return_tensors="pt",
+                    **video_kwargs,
+                )
+                inputs = inputs.to(model.device)
+                max_new_tokens = _generation_token_budget(sample)
+                with torch.inference_mode():
+                    generated = model.generate(
+                        **inputs,
+                        do_sample=False,
+                        max_new_tokens=max_new_tokens,
+                        use_cache=True,
+                        logits_to_keep=1,
+                    )
+                output_ids = (
+                    generated[:, inputs.input_ids.shape[1] :]
+                    if generated.shape[1] > inputs.input_ids.shape[1]
+                    else generated
+                )
+                raw = processor.batch_decode(
+                    output_ids,
+                    skip_special_tokens=True,
+                    clean_up_tokenization_spaces=False,
+                )[0]
+                local = parse_spans(raw)
+                global_spans = tuple(
+                    ScoredSpan(span.start + context.start, span.end + context.start, span.score) for span in local
+                )
+                if sample.cardinality == "multi":
+                    spans = consolidate_spans(global_spans, sample.duration)
+                else:
+                    spans = tuple(value for span in global_spans if (value := span.clipped(sample.duration)))
+                return Prediction(
+                    spans,
+                    raw,
+                    {
+                        "backend": self.name,
+                        "checkpoint": self.checkpoint,
+                        "evidence_units": evidence.size,
+                        "encoder_pruning": self.encoder_pruning,
+                        "encoder_retention_ratio": self.encoder_retention,
+                        "post_pruning": self.post_pruning,
+                        "post_retention_ratio": self.post_retention,
+                        "max_new_tokens": max_new_tokens,
+                        "llm_input_tokens": int(inputs.input_ids.shape[1]),
+                        "llm_output_tokens": int(output_ids.shape[1]),
+                        "context": {"start": context.start, "end": context.end},
+                    },
+                )
+
         if self.post_pruning == "semvid":
             evidence = semvid_select(
                 evidence,

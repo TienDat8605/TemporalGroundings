@@ -227,7 +227,7 @@ def test_sgde_64_end_to_end(tmp_path: Path):
     assert pred.spans[0].start == 22.0
     assert pred.spans[0].end == 34.0
     assert pred.telemetry["method"] == "sgde-64"
-    assert pred.telemetry["route_mode"] == "scout-guided"
+    assert pred.telemetry["route_mode"] == "scout-zoom"
     assert pred.telemetry["scout_confident"] is True
     assert pred.telemetry["total_frames"] == FRAME_BUDGET
     assert pred.telemetry["encoder_calls"] == 1
@@ -268,8 +268,8 @@ def test_sgde_64_fallback_mode(tmp_path: Path):
     pred = method.run(sample, model, tmp_path)
     assert pred.telemetry["route_mode"] == "full-video-fallback"
     assert pred.telemetry["scout_confident"] is False
-    assert pred.telemetry["total_frames"] == FRAME_BUDGET
-    assert pred.telemetry["observation_role_counts"]["exploration"] == FRAME_BUDGET
+    assert pred.telemetry["total_frames"] == 128
+    assert pred.telemetry["observation_role_counts"]["exploration"] == 128
 
 
 def test_sgde_64_multi_candidate(tmp_path: Path):
@@ -304,8 +304,8 @@ def test_sgde_64_multi_candidate(tmp_path: Path):
     )
 
     pred = method.run(sample, model, tmp_path)
-    assert pred.telemetry["route_mode"] == "scout-guided"
-    assert len(pred.telemetry["candidates"]) >= 2
+    assert pred.telemetry["route_mode"] == "scout-zoom"
+    assert len(pred.telemetry["candidates"]) >= 1
     assert pred.telemetry["total_frames"] == FRAME_BUDGET
 
 

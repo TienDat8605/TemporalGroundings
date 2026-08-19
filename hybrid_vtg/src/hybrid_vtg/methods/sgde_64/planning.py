@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Sequence
+from typing import Any, Sequence
 
 import numpy as np
 
@@ -77,6 +77,45 @@ def plan_sgde_corridor(
         observations.append(Observation(t, role))
 
     return tuple(observations), context
+
+
+def plan_adaptive_sgde_corridor(
+    timeline: Any,
+    candidates: Sequence[CandidateProposal],
+    duration: float,
+    *,
+    base_budget: int = FRAME_BUDGET,
+    fallback_budget: int = 128,
+    context_seconds: float = DEFAULT_CONTEXT_SECONDS,
+    adaptive_budget: bool = True,
+) -> tuple[tuple[Observation, ...], GroundingContext, str]:
+    """Decide between zoomed candidate corridor (base_budget) or full exploration (fallback_budget)."""
+    if duration <= 0:
+        raise ValueError("duration must be positive")
+
+    peak_z = getattr(timeline, "peak_z", 0.0) if timeline is not None else 0.0
+    cand_dur = (candidates[0].end - candidates[0].start) if candidates else 0.0
+
+    is_sharp = bool(
+        candidates
+        and len(candidates) > 0
+        and peak_z >= 1.6
+        and cand_dur <= 45.0
+    )
+
+    if is_sharp:
+        obs, ctx = plan_sgde_corridor(
+            candidates,
+            duration,
+            budget=base_budget,
+            context_seconds=context_seconds,
+        )
+        return obs, ctx, "scout-zoom"
+    else:
+        budget = fallback_budget if adaptive_budget else base_budget
+        timestamps = uniform_timestamps(0.0, duration, budget)
+        obs = tuple(Observation(t, "exploration") for t in timestamps)
+        return obs, GroundingContext(0.0, duration), "full-video-fallback"
 
 
 def plan_sgde_evidence(

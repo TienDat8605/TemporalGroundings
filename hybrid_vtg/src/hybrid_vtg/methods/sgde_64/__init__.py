@@ -15,7 +15,7 @@ from .planning import (
     FRAME_BUDGET,
     Observation,
     assign_observation_roles,
-    plan_sgde_corridor,
+    plan_adaptive_sgde_corridor,
     plan_sgde_evidence,
 )
 from .proposals import CandidateProposal, extract_candidate_proposals
@@ -23,7 +23,7 @@ from .scout import ScoutProvider, ScoutTimeline
 
 
 class SGDE64(Method):
-    """Two-stage scout-guided dense evidence grounding under a strict 64-frame budget."""
+    """Two-stage scout-guided dense evidence grounding with adaptive frame budget."""
 
     name = "sgde-64"
 
@@ -32,13 +32,17 @@ class SGDE64(Method):
         scout_provider: ScoutProvider | None = None,
         *,
         frame_budget: int = FRAME_BUDGET,
+        fallback_budget: int = 128,
         context_seconds: float = DEFAULT_CONTEXT_SECONDS,
         num_anchors: int = DEFAULT_NUM_ANCHORS,
+        adaptive_budget: bool = True,
     ) -> None:
         self.scout_provider = scout_provider or ScoutProvider()
         self.frame_budget = frame_budget
+        self.fallback_budget = fallback_budget
         self.context_seconds = context_seconds
         self.num_anchors = num_anchors
+        self.adaptive_budget = adaptive_budget
         self._prepare_root: Path | None = None
 
     def prepare(self, samples: Sequence[Sample], cache_root: Path) -> None:
@@ -77,22 +81,15 @@ class SGDE64(Method):
         )
         scout_seconds = perf_counter() - scout_started
 
-        if sample.duration <= 45.0:
-            route_mode = "full-video-fallback"
-            selected_candidates = []
-        elif is_confident and candidates:
-            route_mode = "scout-guided"
-            selected_candidates = candidates
-        else:
-            route_mode = "full-video-fallback"
-            selected_candidates = []
-
-        # Stage 2: 64-Frame Corridor Planning
-        observations, context = plan_sgde_corridor(
-            selected_candidates,
+        # Stage 2: Adaptive Corridor & Frame Planning
+        observations, context, route_mode = plan_adaptive_sgde_corridor(
+            timeline,
+            candidates,
             sample.duration,
-            budget=self.frame_budget,
+            base_budget=self.frame_budget,
+            fallback_budget=self.fallback_budget,
             context_seconds=self.context_seconds,
+            adaptive_budget=self.adaptive_budget,
         )
         timestamps = tuple(obs.timestamp for obs in observations)
 
@@ -136,7 +133,7 @@ class SGDE64(Method):
             "scout_peak_z": float(round(float(timeline.peak_z), 4)),
             "scout_median": float(round(float(timeline.median), 4)),
             "scout_mad": float(round(float(timeline.mad), 4)),
-            "candidates": [c.to_dict() for c in selected_candidates],
+            "candidates": [c.to_dict() for c in (candidates if route_mode == "scout-zoom" else [])],
             "observation_role_counts": {k: int(v) for k, v in role_counts.items()},
             "observation_plan": [obs.to_dict() for obs in observations],
             "encoder_calls": 1,
