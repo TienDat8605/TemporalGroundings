@@ -42,8 +42,9 @@ class ScoutModelWrapper:
 
         if self.processor is not None and hasattr(self.model, "get_text_features"):
             inputs = self.processor(text=list(queries), padding=True, return_tensors="pt").to(self.device)
+            kwargs = {k: v for k, v in inputs.items() if k in {"input_ids", "attention_mask"}}
             with torch.inference_mode():
-                return self.model.get_text_features(input_ids=inputs["input_ids"])
+                return self.model.get_text_features(**kwargs)
         raise NotImplementedError(f"Unsupported text encoding for {type(self.model)}")
 
     def encode_documents(self, images: Sequence[Image.Image]) -> Any:
@@ -53,8 +54,13 @@ class ScoutModelWrapper:
 
         if self.processor is not None and hasattr(self.model, "get_image_features"):
             inputs = self.processor(images=list(images), return_tensors="pt").to(self.device)
+            kwargs = {
+                k: v
+                for k, v in inputs.items()
+                if k in {"pixel_values", "spatial_shapes", "pixel_attention_mask"}
+            }
             with torch.inference_mode():
-                return self.model.get_image_features(pixel_values=inputs["pixel_values"])
+                return self.model.get_image_features(**kwargs)
         raise NotImplementedError(f"Unsupported image encoding for {type(self.model)}")
 
 
