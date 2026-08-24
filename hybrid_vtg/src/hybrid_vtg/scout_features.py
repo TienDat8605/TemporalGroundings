@@ -249,14 +249,27 @@ def _encode_video(
     model: Any,
     video_path: Path,
     timestamps: np.ndarray,
-    batch_size: int,
+    batch_size: int = 16,
 ) -> np.ndarray:
     import torch
 
     encoded = []
     with torch.inference_mode():
         for frames in _frame_batches(video_path, timestamps.tolist(), batch_size):
-            encoded.append(_normalized_float16(model.encode_documents(images=frames)))
+            try:
+                emb = model.encode_documents(images=frames)
+            except torch.OutOfMemoryError:
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                sub_embs = []
+                for sub_batch in _batches(frames, max(1, len(frames) // 2)):
+                    sub_embs.append(model.encode_documents(images=sub_batch))
+                if hasattr(sub_embs[0], "cat"):
+                    emb = torch.cat(sub_embs, dim=0)
+                else:
+                    import numpy as np
+                    emb = np.concatenate(sub_embs, axis=0)
+            encoded.append(_normalized_float16(emb))
     return np.concatenate(encoded, axis=0)
 
 
