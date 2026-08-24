@@ -72,7 +72,7 @@ def _load_model(model_id: str, revision: str | None, device: str) -> Any:
         if not torch.cuda.is_available():
             raise RuntimeError("CUDA was requested but is unavailable")
         torch.cuda.init()
-        dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+        dtype = torch.float16
         device_map: str | dict[str, str] = {"": device}
     else:
         dtype = torch.float32
