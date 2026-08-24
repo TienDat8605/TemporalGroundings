@@ -9,23 +9,70 @@ Hybrid VTG is a test-only runner for frozen-model video temporal grounding. This
 
 No training or fine-tuning is performed. The reusable Qwen backends still support independent Mage encoder pruning and SemVID post-encoder pruning.
 
-## Scout-guided dense evidence grounding (SGDE-64)
+## Adaptive Scout-Guided Dense Evidence Grounding (SGDE-64)
 
-`sgde-64` implements the two-stage **Scout-Guided Dense Evidence Grounding (Idea 3)** paradigm:
+`sgde-64` implements the two-stage **Adaptive Scout-Guided Dense Evidence Grounding (Idea 3)** paradigm:
 
-1. **Stage 1 (Scout Timeline & Candidate Extraction)**:
+1. **Stage 1 (Scout Timeline & Candidate Proposal Mining)**:
    - Computes or reuses cached 1 FPS visual scout embeddings (e.g. `google/siglip2-base-patch16-224`, `nvidia/llama-nemotron-embed-vl-1b-v2`, or `Qwen/Qwen3-VL-Embedding-2B`).
-   - Normalizes timeline with robust median and MAD: $z(t) = \frac{s(t) - \operatorname{median}(s)}{\operatorname{MAD}(s) + \epsilon}$ with conservative smoothing.
-   - Extracts candidate proposals using hysteresis connected components, penalized interval scoring $J(a,b)$, and multi-scale density windows.
-   - Applies 1D temporal NMS to retain diverse high-confidence candidates.
+   - Normalizes timeline with robust median and MAD: $z(t) = \frac{s(t) - \operatorname{median}(s)}{\operatorname{MAD}(s) + \epsilon}$ with conservative temporal smoothing.
+   - Extracts candidate proposals using hysteresis connected components, penalized interval scoring $J(a,b)$, and multi-scale density windows (8s, 16s, 32s).
+   - Applies 1D temporal NMS to retain diverse high-confidence candidate intervals.
 
-2. **Stage 2 (64-Frame Anchored Dense Evidence & Grounding)**:
-   - Allocates global timeline anchors across the full video.
-   - Concentrates remaining frames on pre/post context padding, candidate interiors, and boundary transitions.
-   - If scout confidence is low, safely fails open to uniform full-video exploration.
-   - Encodes evidence once and performs single-call LVLM temporal verification and grounding.
+2. **Stage 2 (Adaptive Anchored Dense Evidence & Multi-Interval Verification)**:
+   - Plans adaptive evidence corridor: protects global timeline anchors across the video while concentrating dense frames inside candidate interiors, pre/post context padding, and boundary transitions.
+   - Dynamically scales budget (64f base, up to 128f fallback for complex or low-confidence samples).
+   - Encodes chronological evidence plan once and performs a single-call LVLM temporal verification and grounding.
+   - Evaluates multi-interval occurrences seamlessly on multi-span benchmarks like OMTG.
 
-Run SGDE on QVHighlights-TimeLens with `timelens2-4b`:
+### Run Adaptive SGDE on OMTG
+
+Run OMTG benchmark with `timelens2-4b`:
+
+```bash
+# Fast 10% diagnostic subset
+hybrid-vtg run \
+  --benchmark omtg \
+  --data ./assets/datasets/omtg \
+  --model timelens2-4b \
+  --method sgde-64 \
+  --subset 10 \
+  --seed 42
+
+# Full 100% OMTG benchmark evaluation
+hybrid-vtg run \
+  --benchmark omtg \
+  --data ./assets/datasets/omtg \
+  --model timelens2-4b \
+  --method sgde-64 \
+  --subset 100 \
+  --seed 42
+```
+
+### Run Adaptive SGDE on OMTG in detached tmux
+
+Run in the background on GPU (e.g., RTX 3060 12GB):
+
+```bash
+TIMELENS_BENCHMARK=omtg \
+TIMELENS_MODEL=timelens2-4b \
+TIMELENS_METHOD=sgde-64 \
+TIMELENS_SUBSET=100 \
+TIMELENS_GPU=0 \
+scripts/run_timelens_tmux.sh
+```
+
+Monitor logs and session:
+
+```bash
+# Attach to tmux session
+tmux attach -t omtg-timelens2-4b-sgde-64-100
+
+# Tail live output
+tail -f results/logs/omtg/omtg--timelens2-4b--sgde-64--p100.log
+```
+
+### Run Adaptive SGDE on QVHighlights-TimeLens
 
 ```bash
 hybrid-vtg run \

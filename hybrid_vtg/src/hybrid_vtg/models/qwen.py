@@ -411,8 +411,9 @@ class QwenEvidenceBackend(ModelBackend):
         text = self._query_embeddings(query).to(visual.device)
         return torch.matmul(visual, text.T).amax(dim=-1)
 
-    def _prompt(self, sample: Sample, context: GroundingContext) -> str:
-        if self.name == "timelens2-4b":
+    @classmethod
+    def _prompt(cls_or_self, sample: Sample, context: GroundingContext) -> str:
+        if getattr(cls_or_self, "name", None) == "timelens2-4b":
             return (
                 f'Given the query: "{sample.query}", return ALL time spans (in seconds) where the query is relevant.\n'
                 "Output format MUST be a JSON array of [start, end] pairs.\n"
