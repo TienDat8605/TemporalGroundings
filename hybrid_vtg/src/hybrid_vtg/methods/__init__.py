@@ -14,9 +14,18 @@ def register_methods(registry: Any) -> None:
     registry.register(AnchoredCorridor64.name, AnchoredCorridor64)
     registry.register(CoarseToFine64.name, CoarseToFine64)
     registry.register(Native.name, Native)
+    import os
+    from ..scout_features import DEFAULT_MODEL
+
     registry.register(
         SGDE64.name,
-        lambda feature_roots=(), scout_provider=None, **kwargs: (
-            SGDE64(scout_provider=scout_provider or ScoutProvider(feature_roots=feature_roots))
+        lambda feature_roots=(), scout_provider=None, scout_model=None, **kwargs: (
+            SGDE64(
+                scout_provider=scout_provider
+                or ScoutProvider(
+                    model_id=scout_model or os.environ.get("TIMELENS_SCOUT_MODEL", DEFAULT_MODEL),
+                    feature_roots=feature_roots,
+                )
+            )
         ),
     )

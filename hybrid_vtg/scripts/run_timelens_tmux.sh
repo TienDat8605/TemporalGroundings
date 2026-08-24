@@ -10,6 +10,7 @@ SUBSET="${TIMELENS_SUBSET:-100}"
 SEED="${TIMELENS_SEED:-42}"
 GPU="${TIMELENS_GPU:-0}"
 RERUN="${TIMELENS_RERUN:-0}"
+SCOUT_MODEL="${TIMELENS_SCOUT_MODEL:-}"
 ASSET_ROOT="${TIMELENS_ASSET_ROOT:-$PROJECT_ROOT/assets}"
 SESSION_NAME="${TIMELENS_TMUX_SESSION:-${BENCHMARK}-${MODEL}-${METHOD}-${SUBSET}}"
 LOG_ROOT="${TIMELENS_LOG_ROOT:-$PROJECT_ROOT/results/logs/${BENCHMARK}}"
@@ -143,7 +144,7 @@ main() {
 
   mkdir -p "$LOG_ROOT"
   tmux new-session -d -s "$SESSION_NAME" \
-    "bash \"$SCRIPT_PATH\" --worker"
+    "TIMELENS_SCOUT_MODEL=\"$SCOUT_MODEL\" bash \"$SCRIPT_PATH\" --worker"
 
   echo "Spawned detached tmux session: $SESSION_NAME"
   echo "Log file: $log_file"
