@@ -226,7 +226,7 @@ class ScoutProvider:
             model = self._get_model()
             from ...scout_features import _encode_video
 
-            video_emb = _encode_video(model, sample.video_path, timestamps, batch_size=1).astype(np.float32)
+            video_emb = _encode_video(model, sample.video_path, timestamps, batch_size=8).astype(np.float32)
             # Save to cache
             dest = (
                 cache_root
