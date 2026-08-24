@@ -141,10 +141,13 @@ def assign_observation_roles(
     observations: Sequence[Observation],
 ) -> None:
     """Map encoded evidence rows back to nearest planned observation roles."""
-    times = np.asarray([o.timestamp for o in observations], dtype=np.float64)
-    roles = []
-    for t in evidence.timestamps:
-        idx = int(np.argmin(np.abs(times - float(t))))
-        roles.append(observations[idx].role)
+    if not observations:
+        evidence.roles = ()
+        evidence.metadata["observation_plan"] = []
+        return
+    times = np.asarray([o.timestamp for o in observations], dtype=np.float32)
+    evidence_times = np.asarray(evidence.timestamps, dtype=np.float32)
+    nearest_indices = np.argmin(np.abs(times[:, None] - evidence_times[None, :]), axis=0)
+    roles = [observations[idx].role for idx in nearest_indices]
     evidence.roles = tuple(roles)
     evidence.metadata["observation_plan"] = [o.to_dict() for o in observations]

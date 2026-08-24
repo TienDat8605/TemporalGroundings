@@ -87,7 +87,7 @@ def _load_model(model_id: str, revision: str | None, device: str) -> Any:
         model_id,
         revision=revision,
         trust_remote_code=True,
-        torch_dtype=dtype,
+        dtype=dtype,
         device_map=device_map,
         low_cpu_mem_usage=True,
     ).eval()
@@ -117,6 +117,25 @@ def annotation_queries(annotation: dict[str, Any]) -> tuple[list[str], list[str]
             if not query:
                 raise ValueError(f"annotation has an empty query for {video_id}::{index}")
             ids.append(f"{video_id}::{index}")
+            queries.append(query)
+    return ids, queries
+
+
+def _encode_queries_single(model: Any, query: str) -> np.ndarray:
+    return _normalized_float16(model.encode_queries([query]))[0]
+
+
+def _read_queries(path: Path) -> tuple[list[str], list[str]]:
+    ids: list[str] = []
+    queries: list[str] = []
+    with path.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            record = json.loads(line)
+            qid = record.get("qid") or record.get("id") or record.get("query_id")
+            query = record.get("query") or record.get("text") or record.get("sentence")
+            if not qid or not query:
+                continue
+            ids.append(str(qid))
             queries.append(query)
     return ids, queries
 
@@ -176,6 +195,21 @@ def _frame_batches(
     timestamps: Sequence[float],
     batch_size: int,
 ) -> Iterator[list[Image.Image]]:
+    try:
+        from decord import VideoReader, cpu
+
+        vr = VideoReader(str(video_path), ctx=cpu(0), num_threads=4)
+        vr_fps = vr.get_avg_fps()
+        if vr_fps <= 0:
+            vr_fps = 30.0
+        indices = [min(max(0, int(round(ts * vr_fps))), len(vr) - 1) for ts in timestamps]
+        for idx_batch in _batches(indices, batch_size):
+            batch_arr = vr.get_batch(list(idx_batch)).asnumpy()
+            yield [Image.fromarray(f) for f in batch_arr]
+        return
+    except Exception:
+        pass
+
     import cv2
 
     capture = cv2.VideoCapture(str(video_path))
