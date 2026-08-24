@@ -18,13 +18,74 @@ from tqdm.auto import tqdm
 from .downloads import VIDEO_SUFFIXES
 from .io import write_json
 
-DEFAULT_MODEL = "nvidia/llama-nemotron-embed-vl-1b-v2"
-DEFAULT_MODEL_REVISION = "582e3bf72aee355e3c59ed89de53543c5b0657ee"
+DEFAULT_MODEL = "google/siglip2-base-patch16-224"
+DEFAULT_MODEL_REVISION = None
 DEFAULT_BENCHMARK = "qvhighlights-timelens"
 
 
 def model_slug(model_id: str) -> str:
     return model_id.replace("/", "--")
+
+
+class ScoutModelWrapper:
+    """Wraps SigLIP/SigLIP2, Nemotron, or CLIP-style models for uniform text/image embeddings."""
+
+    def __init__(self, model: Any, processor: Any = None, device: str = "cuda:0") -> None:
+        self.model = model
+        self.processor = processor
+        self.device = device
+
+    def encode_queries(self, queries: Sequence[str]) -> Any:
+        if hasattr(self.model, "encode_queries"):
+            return self.model.encode_queries(list(queries))
+        import torch
+
+        if self.processor is not None and hasattr(self.model, "get_text_features"):
+            inputs = self.processor(text=list(queries), padding=True, return_tensors="pt").to(self.device)
+            with torch.inference_mode():
+                return self.model.get_text_features(input_ids=inputs["input_ids"])
+        raise NotImplementedError(f"Unsupported text encoding for {type(self.model)}")
+
+    def encode_documents(self, images: Sequence[Image.Image]) -> Any:
+        if hasattr(self.model, "encode_documents"):
+            return self.model.encode_documents(images=list(images))
+        import torch
+
+        if self.processor is not None and hasattr(self.model, "get_image_features"):
+            inputs = self.processor(images=list(images), return_tensors="pt").to(self.device)
+            with torch.inference_mode():
+                return self.model.get_image_features(pixel_values=inputs["pixel_values"])
+        raise NotImplementedError(f"Unsupported image encoding for {type(self.model)}")
+
+
+def _load_model(model_id: str, revision: str | None, device: str) -> Any:
+    import torch
+    from transformers import AutoModel, AutoProcessor
+
+    if device.startswith("cuda"):
+        if not torch.cuda.is_available():
+            raise RuntimeError("CUDA was requested but is unavailable")
+        torch.cuda.init()
+        dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+        device_map: str | dict[str, str] = {"": device}
+    else:
+        dtype = torch.float32
+        device_map = {"": device}
+
+    try:
+        processor = AutoProcessor.from_pretrained(model_id, revision=revision, trust_remote_code=True)
+    except Exception:
+        processor = None
+
+    model = AutoModel.from_pretrained(
+        model_id,
+        revision=revision,
+        trust_remote_code=True,
+        torch_dtype=dtype,
+        device_map=device_map,
+        low_cpu_mem_usage=True,
+    ).eval()
+    return ScoutModelWrapper(model, processor=processor, device=device)
 
 
 def sample_timestamps(duration: float, fps: float) -> np.ndarray:
@@ -132,29 +193,6 @@ def _frame_batches(
     finally:
         capture.release()
 
-
-def _load_model(model_id: str, revision: str, device: str) -> Any:
-    import torch
-    from huggingface_hub import snapshot_download
-    from transformers import AutoModel
-
-    if device.startswith("cuda"):
-        if not torch.cuda.is_available():
-            raise RuntimeError("CUDA was requested but is unavailable")
-        torch.cuda.init()
-        dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
-        device_map: str | dict[str, str] = {"": device}
-    else:
-        dtype = torch.float32
-        device_map = {"": device}
-    checkpoint = snapshot_download(repo_id=model_id, revision=revision)
-    return AutoModel.from_pretrained(
-        checkpoint,
-        trust_remote_code=True,
-        dtype=dtype,
-        device_map=device_map,
-        low_cpu_mem_usage=True,
-    ).eval()
 
 
 def _encode_queries(model: Any, queries: Sequence[str], batch_size: int) -> np.ndarray:
