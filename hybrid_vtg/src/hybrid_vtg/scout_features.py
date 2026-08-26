@@ -249,7 +249,7 @@ def _encode_video(
     model: Any,
     video_path: Path,
     timestamps: np.ndarray,
-    batch_size: int = 16,
+    batch_size: int = 32,
 ) -> np.ndarray:
     import numpy as np
     import torch
