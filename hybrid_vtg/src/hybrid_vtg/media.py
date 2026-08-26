@@ -104,6 +104,30 @@ def extract_frames(
     if not missing:
         return paths
 
+    # Fast decord batch decoding
+    try:
+        import decord
+        from decord import VideoReader, cpu
+
+        decord.bridge.set_bridge("native")
+        vr = VideoReader(str(video_path), ctx=cpu(0), num_threads=4)
+        total_vr_frames = len(vr)
+        if total_vr_frames > 0:
+            fps = float(vr.get_avg_fps()) if vr.get_avg_fps() > 0 else 30.0
+            indices = [min(total_vr_frames - 1, max(0, int(round(float(ts) * fps)))) for ts, _ in missing]
+            batch_frames = vr.get_batch(indices).asnumpy()
+            for (_, path), frame in zip(missing, batch_frames):
+                bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+                height, width = bgr.shape[:2]
+                if width > maximum_width:
+                    scale = maximum_width / width
+                    bgr = cv2.resize(bgr, (maximum_width, max(2, round(height * scale))))
+                if not cv2.imwrite(str(path), bgr, [cv2.IMWRITE_JPEG_QUALITY, 90]):
+                    raise RuntimeError(f"cannot write cached frame: {path}")
+            return paths
+    except Exception:
+        pass
+
     capture = cv2.VideoCapture(str(video_path))
     if not capture.isOpened():
         raise RuntimeError(f"cannot open video: {video_path}")
