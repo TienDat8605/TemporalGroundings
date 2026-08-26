@@ -63,7 +63,9 @@ def ensure_manifest(path: Path, value: dict[str, Any], *, replace: bool = False)
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.is_file():
         existing = json.loads(path.read_text(encoding="utf-8"))
-        if existing != value and not replace:
+        existing_cmp = {k: v for k, v in existing.items() if k != "project_revision"}
+        value_cmp = {k: v for k, v in value.items() if k != "project_revision"}
+        if existing_cmp != value_cmp and not replace:
             raise RuntimeError(f"run manifest differs from existing output: {path}")
         if existing == value:
             return
