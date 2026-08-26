@@ -284,9 +284,71 @@ class ScoutProvider:
             raw_scores=raw_scores,
             smoothed_scores=smoothed_scores,
             z_scores=z_scores,
+            peak_z=peak_z,
             median=med,
             mad=mad,
-            peak_z=peak_z,
+            fps=self.fps,
             model_id=detected_model,
-            cached=was_cached,
+            was_cached=was_cached,
         )
+
+    def prepare_batch(self, samples: Sequence[Sample], cache_root: Path) -> None:
+        """High-performance vectorized batch pre-extraction of queries and videos."""
+        if not samples:
+            return
+        benchmark = samples[0].group
+        scout_dir = cache_root / "scouts" / model_slug(self.model_id) / benchmark
+        video_dir = scout_dir / "video_embeddings"
+        video_dir.mkdir(parents=True, exist_ok=True)
+
+        # 1. Batch encode all missing queries in parallel
+        missing_ids = []
+        missing_queries = []
+        for s in samples:
+            if self._load_precomputed_query_embedding(s.id, s.query, cache_root, benchmark) is None:
+                missing_ids.append(s.id)
+                missing_queries.append(s.query)
+
+        if missing_queries:
+            model = self._get_model()
+            from ...scout_features import _encode_queries
+
+            new_embs = _encode_queries(model, missing_queries, batch_size=64)
+            dest = scout_dir / "queries.npz"
+            all_ids = []
+            all_embs = []
+            if dest.is_file():
+                try:
+                    with np.load(dest, allow_pickle=False) as existing:
+                        all_ids = [str(x) for x in existing["ids"]]
+                        all_embs = list(existing["embeddings"])
+                except Exception:
+                    pass
+            for sid, emb in zip(missing_ids, new_embs):
+                if sid not in all_ids:
+                    all_ids.append(sid)
+                    all_embs.append(emb.astype(np.float16))
+            np.savez_compressed(dest, ids=np.asarray(all_ids), embeddings=np.asarray(all_embs))
+
+        # 2. Extract only missing unique videos
+        unique_missing: dict[str, Sample] = {}
+        for s in samples:
+            if s.video not in unique_missing and self._load_precomputed_video_embedding(s.video, cache_root, benchmark) is None:
+                unique_missing[s.video] = s
+
+        if unique_missing:
+            model = self._get_model()
+            from ...scout_features import _encode_video
+            from tqdm import tqdm
+
+            device = self.device or "cuda:0"
+            progress = tqdm(
+                list(unique_missing.values()),
+                desc=f"sgde scout video cache ({device})",
+                unit="video",
+            )
+            for sample in progress:
+                timestamps = sample_timestamps(sample.duration, self.fps)
+                video_emb = _encode_video(model, sample.video_path, timestamps, batch_size=64).astype(np.float32)
+                dest = video_dir / f"{sample.video}.npz"
+                np.savez_compressed(dest, timestamps=timestamps, embeddings=video_emb.astype(np.float16))

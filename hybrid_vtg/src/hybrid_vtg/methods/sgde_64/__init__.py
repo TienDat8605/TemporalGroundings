@@ -54,8 +54,7 @@ class SGDE64(Method):
         device = "cuda:0" if torch.cuda.is_available() else "cpu"
         self.scout_provider.device = device
         try:
-            for sample in tqdm(samples, desc=f"sgde scout cache ({device})", unit="sample"):
-                self.scout_provider.compute_timeline(sample, cache_root)
+            self.scout_provider.prepare_batch(samples, cache_root)
         finally:
             self.scout_provider.unload()
 
