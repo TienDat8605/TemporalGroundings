@@ -251,6 +251,7 @@ def _encode_video(
     timestamps: np.ndarray,
     batch_size: int = 16,
 ) -> np.ndarray:
+    import numpy as np
     import torch
 
     encoded = []
@@ -267,7 +268,6 @@ def _encode_video(
                 if hasattr(sub_embs[0], "cat"):
                     emb = torch.cat(sub_embs, dim=0)
                 else:
-                    import numpy as np
                     emb = np.concatenate(sub_embs, axis=0)
             encoded.append(_normalized_float16(emb))
     return np.concatenate(encoded, axis=0)
