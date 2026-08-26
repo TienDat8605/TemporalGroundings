@@ -72,6 +72,10 @@ def _load_model(model_id: str, revision: str | None, device: str) -> Any:
         if not torch.cuda.is_available():
             raise RuntimeError("CUDA was requested but is unavailable")
         torch.cuda.init()
+        torch.set_float32_matmul_precision("high")
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
+        torch.backends.cudnn.benchmark = True
         dtype = torch.float16
         device_map: str | dict[str, str] = {"": device}
     else:
@@ -198,7 +202,7 @@ def _frame_batches(
     try:
         from decord import VideoReader, cpu
 
-        vr = VideoReader(str(video_path), ctx=cpu(0), num_threads=4)
+        vr = VideoReader(str(video_path), ctx=cpu(0), num_threads=8)
         vr_fps = vr.get_avg_fps()
         if vr_fps <= 0:
             vr_fps = 30.0
@@ -234,14 +238,14 @@ def _frame_batches(
         capture.release()
 
 
-
 def _encode_queries(model: Any, queries: Sequence[str], batch_size: int) -> np.ndarray:
     import torch
 
     encoded = []
     with torch.inference_mode():
-        for batch in tqdm(tuple(_batches(queries, batch_size)), desc="query embeddings", unit="batch"):
-            encoded.append(_normalized_float16(model.encode_queries(list(batch))))
+        for batch in _batches(list(queries), batch_size):
+            emb = model.encode_queries(batch)
+            encoded.append(_normalized_float16(emb))
     return np.concatenate(encoded, axis=0)
 
 
@@ -249,7 +253,7 @@ def _encode_video(
     model: Any,
     video_path: Path,
     timestamps: np.ndarray,
-    batch_size: int = 32,
+    batch_size: int = 64,
 ) -> np.ndarray:
     import numpy as np
     import torch
