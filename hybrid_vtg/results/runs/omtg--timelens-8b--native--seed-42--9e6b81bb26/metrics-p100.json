@@ -1,0 +1,42 @@
+{
+  "failed": 0,
+  "hyperparameters": {
+    "base_checkpoint": null,
+    "batch_size": 1,
+    "benchmark": "omtg",
+    "checkpoint": "TencentARC/TimeLens-8B",
+    "encoder_prune_layer": 0,
+    "encoder_pruning": "none",
+    "encoder_retention": 1.0,
+    "feature_roots": [],
+    "method": "native",
+    "method_config": null,
+    "model": "timelens-8b",
+    "model_spec": null,
+    "post_pruning": "none",
+    "post_retention": 1.0,
+    "seed": 42,
+    "subset_percentage": 100.0
+  },
+  "metrics": {
+    "C-Acc": 19.6875,
+    "CardinalityError": 2.065625,
+    "EtF1": 14.226438492063492,
+    "count": 320,
+    "tF1@0.3": 56.054743783369354,
+    "tF1@0.5": 47.97698473844784,
+    "tF1@0.7": 32.69488883846364,
+    "tIoU": 46.56515353584149,
+    "tP@0.3": 74.53758539093775,
+    "tP@0.5": 63.538694014748586,
+    "tP@0.7": 44.01826173052953,
+    "tR@0.3": 50.66367833555334,
+    "tR@0.5": 42.98745958902209,
+    "tR@0.7": 28.877709096459093
+  },
+  "metrics_scope": "all requested samples; failed samples count as empty predictions",
+  "requested": 320,
+  "run_directory": "/root/TemporalGroundings/hybrid_vtg/results/runs/omtg--timelens-8b--native--seed-42--9e6b81bb26",
+  "status": "complete",
+  "successful": 320
+}

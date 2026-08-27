@@ -1,0 +1,34 @@
+{
+  "failed": 4,
+  "hyperparameters": {
+    "base_checkpoint": null,
+    "batch_size": 1,
+    "benchmark": "omtg",
+    "checkpoint": "TencentARC/TimeLens-8B",
+    "encoder_prune_layer": 0,
+    "encoder_pruning": "none",
+    "encoder_retention": 1.0,
+    "feature_roots": [],
+    "method": "sgde-64",
+    "method_config": {
+      "context_seconds": 4.0,
+      "grounding_frame_budget": 64,
+      "maximum_encoder_calls": 1,
+      "maximum_primary_grounder_calls": 1,
+      "num_anchors": 6,
+      "scout_fps": 1.0
+    },
+    "model": "timelens-8b",
+    "model_spec": null,
+    "post_pruning": "none",
+    "post_retention": 1.0,
+    "seed": 42,
+    "subset_percentage": 1.0
+  },
+  "message": "No predictions succeeded; metrics were not calculated. See errors.jsonl.",
+  "metrics": null,
+  "requested": 4,
+  "run_directory": "/root/TemporalGroundings/hybrid_vtg/results/runs/omtg--timelens-8b--sgde-64--seed-42--835c9c5a5e",
+  "status": "failed",
+  "successful": 0
+}
