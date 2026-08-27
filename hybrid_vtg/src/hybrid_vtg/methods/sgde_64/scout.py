@@ -23,9 +23,9 @@ class ScoutTimeline:
     median: float
     mad: float
     peak_z: float
-    fps: float
     model_id: str
     cached: bool
+    fps: float = 1.0
 
     def __len__(self) -> int:
         return len(self.timestamps)

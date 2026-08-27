@@ -30,98 +30,81 @@ class Observation:
         }
 
 
-def plan_sgde_corridor(
+def plan_sgde_windows(
     candidates: Sequence[CandidateProposal],
     duration: float,
     *,
-    budget: int = FRAME_BUDGET,
+    total_budget: int = FRAME_BUDGET,
     context_seconds: float = DEFAULT_CONTEXT_SECONDS,
-) -> tuple[tuple[Observation, ...], GroundingContext]:
-    """Compute the corridor GroundingContext and allocate exactly 64 frames uniformly within it."""
-    if duration <= 0 or budget <= 0:
+    min_window: float = 24.0,
+) -> list[tuple[GroundingContext, int]]:
+    """Cluster candidates into 1 to 2 disjoint contiguous windows and allocate frames."""
+    if duration <= 0 or total_budget <= 0:
         raise ValueError("duration and frame budget must be positive")
 
     if not candidates or duration <= 45.0:
-        timestamps = uniform_timestamps(0.0, duration, budget)
-        obs = tuple(Observation(t, "exploration") for t in timestamps)
-        return obs, GroundingContext(0.0, duration)
+        return [(GroundingContext(0.0, duration), total_budget)]
 
-    cand_span = max(c.end for c in candidates) - min(c.start for c in candidates)
-    if cand_span <= 60.0 or len(candidates) == 1:
-        c_start = min(c.start for c in candidates)
-        c_end = max(c.end for c in candidates)
+    # NMS candidates by IoU to get distinct action peaks
+    distinct_cands: list[CandidateProposal] = []
+    for c in sorted(candidates, key=lambda x: getattr(x, "peak_z", 0.0), reverse=True):
+        if not any(
+            (max(0.0, min(c.end, d.end) - max(c.start, d.start)) / (max(c.end, d.end) - min(c.start, d.start) + 1e-6)) > 0.3
+            for d in distinct_cands
+        ):
+            distinct_cands.append(c)
 
+    distinct_cands = sorted(distinct_cands, key=lambda x: x.start)
+    if not distinct_cands:
+        return [(GroundingContext(0.0, duration), total_budget)]
+
+    cand_span = distinct_cands[-1].end - distinct_cands[0].start
+    if cand_span <= 60.0 or len(distinct_cands) == 1:
+        c_start = distinct_cands[0].start
+        c_end = distinct_cands[-1].end
         margin = max(context_seconds, min(12.0, (c_end - c_start) * 0.25))
         w_start = max(0.0, c_start - margin)
         w_end = min(duration, c_end + margin)
-        min_window = min(30.0, duration)
         if w_end - w_start < min_window:
             mid = (w_start + w_end) / 2.0
             w_start = max(0.0, mid - min_window / 2.0)
             w_end = min(duration, w_start + min_window)
             w_start = max(0.0, w_end - min_window)
+        return [(GroundingContext(w_start, w_end), total_budget)]
 
-        context = GroundingContext(w_start, w_end)
-        timestamps = uniform_timestamps(w_start, w_end, budget)
-        observations = []
-        for t in timestamps:
-            if c_start <= t <= c_end:
-                role = "candidate"
-            elif t < c_start:
-                role = "pre_context"
-            else:
-                role = "post_context"
-            observations.append(Observation(t, role))
+    # Cluster distinct candidates that are close (<= 20s gap)
+    clusters: list[list[CandidateProposal]] = [[distinct_cands[0]]]
+    for c in distinct_cands[1:]:
+        if c.start - clusters[-1][-1].end <= 20.0:
+            clusters[-1].append(c)
+        else:
+            clusters.append([c])
 
-        return tuple(observations), context
+    # Keep up to top 2 clusters
+    if len(clusters) > 2:
+        clusters = sorted(clusters, key=lambda cl: max(getattr(x, "peak_z", 0.0) for x in cl), reverse=True)[:2]
+        clusters = sorted(clusters, key=lambda cl: cl[0].start)
 
-    # Disjoint multi-candidate planning for long/multi-action videos
-    global_budget = max(8, budget // 4)
-    local_budget_total = budget - global_budget
-    top_cands = sorted(candidates, key=lambda c: getattr(c, "peak_z", 0.0), reverse=True)[:3]
-    budget_per_cand = max(8, local_budget_total // len(top_cands))
+    windows: list[tuple[GroundingContext, int]] = []
+    budget_per_win = max(24, total_budget // len(clusters))
 
-    ts_list: list[float] = list(uniform_timestamps(0.0, duration, global_budget))
-    obs_map: dict[float, str] = {t: "exploration" for t in ts_list}
+    for cl in clusters:
+        c_start = cl[0].start
+        c_end = cl[-1].end
+        margin = max(context_seconds, min(10.0, (c_end - c_start) * 0.25))
+        w_start = max(0.0, c_start - margin)
+        w_end = min(duration, c_end + margin)
+        if w_end - w_start < min_window:
+            mid = (w_start + w_end) / 2.0
+            w_start = max(0.0, mid - min_window / 2.0)
+            w_end = min(duration, w_start + min_window)
+            w_start = max(0.0, w_end - min_window)
+        windows.append((GroundingContext(w_start, w_end), budget_per_win))
 
-    for cand in top_cands:
-        c_m = max(3.0, min(8.0, (cand.end - cand.start) * 0.2))
-        cs = max(0.0, cand.start - c_m)
-        ce = min(duration, cand.end + c_m)
-        c_ts = uniform_timestamps(cs, ce, budget_per_cand)
-        for t in c_ts:
-            ts_list.append(t)
-            if cand.start <= t <= cand.end:
-                obs_map[t] = "candidate"
-            elif t < cand.start:
-                obs_map[t] = "pre_context"
-            else:
-                obs_map[t] = "post_context"
-
-    # Sort and deduplicate timestamps within 0.1s
-    ts_sorted = sorted(ts_list)
-    deduped_ts: list[float] = []
-    for t in ts_sorted:
-        if not deduped_ts or (t - deduped_ts[-1]) >= 0.1:
-            deduped_ts.append(t)
-
-    # Pad or trim to exact budget
-    if len(deduped_ts) < budget:
-        fillers = uniform_timestamps(0.0, duration, budget - len(deduped_ts))
-        for f in fillers:
-            deduped_ts.append(f)
-            obs_map.setdefault(f, "exploration")
-        deduped_ts = sorted(deduped_ts)
-    elif len(deduped_ts) > budget:
-        # Uniform subsample if exceeded
-        indices = np.round(np.linspace(0, len(deduped_ts) - 1, budget)).astype(int)
-        deduped_ts = [deduped_ts[i] for i in indices]
-
-    observations = tuple(Observation(t, obs_map.get(t, "exploration")) for t in deduped_ts)
-    return observations, GroundingContext(0.0, duration)
+    return windows
 
 
-def plan_adaptive_sgde_corridor(
+def plan_adaptive_sgde_windows(
     timeline: Any,
     candidates: Sequence[CandidateProposal],
     duration: float,
@@ -130,8 +113,8 @@ def plan_adaptive_sgde_corridor(
     fallback_budget: int = 128,
     context_seconds: float = DEFAULT_CONTEXT_SECONDS,
     adaptive_budget: bool = True,
-) -> tuple[tuple[Observation, ...], GroundingContext, str]:
-    """Decide between zoomed candidate corridor (base_budget) or full exploration (fallback_budget)."""
+) -> tuple[list[tuple[GroundingContext, int]], str]:
+    """Decide between zoomed candidate windows (base_budget) or full exploration (fallback_budget)."""
     if duration <= 0:
         raise ValueError("duration must be positive")
 
@@ -146,18 +129,76 @@ def plan_adaptive_sgde_corridor(
     )
 
     if is_sharp:
-        obs, ctx = plan_sgde_corridor(
+        windows = plan_sgde_windows(
             candidates,
             duration,
-            budget=base_budget,
+            total_budget=base_budget,
             context_seconds=context_seconds,
         )
-        return obs, ctx, "scout-zoom"
+        return windows, "scout-zoom"
     else:
         budget = fallback_budget if adaptive_budget else base_budget
+        return [(GroundingContext(0.0, duration), budget)], "full-video-fallback"
+
+
+def plan_sgde_corridor(
+    candidates: Sequence[CandidateProposal],
+    duration: float,
+    *,
+    budget: int = FRAME_BUDGET,
+    context_seconds: float = DEFAULT_CONTEXT_SECONDS,
+) -> tuple[tuple[Observation, ...], GroundingContext]:
+    """Compatibility wrapper returning single corridor observations and context."""
+    if not candidates:
         timestamps = uniform_timestamps(0.0, duration, budget)
-        obs = tuple(Observation(t, "exploration") for t in timestamps)
-        return obs, GroundingContext(0.0, duration), "full-video-fallback"
+        return tuple(Observation(t, "exploration") for t in timestamps), GroundingContext(0.0, duration)
+
+    windows = plan_sgde_windows(
+        candidates,
+        duration,
+        total_budget=budget,
+        context_seconds=context_seconds,
+    )
+    context, win_budget = windows[0]
+    timestamps = uniform_timestamps(context.start, context.end, win_budget)
+    c_start = min(c.start for c in candidates)
+    c_end = max(c.end for c in candidates)
+    observations = []
+    for t in timestamps:
+        if c_start <= t <= c_end:
+            role = "candidate"
+        elif t < c_start:
+            role = "pre_context"
+        else:
+            role = "post_context"
+        observations.append(Observation(t, role))
+    return tuple(observations), context
+
+
+def plan_adaptive_sgde_corridor(
+    timeline: Any,
+    candidates: Sequence[CandidateProposal],
+    duration: float,
+    *,
+    base_budget: int = FRAME_BUDGET,
+    fallback_budget: int = 128,
+    context_seconds: float = DEFAULT_CONTEXT_SECONDS,
+    adaptive_budget: bool = True,
+) -> tuple[tuple[Observation, ...], GroundingContext, str]:
+    """Compatibility wrapper returning single corridor observations, context, and route mode."""
+    windows, mode = plan_adaptive_sgde_windows(
+        timeline,
+        candidates,
+        duration,
+        base_budget=base_budget,
+        fallback_budget=fallback_budget,
+        context_seconds=context_seconds,
+        adaptive_budget=adaptive_budget,
+    )
+    context, win_budget = windows[0]
+    timestamps = uniform_timestamps(context.start, context.end, win_budget)
+    obs = tuple(Observation(t, "candidate" if mode == "scout-zoom" else "exploration") for t in timestamps)
+    return obs, context, mode
 
 
 def plan_sgde_evidence(

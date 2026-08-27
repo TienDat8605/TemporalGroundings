@@ -16,7 +16,9 @@ from .planning import (
     Observation,
     assign_observation_roles,
     plan_adaptive_sgde_corridor,
+    plan_adaptive_sgde_windows,
     plan_sgde_evidence,
+    plan_sgde_windows,
 )
 from .proposals import CandidateProposal, extract_candidate_proposals
 from .scout import ScoutProvider, ScoutTimeline
@@ -80,8 +82,8 @@ class SGDE64(Method):
         )
         scout_seconds = perf_counter() - scout_started
 
-        # Stage 2: Adaptive Corridor & Frame Planning
-        observations, context, route_mode = plan_adaptive_sgde_corridor(
+        # Stage 2: Adaptive Window & Frame Planning
+        windows, route_mode = plan_adaptive_sgde_windows(
             timeline,
             candidates,
             sample.duration,
@@ -90,46 +92,62 @@ class SGDE64(Method):
             context_seconds=self.context_seconds,
             adaptive_budget=self.adaptive_budget,
         )
-        timestamps = tuple(obs.timestamp for obs in observations)
 
-        # Grounder Encode & Predict
-        encode_started = perf_counter()
-        evidence = model.encode(sample, timestamps)
-        encode_seconds = perf_counter() - encode_started
+        collected_spans: list[Any] = []
+        raw_outputs: list[str] = []
+        total_frames = 0
+        encode_seconds = 0.0
+        predict_seconds = 0.0
+        last_result: Any = None
+        last_evidence: Any = None
 
-        assign_observation_roles(evidence, observations)
-        evidence.metadata["candidates"] = [c.to_dict() for c in candidates]
-        evidence.metadata["route_mode"] = route_mode
-        evidence.metadata["context_start"] = context.start
-        evidence.metadata["context_end"] = context.end
+        for context, win_budget in windows:
+            from ...media import uniform_timestamps
+            timestamps = tuple(uniform_timestamps(context.start, context.end, win_budget))
+            total_frames += len(timestamps)
+            observations = tuple(Observation(t, "candidate" if route_mode == "scout-zoom" else "exploration") for t in timestamps)
 
-        predict_started = perf_counter()
-        result = model.predict(
-            sample,
-            evidence,
-            context,
+            enc_start = perf_counter()
+            evidence = model.encode(sample, timestamps)
+            encode_seconds += perf_counter() - enc_start
+            last_evidence = evidence
+
+            assign_observation_roles(evidence, observations)
+            evidence.metadata["context_start"] = context.start
+            evidence.metadata["context_end"] = context.end
+
+            pred_start = perf_counter()
+            res = model.predict(sample, evidence, context)
+            predict_seconds += perf_counter() - pred_start
+
+            last_result = res
+            collected_spans.extend(res.spans)
+            if res.raw_output:
+                raw_outputs.append(res.raw_output)
+
+        from ...postprocess import consolidate_spans
+        if sample.cardinality == "multi":
+            final_spans = consolidate_spans(tuple(collected_spans), sample.duration)
+        else:
+            final_spans = tuple(value for span in collected_spans if (value := span.clipped(sample.duration)))
+
+        dense_tokens = (
+            last_evidence.metadata.get("dense_evidence_units", last_evidence.size)
+            if last_evidence is not None
+            else total_frames
         )
-        predict_seconds = perf_counter() - predict_started
-
-        role_counts = {
-            role: sum(obs.role == role for obs in observations)
-            for role in (
-                "global_anchor",
-                "candidate",
-                "pre_context",
-                "post_context",
-                "boundary_transition",
-                "exploration",
-            )
-        }
-
-        dense_tokens = evidence.metadata.get("dense_evidence_units", evidence.size)
-        retained_tokens = evidence.metadata.get("encoder_retained_evidence_units", evidence.size)
+        retained_tokens = (
+            last_evidence.metadata.get("encoder_retained_evidence_units", last_evidence.size)
+            if last_evidence is not None
+            else total_frames
+        )
+        base_telemetry = last_result.telemetry if last_result is not None else {}
 
         telemetry = {
-            **result.telemetry,
+            **base_telemetry,
             "method": self.name,
             "route_mode": route_mode,
+            "windows_count": len(windows),
             "scout_confident": bool(is_confident),
             "scout_model": str(timeline.model_id),
             "scout_cached": bool(timeline.cached),
@@ -137,11 +155,13 @@ class SGDE64(Method):
             "scout_median": float(round(float(timeline.median), 4)),
             "scout_mad": float(round(float(timeline.mad), 4)),
             "candidates": [c.to_dict() for c in (candidates if route_mode == "scout-zoom" else [])],
-            "observation_role_counts": {k: int(v) for k, v in role_counts.items()},
-            "observation_plan": [obs.to_dict() for obs in observations],
-            "encoder_calls": 1,
-            "primary_grounder_calls": 1,
-            "total_frames": int(len(observations)),
+            "observation_role_counts": {
+                "candidate": int(total_frames if route_mode == "scout-zoom" else 0),
+                "exploration": int(total_frames if route_mode != "scout-zoom" else 0),
+            },
+            "encoder_calls": len(windows),
+            "primary_grounder_calls": len(windows),
+            "total_frames": int(total_frames),
             "encoder_dense_tokens": int(dense_tokens),
             "encoder_retained_tokens": int(retained_tokens),
             "timing": {
@@ -153,8 +173,8 @@ class SGDE64(Method):
         }
 
         return Prediction(
-            result.spans,
-            result.raw_output,
+            final_spans,
+            "\n---\n".join(raw_outputs) if raw_outputs else "",
             telemetry,
         )
 
