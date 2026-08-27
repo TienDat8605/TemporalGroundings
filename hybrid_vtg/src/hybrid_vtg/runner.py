@@ -180,7 +180,7 @@ def run_benchmark(
         post_pruning,
         post_retention,
     )
-    if method_name in {"anchored-corridor-64", "sgde-64"} and (
+    if (method_name in {"anchored-corridor-64", "sgde-64", "sgde-128"} or method_name.startswith("sgde")) and (
         encoder_pruning != "none" or post_pruning != "none"
     ):
         raise ValueError(
@@ -282,9 +282,10 @@ def run_benchmark(
             "maximum_encoder_calls": 1,
             "maximum_primary_grounder_calls": 1,
         }
-    elif method_name == "sgde-64":
+    elif method_name in {"sgde-64", "sgde-128"} or method_name.startswith("sgde"):
+        budget = 128 if "128" in method_name else 64
         manifest["method_config"] = {
-            "grounding_frame_budget": 64,
+            "grounding_frame_budget": budget,
             "scout_fps": 1.0,
             "context_seconds": 4.0,
             "num_anchors": 6,
@@ -332,7 +333,7 @@ def run_benchmark(
     pending = [sample for sample in selected if sample.id not in done]
     if pending:
         method_options = {}
-        if method_name == "sgde-64" and feature_roots:
+        if (method_name in {"sgde-64", "sgde-128"} or method_name.startswith("sgde")) and feature_roots:
             method_options["feature_roots"] = feature_roots
         method = METHODS.create(method_name, **method_options)
         method_cache = results_root / "cache" / "methods" / method_name

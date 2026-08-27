@@ -115,6 +115,13 @@ class ScoutProvider:
         candidates.append(cache_root / "scouts" / slug)
         if benchmark:
             candidates.append(cache_root / "scouts" / slug / benchmark)
+        if cache_root.parent.is_dir():
+            candidates.append(cache_root.parent / "sgde-64" / "scouts" / slug)
+            if benchmark:
+                candidates.append(cache_root.parent / "sgde-64" / "scouts" / slug / benchmark)
+            candidates.append(cache_root.parent / "scouts" / slug)
+            if benchmark:
+                candidates.append(cache_root.parent / "scouts" / slug / benchmark)
 
         # Deduplicate preserving order
         unique: list[Path] = []

@@ -17,15 +17,18 @@ def register_methods(registry: Any) -> None:
     import os
     from ..scout_features import DEFAULT_MODEL
 
-    registry.register(
-        SGDE64.name,
-        lambda feature_roots=(), scout_provider=None, scout_model=None, **kwargs: (
+    def _make_sgde(frame_budget: int = 64, fallback_budget: int = 128):
+        return lambda feature_roots=(), scout_provider=None, scout_model=None, **kwargs: (
             SGDE64(
+                frame_budget=int(os.environ.get("SGDE_FRAME_BUDGET", frame_budget)),
+                fallback_budget=int(os.environ.get("SGDE_FALLBACK_BUDGET", fallback_budget)),
                 scout_provider=scout_provider
                 or ScoutProvider(
                     model_id=scout_model or os.environ.get("TIMELENS_SCOUT_MODEL", DEFAULT_MODEL),
                     feature_roots=feature_roots,
-                )
+                ),
             )
-        ),
-    )
+        )
+
+    registry.register(SGDE64.name, _make_sgde(64, 128))
+    registry.register("sgde-128", _make_sgde(128, 256))
