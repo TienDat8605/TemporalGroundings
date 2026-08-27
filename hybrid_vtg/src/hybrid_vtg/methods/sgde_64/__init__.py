@@ -33,18 +33,22 @@ class SGDE64(Method):
         self,
         scout_provider: ScoutProvider | None = None,
         *,
+        name: str = "sgde-64",
         frame_budget: int = FRAME_BUDGET,
         fallback_budget: int = 128,
         context_seconds: float = DEFAULT_CONTEXT_SECONDS,
         num_anchors: int = DEFAULT_NUM_ANCHORS,
         adaptive_budget: bool = True,
+        planning_mode: str = "multi_window",
     ) -> None:
+        self.name = name
         self.scout_provider = scout_provider or ScoutProvider()
         self.frame_budget = frame_budget
         self.fallback_budget = fallback_budget
         self.context_seconds = context_seconds
         self.num_anchors = num_anchors
         self.adaptive_budget = adaptive_budget
+        self.planning_mode = planning_mode
         self._prepare_root: Path | None = None
 
     def prepare(self, samples: Sequence[Sample], cache_root: Path) -> None:
@@ -83,15 +87,27 @@ class SGDE64(Method):
         scout_seconds = perf_counter() - scout_started
 
         # Stage 2: Adaptive Window & Frame Planning
-        windows, route_mode = plan_adaptive_sgde_windows(
-            timeline,
-            candidates,
-            sample.duration,
-            base_budget=self.frame_budget,
-            fallback_budget=self.fallback_budget,
-            context_seconds=self.context_seconds,
-            adaptive_budget=self.adaptive_budget,
-        )
+        if self.planning_mode == "single_window":
+            obs, ctx, route_mode = plan_adaptive_sgde_corridor(
+                timeline,
+                candidates,
+                sample.duration,
+                base_budget=self.frame_budget,
+                fallback_budget=self.fallback_budget,
+                context_seconds=self.context_seconds,
+                adaptive_budget=self.adaptive_budget,
+            )
+            windows = [(ctx, len(obs))]
+        else:
+            windows, route_mode = plan_adaptive_sgde_windows(
+                timeline,
+                candidates,
+                sample.duration,
+                base_budget=self.frame_budget,
+                fallback_budget=self.fallback_budget,
+                context_seconds=self.context_seconds,
+                adaptive_budget=self.adaptive_budget,
+            )
 
         collected_spans: list[Any] = []
         raw_outputs: list[str] = []
