@@ -23,6 +23,7 @@ class ScoutTimeline:
     median: float
     mad: float
     peak_z: float
+    fps: float
     model_id: str
     cached: bool
 
@@ -289,7 +290,7 @@ class ScoutProvider:
             mad=mad,
             fps=self.fps,
             model_id=detected_model,
-            was_cached=was_cached,
+            cached=was_cached,
         )
 
     def prepare_batch(self, samples: Sequence[Sample], cache_root: Path) -> None:
