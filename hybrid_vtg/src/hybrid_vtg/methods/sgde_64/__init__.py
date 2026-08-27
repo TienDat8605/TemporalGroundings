@@ -98,6 +98,10 @@ class SGDE64(Method):
         encode_seconds = perf_counter() - encode_started
 
         assign_observation_roles(evidence, observations)
+        evidence.metadata["candidates"] = [c.to_dict() for c in candidates]
+        evidence.metadata["route_mode"] = route_mode
+        evidence.metadata["context_start"] = context.start
+        evidence.metadata["context_end"] = context.end
 
         predict_started = perf_counter()
         result = model.predict(

@@ -412,12 +412,31 @@ class QwenEvidenceBackend(ModelBackend):
         return torch.matmul(visual, text.T).amax(dim=-1)
 
     @classmethod
-    def _prompt(cls_or_self, sample: Sample, context: GroundingContext) -> str:
-        if getattr(cls_or_self, "name", None) == "timelens2-4b":
-            return (
+    def _prompt(
+        cls_or_self,
+        sample: Sample,
+        context: GroundingContext,
+        candidates: Sequence[Any] | None = None,
+    ) -> str:
+        name = getattr(cls_or_self, "name", None)
+        if name in {"timelens2-4b", "timelens-8b"}:
+            prompt = (
                 f'Given the query: "{sample.query}", return ALL time spans (in seconds) where the query is relevant.\n'
                 "Output format MUST be a JSON array of [start, end] pairs.\n"
             )
+            if candidates:
+                hints = []
+                for c in candidates[:3]:
+                    s = getattr(c, "start", None) or (c.get("start") if isinstance(c, dict) else None)
+                    e = getattr(c, "end", None) or (c.get("end") if isinstance(c, dict) else None)
+                    if s is not None and e is not None:
+                        rel_s = max(0.0, float(s) - context.start)
+                        rel_e = min(context.duration, float(e) - context.start)
+                        if rel_e > rel_s:
+                            hints.append(f"[{rel_s:.1f}, {rel_e:.1f}]")
+                if hints:
+                    prompt += f"Candidate event intervals to inspect: [{', '.join(hints)}]. Verify and output precise start and end times.\n"
+            return prompt
         if sample.cardinality == "multi":
             return (
                 f"The event '{sample.query}' may occur MULTIPLE times in this video. "
@@ -452,7 +471,7 @@ class QwenEvidenceBackend(ModelBackend):
             + processor.vision_end_token
             for timestamp, count in groups
         )
-        prompt_text = self._prompt(sample, context)
+        prompt_text = self._prompt(sample, context, candidates=evidence.metadata.get("candidates"))
         if self.name == "timelens2-4b":
             text = f"<|im_start|>user\n{visual}{prompt_text}<|im_end|>\n<|im_start|>assistant\n"
         else:
@@ -513,7 +532,7 @@ class QwenEvidenceBackend(ModelBackend):
                     with Image.open(p) as img:
                         frames.append(img.convert("RGB"))
 
-                prompt_text = self._prompt(sample, context)
+                prompt_text = self._prompt(sample, context, candidates=evidence.metadata.get("candidates"))
                 duration = max(0.1, context.duration)
                 video_ele = {
                     "type": "video",
