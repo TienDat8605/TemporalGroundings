@@ -1,0 +1,33 @@
+{
+  "failed": 0,
+  "hyperparameters": {
+    "base_checkpoint": null,
+    "batch_size": 1,
+    "benchmark": "qvhighlights-timelens",
+    "checkpoint": "MCG-NJU/TimeLens2-4B",
+    "encoder_prune_layer": 0,
+    "encoder_pruning": "none",
+    "encoder_retention": 1.0,
+    "feature_roots": [],
+    "method": "native",
+    "method_config": null,
+    "model": "timelens2-4b",
+    "model_spec": null,
+    "post_pruning": "none",
+    "post_retention": 1.0,
+    "seed": 42,
+    "subset_percentage": 100.0
+  },
+  "metrics": {
+    "R@1,IoU=0.3": 0.7819597663854639,
+    "R@1,IoU=0.5": 0.7021414665801428,
+    "R@1,IoU=0.7": 0.5489941596365996,
+    "count": 1541,
+    "mIoU": 0.6468851185009962
+  },
+  "metrics_scope": "all requested samples; failed samples count as empty predictions",
+  "requested": 1541,
+  "run_directory": "/root/hybrid_vtg/hybrid_vtg/results/runs/qvhighlights-timelens--timelens2-4b--native--seed-42--d5c6174946",
+  "status": "complete",
+  "successful": 1541
+}

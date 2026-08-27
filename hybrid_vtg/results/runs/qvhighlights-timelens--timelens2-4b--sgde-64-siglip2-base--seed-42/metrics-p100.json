@@ -1,0 +1,40 @@
+{
+  "failed": 0,
+  "hyperparameters": {
+    "base_checkpoint": null,
+    "batch_size": 1,
+    "benchmark": "qvhighlights-timelens",
+    "checkpoint": "MCG-NJU/TimeLens2-4B",
+    "encoder_prune_layer": 0,
+    "encoder_pruning": "none",
+    "encoder_retention": 1.0,
+    "feature_roots": [],
+    "method": "sgde-64",
+    "method_config": {
+      "context_seconds": 4.0,
+      "grounding_frame_budget": 64,
+      "maximum_encoder_calls": 1,
+      "maximum_primary_grounder_calls": 1,
+      "num_anchors": 6,
+      "scout_fps": 1.0
+    },
+    "model": "timelens2-4b",
+    "model_spec": null,
+    "post_pruning": "none",
+    "post_retention": 1.0,
+    "seed": 42,
+    "subset_percentage": 100.0
+  },
+  "metrics": {
+    "R@1,IoU=0.3": 0.7261518494484102,
+    "R@1,IoU=0.5": 0.6177806619078521,
+    "R@1,IoU=0.7": 0.47955872809863725,
+    "count": 1541,
+    "mIoU": 0.5790825305692123
+  },
+  "metrics_scope": "all requested samples; failed samples count as empty predictions",
+  "requested": 1541,
+  "run_directory": "/root/hybrid_vtg/hybrid_vtg/results/runs/qvhighlights-timelens--timelens2-4b--sgde-64--seed-42--704ef76297",
+  "status": "complete",
+  "successful": 1541
+}

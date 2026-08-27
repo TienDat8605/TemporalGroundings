@@ -1,0 +1,49 @@
+{
+  "failed": 0,
+  "hyperparameters": {
+    "base_checkpoint": null,
+    "batch_size": 1,
+    "benchmark": "omtg",
+    "checkpoint": "MCG-NJU/TimeLens2-4B",
+    "encoder_prune_layer": 0,
+    "encoder_pruning": "none",
+    "encoder_retention": 1.0,
+    "feature_roots": [],
+    "method": "sgde-64",
+    "method_config": {
+      "context_seconds": 4.0,
+      "grounding_frame_budget": 64,
+      "maximum_encoder_calls": 1,
+      "maximum_primary_grounder_calls": 1,
+      "num_anchors": 6,
+      "scout_fps": 1.0
+    },
+    "model": "timelens2-4b",
+    "model_spec": null,
+    "post_pruning": "none",
+    "post_retention": 1.0,
+    "seed": 42,
+    "subset_percentage": 100.0
+  },
+  "metrics": {
+    "C-Acc": 16.875,
+    "CardinalityError": 2.146875,
+    "EtF1": 10.17361111111111,
+    "count": 320,
+    "tF1@0.3": 40.90569612168877,
+    "tF1@0.5": 32.37737262737262,
+    "tF1@0.7": 19.969363969363968,
+    "tIoU": 29.67375436405516,
+    "tP@0.3": 59.330357142857146,
+    "tP@0.5": 46.782738095238095,
+    "tP@0.7": 28.93377976190476,
+    "tR@0.3": 34.181509462759465,
+    "tR@0.5": 27.068185286935286,
+    "tR@0.7": 16.604166666666668
+  },
+  "metrics_scope": "all requested samples; failed samples count as empty predictions",
+  "requested": 320,
+  "run_directory": "/workspace/TemporalGroundings/hybrid_vtg/results/runs/omtg--timelens2-4b--sgde-64--seed-42--2239fc78e8",
+  "status": "complete",
+  "successful": 320
+}
