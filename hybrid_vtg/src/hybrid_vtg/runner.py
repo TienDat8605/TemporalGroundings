@@ -180,13 +180,6 @@ def run_benchmark(
         post_pruning,
         post_retention,
     )
-    if (method_name in {"anchored-corridor-64", "sgde-64", "sgde-128"} or method_name.startswith("sgde")) and (
-        encoder_pruning != "none" or post_pruning != "none"
-    ):
-        raise ValueError(
-            f"{method_name} currently requires dense evidence; run Mage and SemVID "
-            "as separate follow-up ablations"
-        )
     load_builtin_plugins()
     benchmark = BENCHMARKS.create(benchmark_name)
     data = data.expanduser().resolve()
