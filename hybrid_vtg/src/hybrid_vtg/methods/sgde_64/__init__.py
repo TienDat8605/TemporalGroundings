@@ -66,13 +66,6 @@ class SGDE64(Method):
 
     def run(self, sample: Sample, model: ModelBackend, cache_dir: Path) -> Prediction:
         self.validate_model(model)
-        if getattr(model, "encoder_pruning", "none") != "none" or getattr(
-            model, "post_pruning", "none"
-        ) != "none":
-            raise ValueError(
-                "sgde-64 currently requires dense evidence; evaluate Mage and "
-                "SemVID as separate follow-up ablations"
-            )
 
         root = self._prepare_root or cache_dir
 
