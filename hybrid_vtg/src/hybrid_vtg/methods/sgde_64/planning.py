@@ -80,8 +80,9 @@ def plan_sgde_windows(
         else:
             clusters.append([c])
 
-    # Keep up to top clusters (up to 4 for >=128 budget, 2 for 64 budget)
-    max_clusters = 4 if total_budget >= 128 else 2
+    # Keep up to top clusters (default 2 windows)
+    import os
+    max_clusters = int(os.environ.get("SGDE_MAX_CLUSTERS", "2"))
     if len(clusters) > max_clusters:
         clusters = sorted(clusters, key=lambda cl: max(getattr(x, "peak_z", 0.0) for x in cl), reverse=True)[:max_clusters]
         clusters = sorted(clusters, key=lambda cl: cl[0].start)
