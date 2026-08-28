@@ -88,7 +88,7 @@ def plan_sgde_windows(
         clusters = sorted(clusters, key=lambda cl: cl[0].start)
 
     windows: list[tuple[GroundingContext, int]] = []
-    budget_per_win = max(24, total_budget // len(clusters))
+    budget_per_win = int(os.environ.get("SGDE_BUDGET_PER_WINDOW", "0")) or max(24, total_budget // len(clusters))
 
     for cl in clusters:
         c_start = cl[0].start
