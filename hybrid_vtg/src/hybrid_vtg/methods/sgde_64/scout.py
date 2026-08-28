@@ -140,12 +140,15 @@ class ScoutProvider:
         benchmark: str = "",
     ) -> tuple[np.ndarray, np.ndarray, str] | None:
         """Attempt to load cached video embeddings (timestamps, embeddings, model_id)."""
+        stem = Path(video_id).stem
         search_dirs = self._discover_feature_dirs(cache_root, benchmark)
         for directory in search_dirs:
             # Check direct or video_embeddings subfolder
             for subpath in (
                 directory / f"{video_id}.npz",
+                directory / f"{stem}.npz",
                 directory / "video_embeddings" / f"{video_id}.npz",
+                directory / "video_embeddings" / f"{stem}.npz",
             ):
                 if subpath.is_file():
                     try:
