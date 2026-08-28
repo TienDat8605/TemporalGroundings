@@ -80,9 +80,10 @@ def plan_sgde_windows(
         else:
             clusters.append([c])
 
-    # Keep up to top 2 clusters
-    if len(clusters) > 2:
-        clusters = sorted(clusters, key=lambda cl: max(getattr(x, "peak_z", 0.0) for x in cl), reverse=True)[:2]
+    # Keep up to top clusters (up to 4 for >=128 budget, 2 for 64 budget)
+    max_clusters = 4 if total_budget >= 128 else 2
+    if len(clusters) > max_clusters:
+        clusters = sorted(clusters, key=lambda cl: max(getattr(x, "peak_z", 0.0) for x in cl), reverse=True)[:max_clusters]
         clusters = sorted(clusters, key=lambda cl: cl[0].start)
 
     windows: list[tuple[GroundingContext, int]] = []
