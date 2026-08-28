@@ -1,0 +1,40 @@
+{
+  "benchmark": "omtg",
+  "command": "run",
+  "created_at": "2026-08-28T05:36:47.387995+00:00",
+  "dataset_manifest": "data/omtg/dataset.json",
+  "duration_seconds": 1137.9351059969995,
+  "git_commit": "0d1824147047ea41829e1eb124ec6577885b5972",
+  "host": "rtx-3090",
+  "method": "sgde-128",
+  "metrics": {
+    "C-Acc": 30.625,
+    "CardinalityError": 1.515625,
+    "EtF1": 22.8125,
+    "tF1@0.3": 56.76451670984852,
+    "tF1@0.5": 46.56846937402636,
+    "tF1@0.7": 29.560662241697223,
+    "tIoU": 48.24357778946765,
+    "tP@0.3": 61.942708333333336,
+    "tP@0.5": 50.5625,
+    "tP@0.7": 32.0625,
+    "tR@0.3": 61.432291666666664,
+    "tR@0.5": 50.807291666666664,
+    "tR@0.7": 32.552083333333336
+  },
+  "metrics_scope": "all requested samples; failed samples count as empty predictions",
+  "model": "timelens-8b",
+  "requested": 320,
+  "run_directory": "results/runs/omtg--timelens-8b--sgde-128-mage--seed-42",
+  "seed": 42,
+  "status": "complete",
+  "subset": 100,
+  "successful": 320,
+  "configuration": {
+    "planning_mode": "single_window",
+    "frame_budget": 128,
+    "encoder_pruning": "mage",
+    "encoder_retention": 0.5,
+    "visual_token_budget": 154
+  }
+}
