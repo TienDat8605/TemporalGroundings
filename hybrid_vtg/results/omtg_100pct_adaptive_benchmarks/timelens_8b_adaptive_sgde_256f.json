@@ -1,0 +1,27 @@
+{
+  "method": "New Adaptive SGDE-256 (256f)",
+  "model": "TencentARC/TimeLens-8B",
+  "benchmark": "omtg",
+  "subset": "100%",
+  "frame_budget": 256,
+  "total_samples": 320,
+  "scout": "nvidia/llama-nemotron-embed-vl-1b-v2",
+  "metrics": {
+    "tIoU": 45.42,
+    "Mean_Recall": 44.11,
+    "Mean_Precision": 46.85,
+    "Mean_F1": 42.92,
+    "EtF1": 19.86,
+    "C-Acc": 31.88,
+    "CardinalityError": 1.81,
+    "tR@0.3": 56.45,
+    "tR@0.5": 42.54,
+    "tR@0.7": 26.61,
+    "tP@0.3": 59.38,
+    "tP@0.5": 46.12,
+    "tP@0.7": 29.25,
+    "tF1@0.3": 54.55,
+    "tF1@0.5": 41.82,
+    "tF1@0.7": 26.35
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "method": "Old Fixed Multi-Window (64f)",
+  "model": "TencentARC/TimeLens-8B",
+  "benchmark": "omtg",
+  "subset": "100%",
+  "frame_budget": 64,
+  "total_samples": 320,
+  "metrics": {
+    "tIoU": 44.27,
+    "Mean_Recall": 41.91,
+    "Mean_Precision": 43.41,
+    "Mean_F1": 40.05,
+    "EtF1": 16.32,
+    "C-Acc": 26.56,
+    "CardinalityError": 1.8
+  }
+}
