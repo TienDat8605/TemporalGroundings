@@ -1,0 +1,49 @@
+{
+  "failed": 0,
+  "hyperparameters": {
+    "base_checkpoint": null,
+    "batch_size": 1,
+    "benchmark": "omtg",
+    "checkpoint": "TencentARC/TimeLens-8B",
+    "encoder_prune_layer": 0,
+    "encoder_pruning": "mage",
+    "encoder_retention": 0.5,
+    "feature_roots": [],
+    "method": "sgde-128",
+    "method_config": {
+      "context_seconds": 4.0,
+      "grounding_frame_budget": 128,
+      "maximum_encoder_calls": 1,
+      "maximum_primary_grounder_calls": 1,
+      "num_anchors": 6,
+      "scout_fps": 1.0
+    },
+    "model": "timelens-8b",
+    "model_spec": null,
+    "post_pruning": "none",
+    "post_retention": 1.0,
+    "seed": 42,
+    "subset_percentage": 100.0
+  },
+  "metrics": {
+    "C-Acc": 8.125,
+    "CardinalityError": 2.596875,
+    "EtF1": 1.3524305555555556,
+    "count": 320,
+    "tF1@0.3": 24.536146145521144,
+    "tF1@0.5": 13.342600108225108,
+    "tF1@0.7": 5.284744769119769,
+    "tIoU": 19.965168022544194,
+    "tP@0.3": 36.535714285714285,
+    "tP@0.5": 19.4765625,
+    "tP@0.7": 8.005208333333332,
+    "tR@0.3": 21.219990079365083,
+    "tR@0.5": 11.703000992063492,
+    "tR@0.7": 4.315476190476191
+  },
+  "metrics_scope": "all requested samples; failed samples count as empty predictions",
+  "requested": 320,
+  "run_directory": "/root/TemporalGroundings/hybrid_vtg/results/runs/omtg--timelens-8b--sgde-128--seed-42--10812a2aa5",
+  "status": "complete",
+  "successful": 320
+}

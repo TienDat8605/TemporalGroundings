@@ -111,6 +111,17 @@ class ScoutProvider:
                     if benchmark and (sub / benchmark).is_dir():
                         candidates.append(sub / benchmark)
 
+        data_scouts = project_root / "data" / "scouts"
+        if data_scouts.is_dir():
+            candidates.append(data_scouts / slug)
+            if benchmark and (data_scouts / slug / benchmark).is_dir():
+                candidates.append(data_scouts / slug / benchmark)
+            for sub in data_scouts.iterdir():
+                if sub.is_dir():
+                    candidates.append(sub)
+                    if benchmark and (sub / benchmark).is_dir():
+                        candidates.append(sub / benchmark)
+
         # Cache location
         candidates.append(cache_root / "scouts" / slug)
         if benchmark:

@@ -1,0 +1,12 @@
+{
+  "benchmark": "omtg",
+  "model": "timelens-8b",
+  "method": "sgde-128",
+  "seed": 42,
+  "subset": 100,
+  "planning_mode": "single_window",
+  "encoder_pruning": "mage",
+  "encoder_retention": 0.5,
+  "visual_token_budget": 154,
+  "status": "complete"
+}

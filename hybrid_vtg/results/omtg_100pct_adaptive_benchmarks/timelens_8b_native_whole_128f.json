@@ -1,0 +1,17 @@
+{
+  "method": "Native Whole Video (128f + Mage)",
+  "model": "TencentARC/TimeLens-8B",
+  "benchmark": "omtg",
+  "subset": "100%",
+  "frame_budget": 128,
+  "total_samples": 320,
+  "metrics": {
+    "tIoU": 46.57,
+    "Mean_Recall": 40.84,
+    "Mean_Precision": 60.7,
+    "Mean_F1": 45.58,
+    "EtF1": 14.23,
+    "C-Acc": 19.69,
+    "CardinalityError": 2.07
+  }
+}
