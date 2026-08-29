@@ -3,7 +3,7 @@
 > **Paper Draft & Technical Report**  
 > **Target Task**: One-to-Many Video Temporal Grounding (OMTG)  
 > **Benchmark**: OMTG Bench (320 query-video pairs, 287 videos, arXiv:2606.06294)  
-> **Primary Grounder**: TencentARC/TimeLens-8B (Qwen2.5-VL-7B backbone)  
+> **Primary Grounder**: TencentARC/TimeLens-8B (Qwen3-VL-8B-Instruct backbone)  
 > **Scout Backbone**: NVIDIA Llama-Nemotron-Embed-VL-1B-v2 (1.04B frozen)
 
 ---
@@ -99,7 +99,7 @@ By applying our structured multi-span prompt to TimeLens-8B on raw whole videos 
 +----------------------------------------------------------------------------------------------------+
                                                   │
                                                   ▼
-                         Stage 4: Primary Grounder (TimeLens-8B / Qwen2.5-VL)
+                         Stage 4: Primary Grounder (TimeLens-8B / Qwen3-VL-8B-Instruct)
                         ├── In-ViT Mage Patch Pruning (Optical Flow & Residual Energy)
                         └── Exact Multi-Span Boundary Decoding: [[start_1, end_1], [start_2, end_2], ...]
 ```
