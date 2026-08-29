@@ -120,7 +120,7 @@ By applying our structured multi-span prompt to TimeLens-8B on raw whole videos 
 | **TimeLens-8B + Adaptive SGDE-256 (256f)** | `31.88` | **`19.86`** 🏆 | **`44.11`** 🏆 | `46.85` | `42.92` | `1.81` |
 
 ![Budget Scaling](docs/figures/budget_performance_scaling.png)
-*Figure 1: Performance scaling across frame budgets, illustrating substantial gains in Cardinality Accuracy (C-Acc) and Effective Temporal F1 (EtF1).*
+*Figure 2: Performance scaling across frame budgets, illustrating substantial gains in Cardinality Accuracy (C-Acc) and Effective Temporal F1 (EtF1).*
 
 #### Understanding the Precision vs. Recall & Cardinality Trade-off:
 - **Why Cardinality Accuracy & EtF1 Surge**: By removing $50\%-85\%$ of empty background footage, TimeLens-8B no longer hallucinates phantom timestamps in dead-zones, reducing Cardinality Error from $2.07 \rightarrow 1.75$ and boosting C-Acc from $19.69\% \rightarrow 33.12\%$.
@@ -144,7 +144,7 @@ Naive cosine similarity $S(t) = \frac{\langle v(t), q \rangle}{\|v(t)\|_2 \|q\|_
    where $\tau = 0.30$ and $\lambda_{\text{len}} = 0.01$. This formulation combines instant peak saliency with sustained excess energy without penalizing event duration (the excess energy integral $J(a,b) = \sum (Z(t) - \tau - \lambda)\Delta t$ already integrates over mean duration energy, making an explicit mean term redundant).
 
 ![Scoring Ablation](docs/figures/scoring_method_ablation.png)
-*Figure 2: Scoring method ablation on OMTG, demonstrating superior Ground Truth coverage and boundary preservation over naive similarity.*
+*Figure 3: Scoring method ablation on OMTG, demonstrating superior Ground Truth coverage and boundary preservation over naive similarity.*
 
 | Scoring & Extraction Method | GT Action Spans Covered (%) 🏆 | Missed Action Spans (%) 📉 | 1-Window Continuity (%) | Candidate Proposal IoU (%) |
 | :--- | :---: | :---: | :---: | :---: |
@@ -159,7 +159,7 @@ Naive cosine similarity $S(t) = \frac{\langle v(t), q \rangle}{\|v(t)\|_2 \|q\|_
 Prior methods partitioned videos using rigid, fixed windows (e.g. 20s/6s windows or constant 10s margins). This resulted in a **$28.75\%$ 2-window rate**, fracturing action intervals across separate prompts and destroying multi-event relational context.
 
 ![Adaptive Geometry Curves](docs/figures/adaptive_geometry_curves.png)
-*Figure 3: Theoretical scaling curves for scale-invariant logarithmic margin $\Delta(T)$ and square-root clustering gap $G(T)$.*
+*Figure 4: Theoretical scaling curves for scale-invariant logarithmic margin $\Delta(T)$ and square-root clustering gap $G(T)$.*
 
 #### Our Scale-Invariant Geometric Formulation:
 1. **Logarithmic Context Margin $\Delta(T)$**:
@@ -170,7 +170,25 @@ Prior methods partitioned videos using rigid, fixed windows (e.g. 20s/6s windows
    Dynamically determines whether adjacent candidate peaks belong to the same visual narrative.
 3. **70% Soft Continuity Merge**:
    If the candidate span covers $\ge 70\%$ of the video duration $T$ or the gap between candidate clusters is $\le G(T)$, the windows are unified into a single continuous temporal corridor $[W_{\text{start}}, W_{\text{end}}]$.
-   - **Impact**: Keeps **$95.9\%$ of videos in a single continuous prompt**, eliminating prompt fragmentation while removing $50\%-85\%$ of irrelevant background noise.
+
+![Soft Merge Ratio Ablation](docs/figures/soft_merge_ratio_ablation.png)
+*Figure 5: Soft merge span ratio threshold ablation on 100% OMTG Bench (N=320), evaluating window counts (1-Window vs. 2-Window share), Ground Truth action span coverage (%), and background pruning ratio (%).*
+
+#### Empirical Ablation: Soft Merge Span Ratio Threshold ($\rho$) Sweep
+
+| Merge Ratio Threshold ($\rho$) | 1-Window Samples (%) 🏆 | 2-Window Samples (%) | GT Action Spans Covered (%) 🏆 | Missed GT Spans (%) 📉 | Background Pruned (%) 📉 |
+| :---: | :---: | :---: | :---: | :---: | :---: |
+| **$\rho = 30\%$** | 320 (100.0%) | 0 (0.0%) | **82.44%** | **16.71%** | 33.32% |
+| **$\rho = 40\%$** | 317 (99.1%) | 3 (0.9%) | 81.84% | 17.31% | 34.04% |
+| **$\rho = 50\%$** | 313 (97.8%) | 7 (2.2%) | 81.33% | 17.82% | 34.91% |
+| **$\rho = 60\%$** | 310 (96.9%) | 10 (3.1%) | 80.73% | 18.33% | 35.51% |
+| **$\rho = 70\%$ [Selected Optimal]** | **304 (95.0%)** | **16 (5.0%)** | **79.71%** | **19.27%** | **37.17%** 🚀 |
+| **$\rho = 80\%$** | 301 (94.1%) | 19 (5.9%) | 79.54% | 19.44% | 38.06% |
+| **$\rho = 90\%$** | 296 (92.5%) | 24 (7.5%) | 79.20% | 19.78% | 39.46% |
+| **$\rho = 100\%$** | 290 (90.6%) | 30 (9.4%) | 78.77% | 20.12% | 40.34% |
+| **No Merge (Gap-Only)** | 273 (85.3%) | 47 (14.7%) | 78.77% | 20.12% | 42.33% |
+
+*Key Finding*: Setting $\rho = 70\%$ strikes the ideal operational balance: it keeps **$95.0\%$ of videos in a single continuous prompt** (preventing prompt fragmentation and preserving relational multi-span context) while still capturing **$79.71\%$ of all Ground Truth action spans** and pruning over **$37.17\%$ of background video duration across the entire benchmark**.
 
 ---
 
@@ -198,12 +216,12 @@ Prior methods partitioned videos using rigid, fixed windows (e.g. 20s/6s windows
 - **Background Pruning**: On videos $> 64\text{s}$, Adaptive SGDE prunes **$58.1\%$ of background frames**; on videos $> 180\text{s}$, prunes **$69.5\%$** (up to $85.2\%$).
 
 ![Dataset & Pruning](docs/figures/omtg_video_length_and_pruning.png)
-*Figure 4: (Left) OMTG video length distribution. (Right) Background pruning percentage as a function of video duration.*
+*Figure 1 (Reprise): OMTG video length distribution. (Right) Background pruning percentage as a function of video duration.*
 
 ### 4.2 Hardware-Independent Compute Savings Analysis
 
 ![Compute Savings](docs/figures/compute_savings_and_vit_frames.png)
-*Figure 5: (Left) Total frames processed by the 8B Vision Transformer across 320 benchmark videos. (Right) Percentage of 8B ViT FLOPs saved relative to native whole-video sampling.*
+*Figure 6: (Left) Total frames processed by the 8B Vision Transformer across 320 benchmark videos. (Right) Percentage of 8B ViT FLOPs saved relative to native whole-video sampling.*
 
 | Compute Dimension | Native Whole Video (TimeLens-8B) | Adaptive SGDE-64 (64f) | Adaptive SGDE-128 (128f) | Adaptive SGDE-256 (256f) |
 | :--- | :--- | :--- | :--- | :--- |
@@ -238,7 +256,7 @@ To push frame budgets even higher (e.g. $512\text{f}$) without exceeding the 4,0
 | **5** | **TimeLens-8B + Adaptive SGDE-256 (256f)** | `31.88` | `54.55` | `41.82` | `26.35` | **`45.42`** 🏆 | **`19.86`** 🏆 | **`44.11`** 🏆 | `46.85` | `42.92` | `1.81` |
 
 ![Master Comparison](docs/figures/omtg_benchmark_comparison.png)
-*Figure 6: Consolidated benchmark comparison across all pipeline configurations on 100% OMTG Bench.*
+*Figure 7: Consolidated benchmark comparison across all pipeline configurations on 100% OMTG Bench.*
 
 ### 6.2 Detailed Threshold Breakdown (IoU = 0.3 / 0.5 / 0.7)
 
