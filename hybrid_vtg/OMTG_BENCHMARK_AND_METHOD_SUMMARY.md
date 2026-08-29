@@ -57,7 +57,7 @@ Output format MUST be a JSON array of [start, end] pairs.
 ```
 
 ### 1.4 Recovering the True TimeLens-8B Baseline
-By applying our structured multi-span prompt to TimeLens-8B on raw whole videos (128 frames at 2.0 FPS + Mage), we uncover the true latent baseline:
+By applying our structured multi-span prompt to TimeLens-8B on raw whole videos (sampled at native 2.0 FPS across the full duration), we uncover the true latent baseline:
 - **`EtF1`**: Recovers from **`0.00%` $\rightarrow$ `14.23%`**
 - **`C-Acc`**: Recovers from **`0.00%` $\rightarrow$ `19.69%`**
 - **`tIoU`**: Reaches **`46.57%`** (vs `32.38%` in the paper)
@@ -178,7 +178,7 @@ Prior methods partitioned videos using rigid, fixed windows (e.g. 20s/6s windows
 
 | Frame Budget Setting | Global Sample Rate (Whole Video) | Effective Frame Rate in Action Window | 8B ViT Compute Load (per Video) | EtF1 (%) 🏆 | C-Acc (%) 🏆 |
 | :--- | :---: | :---: | :---: | :---: | :---: |
-| **Native Whole Video (128f+Mage)** | 2.0 FPS | 2.0 FPS (Sparse) | $N = 2.0 \times T$ frames ($322.8\text{f}$ avg) | `14.23` | `19.69` |
+| **Native Whole Video (2.0 FPS)** | 2.0 FPS | 2.0 FPS (Sparse) | $N = 2.0 \times T$ frames ($322.8\text{f}$ avg) | `14.23` | `19.69` |
 | **Adaptive SGDE-64 (64f)** | Variable ($0.1-1.5\text{ FPS}$) | $2.0 - 4.0\text{ FPS}$ | **64 frames** ($-80.2\%$ compute) | `14.44` | `27.19` |
 | **Adaptive SGDE-128 (128f) [Optimal]** | Variable ($0.2-2.5\text{ FPS}$) | **$4.0 - 6.0\text{ FPS}$** | **128 frames** ($-60.3\%$ compute) | **`19.14`** 🚀 | **`33.12`** 🚀 |
 | **Adaptive SGDE-256 (256f)** | Variable ($0.5-4.0\text{ FPS}$) | **$6.0 - 8.0\text{ FPS}$** | **256 frames** ($-20.7\%$ compute) | **`19.86`** 🏆 | `31.88` |
