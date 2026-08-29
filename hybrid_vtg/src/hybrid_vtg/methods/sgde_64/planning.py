@@ -38,16 +38,22 @@ def plan_sgde_windows(
     context_seconds: float = DEFAULT_CONTEXT_SECONDS,
     min_window: float = 24.0,
 ) -> list[tuple[GroundingContext, int]]:
-    """Cluster candidates into 1 to 2 disjoint contiguous windows and allocate frames."""
+    """Cluster candidates into adaptive 1-2 windows using logarithmic margin, sqrt gap, and soft merge."""
     if duration <= 0 or total_budget <= 0:
         raise ValueError("duration and frame budget must be positive")
 
     if not candidates or duration <= 45.0:
         return [(GroundingContext(0.0, duration), total_budget)]
 
+    import math
+    import os
+
+    def _cand_score(c: CandidateProposal) -> float:
+        return float(getattr(c, "peak_z", 0.0) + 0.5 * max(0.0, getattr(c, "penalized_score", 0.0)))
+
     # NMS candidates by IoU to get distinct action peaks
     distinct_cands: list[CandidateProposal] = []
-    for c in sorted(candidates, key=lambda x: getattr(x, "peak_z", 0.0), reverse=True):
+    for c in sorted(candidates, key=_cand_score, reverse=True):
         if not any(
             (max(0.0, min(c.end, d.end) - max(c.start, d.start)) / (max(c.end, d.end) - min(c.start, d.start) + 1e-6)) > 0.3
             for d in distinct_cands
@@ -58,11 +64,15 @@ def plan_sgde_windows(
     if not distinct_cands:
         return [(GroundingContext(0.0, duration), total_budget)]
 
+    # Adaptive Margin: clamp(3.5 * ln(duration), 8.0, 22.0)
+    margin = float(np.clip(3.5 * np.log(max(10.0, duration)), 8.0, 22.0))
+    # Adaptive Gap: max(15.0, 3.5 * sqrt(duration))
+    gap_threshold = max(15.0, 3.5 * math.sqrt(duration))
+
     cand_span = distinct_cands[-1].end - distinct_cands[0].start
-    if cand_span <= 60.0 or len(distinct_cands) == 1:
+    if cand_span <= 1.5 * gap_threshold or len(distinct_cands) == 1:
         c_start = distinct_cands[0].start
         c_end = distinct_cands[-1].end
-        margin = max(context_seconds, min(12.0, (c_end - c_start) * 0.25))
         w_start = max(0.0, c_start - margin)
         w_end = min(duration, c_end + margin)
         if w_end - w_start < min_window:
@@ -72,19 +82,18 @@ def plan_sgde_windows(
             w_start = max(0.0, w_end - min_window)
         return [(GroundingContext(w_start, w_end), total_budget)]
 
-    # Cluster distinct candidates that are close (<= 20s gap)
+    # Cluster distinct candidates using adaptive gap threshold
     clusters: list[list[CandidateProposal]] = [[distinct_cands[0]]]
     for c in distinct_cands[1:]:
-        if c.start - clusters[-1][-1].end <= 20.0:
+        if c.start - clusters[-1][-1].end <= gap_threshold:
             clusters[-1].append(c)
         else:
             clusters.append([c])
 
     # Keep up to top clusters (default 2 windows)
-    import os
     max_clusters = int(os.environ.get("SGDE_MAX_CLUSTERS", "2"))
     if len(clusters) > max_clusters:
-        clusters = sorted(clusters, key=lambda cl: max(getattr(x, "peak_z", 0.0) for x in cl), reverse=True)[:max_clusters]
+        clusters = sorted(clusters, key=lambda cl: max(_cand_score(x) for x in cl), reverse=True)[:max_clusters]
         clusters = sorted(clusters, key=lambda cl: cl[0].start)
 
     windows: list[tuple[GroundingContext, int]] = []
@@ -93,7 +102,6 @@ def plan_sgde_windows(
     for cl in clusters:
         c_start = cl[0].start
         c_end = cl[-1].end
-        margin = max(context_seconds, min(10.0, (c_end - c_start) * 0.25))
         w_start = max(0.0, c_start - margin)
         w_end = min(duration, c_end + margin)
         if w_end - w_start < min_window:
@@ -102,6 +110,15 @@ def plan_sgde_windows(
             w_end = min(duration, w_start + min_window)
             w_start = max(0.0, w_end - min_window)
         windows.append((GroundingContext(w_start, w_end), budget_per_win))
+
+    # Soft Continuity Merge
+    if len(windows) == 2:
+        w1_ctx, _ = windows[0]
+        w2_ctx, _ = windows[1]
+        gap_between = w2_ctx.start - w1_ctx.end
+        span_ratio = (w2_ctx.end - w1_ctx.start) / duration
+        if gap_between <= gap_threshold or span_ratio >= 0.70:
+            return [(GroundingContext(w1_ctx.start, w2_ctx.end), total_budget)]
 
     return windows
 
@@ -116,21 +133,11 @@ def plan_adaptive_sgde_windows(
     context_seconds: float = DEFAULT_CONTEXT_SECONDS,
     adaptive_budget: bool = True,
 ) -> tuple[list[tuple[GroundingContext, int]], str]:
-    """Decide between zoomed candidate windows (base_budget) or full exploration (fallback_budget)."""
+    """Decide between zoomed candidate windows or full exploration."""
     if duration <= 0:
         raise ValueError("duration must be positive")
 
-    peak_z = getattr(timeline, "peak_z", 0.0) if timeline is not None else 0.0
-    cand_dur = (candidates[0].end - candidates[0].start) if candidates else 0.0
-
-    is_sharp = bool(
-        candidates
-        and len(candidates) > 0
-        and peak_z >= 1.6
-        and cand_dur <= 45.0
-    )
-
-    if is_sharp:
+    if candidates and len(candidates) > 0:
         windows = plan_sgde_windows(
             candidates,
             duration,
