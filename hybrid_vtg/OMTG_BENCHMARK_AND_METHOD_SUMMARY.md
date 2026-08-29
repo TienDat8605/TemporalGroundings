@@ -83,7 +83,7 @@ By applying our structured multi-span prompt to TimeLens-8B on raw whole videos 
                          Stage 2: Candidate Extraction & Energy Scoring
                         ├── Dual-threshold hysteresis: Trigger τ_high = 0.80, Expand down to τ_low = 0.25
                         ├── Composite excess energy integral: J(a,b) = Σ (Z(t) - τ - λ_len) * Δt
-                        └── Candidate proposal score: Score(c) = Peak_z + 0.5 * max(0, J) + 0.2 * Mean_z
+                        └── Candidate proposal score: Score(c) = Peak_z + 0.5 * max(0, J)
                                                   │
                                                   ▼
                          Stage 3: Scale-Invariant Adaptive Geometry & Merge
@@ -140,8 +140,8 @@ Naive cosine similarity $S(t) = \frac{\langle v(t), q \rangle}{\|v(t)\|_2 \|q\|_
 2. **Dual-Threshold Hysteresis Search**: Trigger threshold $\tau_{\text{high}} = 0.80$ finds distinct action peaks, while expansion threshold $\tau_{\text{low}} = 0.25$ extends boundaries outward.
 3. **Composite Excess Energy Integral $J(a, b)$**:
    $$J(a, b) = \sum_{t=a}^{b} \big(Z(t) - \tau - \lambda_{\text{len}}\big) \cdot \Delta t$$
-   $$\text{Score}(c) = \text{Peak}_z(c) + 0.5 \cdot \max\big(0, J(a,b)\big) + 0.2 \cdot \max\big(0, \text{Mean}_z(c)\big)$$
-   where $\tau = 0.30$ and $\lambda_{\text{len}} = 0.01$.
+   $$\text{Score}(c) = \text{Peak}_z(c) + 0.5 \cdot \max\big(0, J(a,b)\big)$$
+   where $\tau = 0.30$ and $\lambda_{\text{len}} = 0.01$. This formulation combines instant peak saliency with sustained excess energy without penalizing event duration (the excess energy integral $J(a,b) = \sum (Z(t) - \tau - \lambda)\Delta t$ already integrates over mean duration energy, making an explicit mean term redundant).
 
 ![Scoring Ablation](docs/figures/scoring_method_ablation.png)
 *Figure 2: Scoring method ablation on OMTG, demonstrating superior Ground Truth coverage and boundary preservation over naive similarity.*
