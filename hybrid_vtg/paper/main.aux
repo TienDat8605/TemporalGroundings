@@ -76,25 +76,26 @@
 \@writefile{toc}{\contentsline {paragraph}{Implementation Details.}{8}{}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {4.2}Grounding Performance and Computational Efficiency}{8}{}\protected@file@percent }
 \newlabel{sec:exp_main}{{4.2}{8}{}{subsection.4.2}{}}
-\@writefile{toc}{\contentsline {paragraph}{1. Latent Baseline Recovery.}{8}{}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces \textbf  {Master performance and efficiency comparison on OMTG Bench ($N=320$).} All models operate zero-shot without fine-tuning. Frames denotes aggregate 8B ViT frames processed across all 320 query evaluations ($322.8\text  {f}$ avg for native). Best results are in \textbf  {bold}; second-best are \underline  {underlined}.}}{9}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{1. Prompt Syntax vs. Latent Capacity.}{8}{}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces \textbf  {Master performance and efficiency comparison on OMTG Bench ($N=320$).} All models operate zero-shot without fine-tuning. Frames denotes aggregate 8B ViT frames evaluated across the benchmark. Rows with 128 frames share identical structured prompting. Best results are in \textbf  {bold}; second-best are \underline  {underlined}.}}{9}{}\protected@file@percent }
 \newlabel{tab:main_results}{{1}{9}{}{table.1}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {3}{\ignorespaces \textbf  {Original video duration vs. retained candidate corridor duration on OMTG Bench ($N=320$).} The diagonal dashed line ($W_{\mathrm  {len}} = T$) denotes unpruned whole-video baseline. For short videos ($T \le 45\text  {s}$), Adaptive SGDE safely retains the full video span ($0\%$ pruned, red points). For longer videos ($T > 45\text  {s}$), candidate corridor extraction prunes an average of $58.1\%$ of irrelevant background dead-zones (green points, shaded area), keeping dense decoding tightly focused.}}{9}{}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {3}{\ignorespaces \textbf  {Original video duration vs. retained candidate corridor duration on OMTG Bench ($N=320$).} The diagonal dashed line ($W_{\mathrm  {len}} = T$) denotes the unpruned baseline. For short videos ($T \le 45\text  {s}$), Adaptive SGDE safely retains the full video span ($0\%$ pruned, red points). For longer videos ($T > 45\text  {s}$), candidate corridor extraction prunes an average of $58.1\%$ of background dead-zones (green points, shaded area).}}{9}{}\protected@file@percent }
 \newlabel{fig:video_length_pruning}{{3}{9}{}{figure.3}{}}
-\@writefile{toc}{\contentsline {paragraph}{2. Video Length Scaling and Background Pruning.}{9}{}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{3. Approaching the Theoretical Limit.}{9}{}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {2}{\ignorespaces \textbf  {Ablation of temporal corridor planning and windowing strategies on OMTG Bench ($N=320$, 128-frame budget).} Isolating the impact of semantic scouting, single-window bounding, and soft continuity merging.}}{10}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{2. Video Length Scaling and Dead-Zone Pruning.}{9}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{3. Approaching the Theoretical Ceiling.}{9}{}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {2}{\ignorespaces \textbf  {Ablation of temporal corridor planning and windowing strategies on OMTG Bench ($N=320$, 128-frame budget).} Isolating semantic scouting, single-window bounding, and soft continuity merging.}}{10}{}\protected@file@percent }
 \newlabel{tab:ablation_windowing}{{2}{10}{}{table.2}{}}
 \@writefile{lof}{\contentsline {figure}{\numberline {4}{\ignorespaces \textbf  {Evaluation of timeline scoring and candidate extraction methods on OMTG Bench.} (a) Action span retrieval: $Z$-score hysteresis energy mining increases Ground-Truth coverage to $80.3\%$ and cuts missed spans by $31.1\%$ relative. (b) Proposal continuity and overlap: achieving $95.9\%$ 1-window continuity and $48.6\%$ proposal IoU.}}{10}{}\protected@file@percent }
 \newlabel{fig:scoring_ablation}{{4}{10}{}{figure.4}{}}
-\@writefile{toc}{\contentsline {paragraph}{4. Precision vs. Recall Dynamics and Grounder Frame Savings.}{10}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{4. Precision-Recall Dynamics and Compute Savings.}{10}{}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {4.3}Algorithmic Analysis: Corridor Planning and Windowing Topologies}{10}{}\protected@file@percent }
 \newlabel{sec:exp_ablations}{{4.3}{10}{}{subsection.4.3}{}}
 \@writefile{toc}{\contentsline {paragraph}{1. Semantic Guidance vs. Random Windowing.}{10}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{2. Single-Window vs. Multi-Window Topology.}{10}{}\protected@file@percent }
 \@writefile{lof}{\contentsline {figure}{\numberline {5}{\ignorespaces \textbf  {Soft merge span ratio threshold ($\rho $) optimization sweep on OMTG Bench.} (a) Continuity vs. GT coverage: setting $\rho =70\%$ retains $95.0\%$ of videos within a single continuous prompt while covering $79.71\%$ of GT action spans. (b) Background duration pruned: achieving $37.17\%$ background pruning across the benchmark (up to $85.2\%$ on videos $>180\text  {s}$).}}{11}{}\protected@file@percent }
 \newlabel{fig:soft_merge_ablation}{{5}{11}{}{figure.5}{}}
-\@writefile{toc}{\contentsline {paragraph}{2. Single-Window vs. Multi-Window Topology.}{11}{}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{2. Selecting the Optimal Span Ratio Threshold ($\rho $).}{11}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{3. Timeline Scoring Function Robustness.}{11}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{4. Soft Merge Span Ratio Optimization ($\rho $).}{11}{}\protected@file@percent }
 \@writefile{toc}{\contentsline {section}{\numberline {5}Conclusion}{11}{}\protected@file@percent }
 \newlabel{sec:conclusion}{{5}{11}{}{section.5}{}}
 \bibstyle{splncs04}
