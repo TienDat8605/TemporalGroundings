@@ -96,15 +96,15 @@ def generate_scoring_figure(output_paths):
     ax1.set_title('(a) Action Span Retrieval', fontweight='bold', pad=7, fontsize=11)
     ax1.set_xticks(x)
     ax1.set_xticklabels(methods)
-    ax1.set_ylim(0, 95)
-    ax1.legend(loc='upper left', framealpha=0.9)
+    ax1.set_ylim(0, 102)
+    ax1.legend(loc='upper left', ncol=2, fontsize=8.2, framealpha=0.92, columnspacing=0.8, handletextpad=0.4)
 
     for r in r1:
         h = r.get_height()
-        ax1.annotate(f'{h:.1f}%', xy=(r.get_x() + r.get_width()/2, h), xytext=(0, 2.5), textcoords="offset points", ha='center', va='bottom', fontsize=8.5, fontweight='bold', color='#1f77b4')
+        ax1.annotate(f'{h:.1f}%', xy=(r.get_x() + r.get_width()/2, h), xytext=(0, 3), textcoords="offset points", ha='center', va='bottom', fontsize=8.5, fontweight='bold', color='#1f77b4')
     for r in r2:
         h = r.get_height()
-        ax1.annotate(f'{h:.1f}%', xy=(r.get_x() + r.get_width()/2, h), xytext=(0, 2.5), textcoords="offset points", ha='center', va='bottom', fontsize=8.5, fontweight='bold', color='#d62728')
+        ax1.annotate(f'{h:.1f}%', xy=(r.get_x() + r.get_width()/2, h), xytext=(0, 3), textcoords="offset points", ha='center', va='bottom', fontsize=8.5, fontweight='bold', color='#d62728')
 
     r3 = ax2.bar(x - width/2, cont, width, label=r'1-Win Continuity (%) $\uparrow$', color='#2ca02c', alpha=0.9, edgecolor='black', linewidth=0.8)
     r4 = ax2.bar(x + width/2, iou, width, label=r'Proposal IoU (%) $\uparrow$', color='#ff7f0e', alpha=0.9, edgecolor='black', linewidth=0.8)
@@ -112,15 +112,15 @@ def generate_scoring_figure(output_paths):
     ax2.set_title('(b) Proposal Continuity & IoU', fontweight='bold', pad=7, fontsize=11)
     ax2.set_xticks(x)
     ax2.set_xticklabels(methods)
-    ax2.set_ylim(0, 110)
-    ax2.legend(loc='upper left', framealpha=0.9)
+    ax2.set_ylim(0, 120)
+    ax2.legend(loc='upper left', ncol=2, fontsize=8.2, framealpha=0.92, columnspacing=0.8, handletextpad=0.4)
 
     for r in r3:
         h = r.get_height()
-        ax2.annotate(f'{h:.1f}%', xy=(r.get_x() + r.get_width()/2, h), xytext=(0, 2.5), textcoords="offset points", ha='center', va='bottom', fontsize=8.5, fontweight='bold', color='#2ca02c')
+        ax2.annotate(f'{h:.1f}%', xy=(r.get_x() + r.get_width()/2, h), xytext=(0, 3), textcoords="offset points", ha='center', va='bottom', fontsize=8.5, fontweight='bold', color='#2ca02c')
     for r in r4:
         h = r.get_height()
-        ax2.annotate(f'{h:.1f}%', xy=(r.get_x() + r.get_width()/2, h), xytext=(0, 2.5), textcoords="offset points", ha='center', va='bottom', fontsize=8.5, fontweight='bold', color='#d95f02')
+        ax2.annotate(f'{h:.1f}%', xy=(r.get_x() + r.get_width()/2, h), xytext=(0, 3), textcoords="offset points", ha='center', va='bottom', fontsize=8.5, fontweight='bold', color='#d95f02')
 
     for p in output_paths:
         os.makedirs(os.path.dirname(p), exist_ok=True)
