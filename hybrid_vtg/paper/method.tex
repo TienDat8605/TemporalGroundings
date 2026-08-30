@@ -24,12 +24,12 @@ To address these challenges without fine-tuning, we propose Adaptive Scout-Guide
     \label{eq:cosine_sim}
 \end{equation}
 
-\paragraph{Video-Adaptive $Z$-Score Normalization.} Global similarity cutoffs fail because baseline similarity shifts across video domains, lighting conditions, and camera motions. To isolate semantic peaks from background baselines, we compute video-level $Z$-score normalization:
+\paragraph{Per-Video Similarity Normalization.} Because similarity scores vary across videos, we normalize the similarity scores separately for each video using $Z$-score normalization:
 \begin{equation}
     Z(t) = \frac{S(t) - \mu_S}{\sigma_S + \epsilon}, \quad \text{where } \mu_S = \frac{1}{T}\sum_{t=1}^T S(t), \quad \sigma_S = \sqrt{\frac{1}{T}\sum_{t=1}^T \big(S(t) - \mu_S\big)^2},
     \label{eq:z_score}
 \end{equation}
-with numerical stability constant $\epsilon = 10^{-6}$. The resulting timeline $Z(t)$ standardizes saliency scores across heterogeneous video distributions, enabling consistent peak and energy thresholding independent of domain baseline shifts.
+with numerical stability constant $\epsilon = 10^{-6}$. The resulting timeline $Z(t)$ standardizes scores across videos, enabling consistent peak and energy thresholding.
 
 % -------------------------------------------------------------------------
 
@@ -38,12 +38,12 @@ with numerical stability constant $\epsilon = 10^{-6}$. The resulting timeline $
 
 \paragraph{Dual-Threshold Search.} Single-threshold filtering faces a trade-off: high thresholds fragment extended actions into disjoint segments, while low thresholds introduce spurious background detections. We use a dual-threshold search with trigger threshold $\tau_{\text{high}} = 0.80$ and expansion threshold $\tau_{\text{low}} = 0.25$. An action candidate $c = [a, b]$ is initiated only if it contains a peak $Z(t_p) \ge \tau_{\text{high}}$, and is grown bidirectionally until the score falls below $\tau_{\text{low}}$.
 
-\paragraph{Proposal Scoring via Average Saliency Energy.} To score candidate proposals without length bias, we compute the average excess similarity energy $\bar{J}(a, b)$:
+\paragraph{Proposal Scoring.} To score candidate proposals without length bias, we compute the average excess similarity energy $\bar{J}(a, b)$:
 \begin{equation}
     \bar{J}(a, b) = \frac{1}{b - a + 1} \sum_{t=a}^{b} \max\big(0, \, Z(t) - \tau_{\text{base}}\big),
     \label{eq:excess_energy}
 \end{equation}
-where baseline offset $\tau_{\text{base}} = 0.30$. Each candidate $c = [a, b]$ is assigned a composite saliency score:
+where baseline offset $\tau_{\text{base}} = 0.30$. Each candidate $c = [a, b]$ is assigned a composite score:
 \begin{equation}
     \mathrm{Score}(c) = \max_{t \in [a, b]} Z(t) + \alpha_{\text{energy}} \cdot \bar{J}(a, b),
     \label{eq:composite_score}
@@ -62,7 +62,7 @@ with $\alpha_{\text{energy}} = 0.50$. Applying 1D Non-Maximum Suppression (NMS) 
 \end{equation}
 where $\Delta(T)$ denotes the context margin and $G(T)$ is the clustering gap. The margin $\Delta(T)$ provides an $8.0\,\mathrm{s}$ context buffer for $30\,\mathrm{s}$ clips while expanding to $22.0\,\mathrm{s}$ for long videos. Adjacent proposals separated by distance $\le G(T)$ are clustered into candidate windows.
 
-\paragraph{Continuous Window Merging.} Action comprehension degrades when instances from the same video are split into disjoint prompts. For candidate envelope $W_{\text{start}} = \max\big(0, \, \min_i (a_i - \Delta(T))\big)$ and $W_{\text{end}} = \min\big(T, \, \max_i (b_i + \Delta(T))\big)$ clamped to video boundaries $[0, T]$, we merge intervals into a single continuous window if the envelope span ratio satisfies:
+\paragraph{Window Merging.} Action comprehension degrades when instances from the same video are split into disjoint prompts. For candidate envelope $W_{\text{start}} = \max\big(0, \, \min_i (a_i - \Delta(T))\big)$ and $W_{\text{end}} = \min\big(T, \, \max_i (b_i + \Delta(T))\big)$ clamped to video boundaries $[0, T]$, we merge intervals into a single continuous window if the envelope span ratio satisfies:
 \begin{equation}
     \frac{W_{\text{end}} - W_{\text{start}}}{T} \ge \rho = 0.70, \quad \text{or adjacent gap } \le G(T).
     \label{eq:soft_merge}
@@ -74,7 +74,7 @@ This merge rule preserves contextual continuity across proximate actions while r
 \subsection{Stage 4: Dense Grounding and Structured Multi-Span Decoding}
 \label{sec:stage4}
 
-\paragraph{Budgeted Window Frame Allocation.} Within the candidate window $[W_{\text{start}}, W_{\text{end}}]$, we allocate a fixed frame budget $B \in \{64, 128, 256\}$. Sampling $B$ frames inside the candidate window yields an effective local frame rate of $\mathrm{FPS}_{\text{local}} = B / (W_{\text{end}} - W_{\text{start}})$, which concentrates visual resolution on the candidate region compared to uniform whole-video sampling.
+\paragraph{Frame Allocation.} Within the candidate window $[W_{\text{start}}, W_{\text{end}}]$, we allocate a fixed frame budget $B \in \{64, 128, 256\}$. Sampling $B$ frames inside the candidate window yields an effective local frame rate of $\mathrm{FPS}_{\text{local}} = B / (W_{\text{end}} - W_{\text{start}})$, which concentrates visual resolution on the candidate region compared to uniform whole-video sampling.
 
 \paragraph{Schema-Delimited Multi-Span Prompting.} Unstructured prompts often cause generation issues. We format the inference query into a structured JSON prompt:
 \begin{center}

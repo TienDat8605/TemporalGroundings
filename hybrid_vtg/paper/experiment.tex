@@ -16,7 +16,7 @@
     \item \textbf{Processed Frames and Compute Saved (\%) $\uparrow$}: Aggregate video frames processed by the 8B Vision Transformer across all 320 evaluations ($N_{\text{frames}} = \sum_i F_i$), and relative frame reduction $\text{Saved} = (1 - N_{\text{frames}}^{\text{method}} / N_{\text{frames}}^{\text{native}}) \times 100\%$.
 \end{enumerate}
 
-\paragraph{Implementation Details.} Our primary grounder is frozen TimeLens-8B~\cite{timelens2024} (Qwen3-VL-8B-Instruct backbone). The temporal scout is frozen Llama-Nemotron-Embed-VL-1B (1.04B parameters) sampled at a coarse 1.0~FPS. Hyperparameters are fixed across all benchmark videos without dataset-specific tuning: detection thresholds $\tau_{\text{high}}=0.80, \tau_{\text{low}}=0.25$ ($\S$\ref{sec:stage2}), energy baseline offset $\tau_{\text{base}}=0.30$ (Eq.~\ref{eq:excess_energy}), adaptive window coefficients $\alpha_{\text{margin}}=3.5\text{s}, \beta_{\text{gap}}=3.5\text{s}$ (Eq.~\ref{eq:adaptive_geometry}), and merge threshold $\rho=0.70$ (Eq.~\ref{eq:soft_merge}).
+\paragraph{Implementation Details.} Our primary grounder is frozen TimeLens-8B~\cite{timelens2024} (Qwen3-VL-8B-Instruct backbone). The temporal scout is frozen Llama-Nemotron-Embed-VL-1B (1.04B parameters) sampled at a coarse 1.0~FPS. Hyperparameters are set prior to benchmark evaluation and kept fixed across all main experiments: detection thresholds $\tau_{\text{high}}=0.80, \tau_{\text{low}}=0.25$ ($\S$\ref{sec:stage2}), energy baseline offset $\tau_{\text{base}}=0.30$ (Eq.~\ref{eq:excess_energy}), adaptive window coefficients $\alpha_{\text{margin}}=3.5\text{s}, \beta_{\text{gap}}=3.5\text{s}$ (Eq.~\ref{eq:adaptive_geometry}), and continuity merge threshold $\rho=0.70$ (Eq.~\ref{eq:soft_merge}). We report a post-hoc sensitivity analysis of $\rho$ in $\S$\ref{sec:exp_ablations}.
 
 % -------------------------------------------------------------------------
 
@@ -41,7 +41,7 @@ TimeLens-8B (JSON Prompt) & 103.3k & Baseline & 19.69\% & \textbf{47.98\%} & 46.
 + Adaptive SGDE-128 (128f) [Proposed] & 41.0k & \textbf{-60.3\%} & \underline{33.12\%} & 41.82\% & 44.76\% & \underline{19.14\%} & \textbf{1.75} \\
 + Adaptive SGDE-256 (256f) & 81.9k & -20.7\% & 31.88\% & 41.82\% & \underline{45.42\%} & \textbf{19.86\%} & \underline{1.81} \\
 \hline
-\emph{Oracle GT Window (Reference, 128f)} & 41.0k & -60.3\% & \textbf{33.44\%} & \underline{47.59\%} & \textbf{50.54\%} & \textbf{20.99\%} & 2.08 \\
+\emph{Oracle Ground-Truth Window (128f)} & 41.0k & -60.3\% & \textbf{33.44\%} & \underline{47.59\%} & \textbf{50.54\%} & \textbf{20.99\%} & 2.08 \\
 \hline
 \end{tabular}
 }
@@ -60,7 +60,7 @@ Table~\ref{tab:main_results} and Fig.~\ref{fig:video_length_pruning} present gro
 
 \paragraph{2. Video Length Scaling and Background Removal.} As shown in Fig.~\ref{fig:video_length_pruning}, benchmark videos range from 12.0s to 506.0s. On long unpruned videos, models often make false positive detections across uninformative background segments. Adaptive SGDE preserves short videos while removing an average of \textbf{58.1\% of background frames} on longer videos. Removing these background segments enables Adaptive SGDE-128 to increase Count Accuracy to \textbf{33.12\%} and reduce Cardinality Error from 2.07 to \textbf{1.75}.
 
-\paragraph{3. Comparison with Oracle Ground-Truth Window Reference.} To provide a performance reference for the frozen TimeLens-8B grounder under a 128-frame budget, we evaluate an oracle reference where frames are sampled within the ground-truth action envelope. As reported in Table~\ref{tab:main_results}, this oracle reference achieves 33.44\% Count Accuracy and 20.99\% Effective Temporal F1. Without access to ground-truth annotations, our training-free Adaptive SGDE-128 achieves \textbf{33.12\% vs. 33.44\% Count Accuracy} and \textbf{19.14\% vs. 20.99\% Effective Temporal F1}, demonstrating that the lightweight scout effectively identifies informative video regions.
+\paragraph{3. Comparison with Oracle Ground-Truth Window Reference.} We use the ground-truth window as an oracle reference to measure the performance of the grounder when the relevant temporal region is known. As reported in Table~\ref{tab:main_results}, sampling 128 frames within this oracle window achieves 33.44\% Count Accuracy and 20.99\% Effective Temporal F1. Without access to ground-truth temporal boundaries, training-free Adaptive SGDE-128 achieves \textbf{33.12\% vs. 33.44\% Count Accuracy} and \textbf{19.14\% vs. 20.99\% Effective Temporal F1}, demonstrating that the lightweight scout effectively identifies relevant action regions.
 
 \paragraph{4. Precision-Recall Dynamics and Compute Savings.} The prompt baseline exhibits higher precision (60.70\%) but low recall (40.84\%) because it under-predicts multiple instances. Adaptive SGDE exposes candidate action intervals across the focused window, increasing Recall to 44.11\% and reaching \textbf{19.86\% Effective Temporal F1} with 256 frames. In addition, focusing 8B model decoding on candidate windows reduces frame evaluations by \textbf{60.3\%}, offloading initial temporal search to the lightweight 1.04B scout.
 
@@ -79,10 +79,10 @@ Table~\ref{tab:main_results} and Fig.~\ref{fig:video_length_pruning} present gro
 \hline
 \textbf{Window Strategy} & \textbf{Planning Mode} & \textbf{C-Acc$\uparrow$} & \textbf{tF1@.5} & \textbf{tIoU$\uparrow$} & \textbf{EtF1$\uparrow$} & \textbf{Err$\downarrow$} \\
 \hline
-(a) Random Temporal Crop & Random window ($40\%$ dur) & 18.44\% & 24.29\% & 24.18\% & 3.61\% & 2.02 \\
+(a) Random Temporal Crop & Random window ($40\%$ of video duration) & 18.44\% & 24.29\% & 24.18\% & 3.61\% & 2.02 \\
 (b) Single-Window Baseline & Single bounding window & 28.44\% & 38.26\% & 36.81\% & 16.86\% & 1.94 \\
 (c) Multi-Window (No Merge) & Split on gaps ($\rho=1.0$) & 28.44\% & 38.49\% & 37.12\% & 16.81\% & 1.94 \\
-(d) \textbf{Adaptive SGDE-128 (Full)} & \textbf{Adaptive window + merge ($\rho=0.7$)} & \textbf{33.12\%} & \textbf{41.82\%} & \textbf{44.76\%} & \textbf{19.14\%} & \textbf{1.75} \\
+(d) \textbf{Adaptive SGDE-128 (Full)} & \textbf{Adaptive window + merge ($\rho=0.70$)} & \textbf{33.12\%} & \textbf{41.82\%} & \textbf{44.76\%} & \textbf{19.14\%} & \textbf{1.75} \\
 \hline
 \end{tabular}
 }
@@ -108,4 +108,4 @@ Table~\ref{tab:main_results} and Fig.~\ref{fig:video_length_pruning} present gro
 
 \paragraph{3. Timeline Scoring Function Evaluation.} As shown in Fig.~\ref{fig:scoring_ablation}, raw cosine similarity with a fixed cutoff is sensitive to baseline shifts across videos, resulting in 25.1\% missed action spans. Video-adaptive $Z$-score normalization with dual-threshold search and energy scoring $\bar{J}(a,b)$ improves ground-truth coverage from 70.9\% to \textbf{80.3\%}, improves proposal IoU from 34.2\% to \textbf{48.6\%}, and reduces missed action spans by 31.1\% relative.
 
-\paragraph{4. Merge Threshold Selection ($\rho$).} Fig.~\ref{fig:soft_merge_ablation} evaluates the sensitivity of the continuity merge threshold $\rho$ from 0.30 to 1.00. Low thresholds ($\rho \le 0.40$) merge almost all proposals into a single window, maintaining continuous context but pruning fewer background frames (33.3\%). Conversely, high thresholds ($\rho \ge 0.90$) or gap-only splitting divide multiple videos into disjoint prompts, which degrades relational context and lowers Effective Temporal F1 to 16.81\%. Setting $\rho = 0.70$ provides an effective empirical trade-off: maintaining a single continuous window for 95.0\% of videos while capturing 79.71\% of ground-truth action spans and removing 37.17\% of background frames overall.
+\paragraph{4. Sensitivity Analysis of Merge Threshold ($\rho$).} We set $\rho=0.70$ prior to benchmark evaluation and examine its sensitivity post-hoc in Fig.~\ref{fig:soft_merge_ablation}. Low thresholds ($\rho \le 0.40$) merge almost all proposals into a single window, maintaining continuous context but pruning fewer background frames (33.3\%). Conversely, high thresholds ($\rho \ge 0.90$) or gap-only splitting divide multiple videos into disjoint prompts, which degrades relational context and lowers Effective Temporal F1 to 16.81\%. Setting $\rho = 0.70$ provides an effective empirical trade-off: maintaining a single continuous window for 95.0\% of videos while capturing 79.71\% of ground-truth action spans and removing 37.17\% of background frames overall.
