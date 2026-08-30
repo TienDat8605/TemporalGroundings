@@ -13,13 +13,6 @@ where each temporal segment $[s_k^*, e_k^*]$ semantically satisfies $\mathcal{Q}
 
 To address these challenges without fine-tuning, we propose Adaptive Scout-Guided Dense Evidence (Adaptive SGDE). As illustrated in Fig.~\ref{fig:pipeline}, Adaptive SGDE uses a four-stage coarse-to-fine pipeline: (1) 1.0~FPS timeline scouting ($\S$\ref{sec:stage1}), (2) proposal extraction and scoring ($\S$\ref{sec:stage2}), (3) duration-adaptive window planning ($\S$\ref{sec:stage3}), and (4) budgeted dense decoding with structured multi-span output ($\S$\ref{sec:stage4}).
 
-\begin{figure}[t]
-    \centering
-    \includegraphics[width=\textwidth]{pipeline_large.png}
-    \caption{\textbf{Adaptive SGDE architecture.} Decoupling 1.0~FPS scouting and duration-adaptive windowing removes background frames while preserving multi-event cardinality.}
-    \label{fig:pipeline}
-\end{figure}
-
 % -------------------------------------------------------------------------
 
 \subsection{Stage 1: Coarse-Grained Temporal Timeline Scouting}

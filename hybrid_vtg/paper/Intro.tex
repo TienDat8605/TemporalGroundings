@@ -9,7 +9,7 @@ To evaluate this capability, recent work introduced One-to-Many Video Temporal G
     \centering
     \includegraphics[width=\textwidth]{pipeline_large.png}
     \caption{\textbf{Overview of Adaptive Scout-Guided Dense Evidence (Adaptive SGDE).} Long untrimmed videos are first scanned by a lightweight 1.04B scout at 1.0~FPS. Local $Z$-score normalization and thresholding extract candidate action proposals, which are grouped by duration-adaptive windowing and continuity merging. The focused candidate window is decoded with dense frames by a frozen 8B Vision-Language model using schema-delimited JSON syntax, removing background frames while preserving event cardinality.}
-    \label{fig:pipeline_intro}
+    \label{fig:pipeline}
 \end{figure}
 
 In this paper, we analyze the performance drop of MLLMs on OMTG and find two primary causes:
@@ -18,7 +18,7 @@ In this paper, we analyze the performance drop of MLLMs on OMTG and find two pri
     \item \textbf{Background Frames in Long Videos}: In long untrimmed videos spanning several minutes, uniform sampling forces the Vision Transformer to process thousands of irrelevant background frames, which can trigger false positive detections and degrade event counting accuracy.
 \end{enumerate}
 
-To address both issues without parameter fine-tuning, we propose Adaptive Scout-Guided Dense Evidence (Adaptive SGDE), a training-free framework for multi-event temporal grounding. As shown in Fig.~\ref{fig:pipeline_intro}, Adaptive SGDE uses a four-stage coarse-to-fine pipeline:
+To address both issues without parameter fine-tuning, we propose Adaptive Scout-Guided Dense Evidence (Adaptive SGDE), a training-free framework for multi-event temporal grounding. As shown in Fig.~\ref{fig:pipeline}, Adaptive SGDE uses a four-stage coarse-to-fine pipeline:
 \begin{itemize}
     \item \textbf{Stage 1: Coarse Multimodal Scouting}: A frozen 1.04B embedding scout scans the untrimmed video at 1.0~FPS, producing a cross-modal similarity timeline normalized by video-level $Z$-scores to handle domain baseline shifts.
     \item \textbf{Stage 2: Proposal Extraction}: Dual-threshold search and energy scoring extract candidate action intervals.

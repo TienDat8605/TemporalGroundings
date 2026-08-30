@@ -10,7 +10,7 @@
 \@writefile{toc}{\contentsline {section}{\numberline {1}Introduction}{1}{}\protected@file@percent }
 \newlabel{sec:intro}{{1}{1}{}{section.1}{}}
 \@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces \textbf  {Overview of Adaptive Scout-Guided Dense Evidence (Adaptive SGDE).} Long untrimmed videos are first scanned by a lightweight 1.04B scout at 1.0~FPS. Local $Z$-score normalization and thresholding extract candidate action proposals, which are grouped by duration-adaptive windowing and continuity merging. The focused candidate window is decoded with dense frames by a frozen 8B Vision-Language model using schema-delimited JSON syntax, removing background frames while preserving event cardinality.}}{2}{}\protected@file@percent }
-\newlabel{fig:pipeline_intro}{{1}{2}{}{figure.1}{}}
+\newlabel{fig:pipeline}{{1}{2}{}{figure.1}{}}
 \citation{timelens2024}
 \citation{gao2017tall,anne2017localizing}
 \citation{gao2017tall}
@@ -41,59 +41,59 @@
 \newlabel{eq:cosine_sim}{{2}{4}{}{equation.2}{}}
 \@writefile{toc}{\contentsline {paragraph}{Video-Adaptive $Z$-Score Normalization.}{4}{}\protected@file@percent }
 \newlabel{eq:z_score}{{3}{4}{}{equation.3}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces \textbf  {Adaptive SGDE architecture.} Decoupling 1.0~FPS scouting and duration-adaptive windowing removes background frames while preserving multi-event cardinality.}}{5}{}\protected@file@percent }
-\newlabel{fig:pipeline}{{2}{5}{}{figure.2}{}}
 \@writefile{toc}{\contentsline {subsection}{\numberline {3.3}Stage 2: Candidate Proposal Extraction and Scoring}{5}{}\protected@file@percent }
 \newlabel{sec:stage2}{{3.3}{5}{}{subsection.3.3}{}}
 \@writefile{toc}{\contentsline {paragraph}{Dual-Threshold Search.}{5}{}\protected@file@percent }
 \@writefile{toc}{\contentsline {paragraph}{Proposal Scoring via Average Saliency Energy.}{5}{}\protected@file@percent }
 \newlabel{eq:excess_energy}{{4}{5}{}{equation.4}{}}
 \newlabel{eq:composite_score}{{5}{5}{}{equation.5}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.4}Stage 3: Duration-Adaptive Window Planning}{5}{}\protected@file@percent }
+\newlabel{sec:stage3}{{3.4}{5}{}{subsection.3.4}{}}
+\@writefile{toc}{\contentsline {paragraph}{Adaptive Margin and Clustering Gap.}{5}{}\protected@file@percent }
+\newlabel{eq:adaptive_geometry}{{6}{5}{}{equation.6}{}}
 \citation{timelens2024}
 \citation{omtg2026}
-\@writefile{toc}{\contentsline {subsection}{\numberline {3.4}Stage 3: Duration-Adaptive Window Planning}{6}{}\protected@file@percent }
-\newlabel{sec:stage3}{{3.4}{6}{}{subsection.3.4}{}}
-\@writefile{toc}{\contentsline {paragraph}{Adaptive Margin and Clustering Gap.}{6}{}\protected@file@percent }
-\newlabel{eq:adaptive_geometry}{{6}{6}{}{equation.6}{}}
+\citation{omtg2026}
 \@writefile{toc}{\contentsline {paragraph}{Continuous Window Merging.}{6}{}\protected@file@percent }
 \newlabel{eq:soft_merge}{{7}{6}{}{equation.7}{}}
 \@writefile{toc}{\contentsline {subsection}{\numberline {3.5}Stage 4: Dense Grounding and Structured Multi-Span Decoding}{6}{}\protected@file@percent }
 \newlabel{sec:stage4}{{3.5}{6}{}{subsection.3.5}{}}
 \@writefile{toc}{\contentsline {paragraph}{Budgeted Window Frame Allocation.}{6}{}\protected@file@percent }
 \@writefile{toc}{\contentsline {paragraph}{Schema-Delimited Multi-Span Prompting.}{6}{}\protected@file@percent }
-\citation{omtg2026}
+\@writefile{toc}{\contentsline {section}{\numberline {4}Experiments}{6}{}\protected@file@percent }
+\newlabel{sec:experiments}{{4}{6}{}{section.4}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.1}Experimental Setup}{6}{}\protected@file@percent }
+\newlabel{sec:exp_setup}{{4.1}{6}{}{subsection.4.1}{}}
+\@writefile{toc}{\contentsline {paragraph}{Benchmark Dataset.}{6}{}\protected@file@percent }
 \citation{timelens2024}
 \citation{omtg2026}
 \citation{omtg2026}
-\@writefile{toc}{\contentsline {section}{\numberline {4}Experiments}{7}{}\protected@file@percent }
-\newlabel{sec:experiments}{{4}{7}{}{section.4}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {4.1}Experimental Setup}{7}{}\protected@file@percent }
-\newlabel{sec:exp_setup}{{4.1}{7}{}{subsection.4.1}{}}
-\@writefile{toc}{\contentsline {paragraph}{Benchmark Dataset.}{7}{}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces \textbf  {Master performance and efficiency comparison on OMTG Bench ($N=320$).} All models operate zero-shot without fine-tuning. Frames denotes aggregate 8B ViT frames evaluated across the benchmark. Rows with 128 frames share identical structured prompt schemas for strictly controlled comparison. Best results are in \textbf  {bold}; second-best are \underline  {underlined}.}}{7}{}\protected@file@percent }
+\newlabel{tab:main_results}{{1}{7}{}{table.1}{}}
 \@writefile{toc}{\contentsline {paragraph}{Evaluation Metrics.}{7}{}\protected@file@percent }
 \@writefile{toc}{\contentsline {paragraph}{Implementation Details.}{7}{}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {4.2}Grounding Performance and Computational Efficiency}{7}{}\protected@file@percent }
 \newlabel{sec:exp_main}{{4.2}{7}{}{subsection.4.2}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces \textbf  {Master performance and efficiency comparison on OMTG Bench ($N=320$).} All models operate zero-shot without fine-tuning. Frames denotes aggregate 8B ViT frames evaluated across the benchmark. Rows with 128 frames share identical structured prompt schemas for strictly controlled comparison. Best results are in \textbf  {bold}; second-best are \underline  {underlined}.}}{8}{}\protected@file@percent }
-\newlabel{tab:main_results}{{1}{8}{}{table.1}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {3}{\ignorespaces \textbf  {Original video duration vs. retained candidate window duration on OMTG Bench ($N=320$).} The diagonal dashed line ($W_{\mathrm  {len}} = T$) denotes the unpruned baseline. For short videos ($T \le 45\text  {s}$), Adaptive SGDE retains the full video span ($0\%$ pruned, red points). For longer videos ($T > 45\text  {s}$), candidate window extraction removes an average of $58.1\%$ of background frames (green points, shaded area).}}{8}{}\protected@file@percent }
-\newlabel{fig:video_length_pruning}{{3}{8}{}{figure.3}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces \textbf  {Original video duration vs. retained candidate window duration on OMTG Bench ($N=320$).} The diagonal dashed line ($W_{\mathrm  {len}} = T$) denotes the unpruned baseline. For short videos ($T \le 45\text  {s}$), Adaptive SGDE retains the full video span ($0\%$ pruned, red points). For longer videos ($T > 45\text  {s}$), candidate window extraction removes an average of $58.1\%$ of background frames (green points, shaded area).}}{8}{}\protected@file@percent }
+\newlabel{fig:video_length_pruning}{{2}{8}{}{figure.2}{}}
 \@writefile{toc}{\contentsline {paragraph}{1. Prompt Syntax vs. Grounding Capacity.}{8}{}\protected@file@percent }
 \@writefile{toc}{\contentsline {paragraph}{2. Video Length Scaling and Background Removal.}{8}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{3. Comparison with Ground-Truth Window Upper Bound.}{8}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{4. Precision-Recall Dynamics and Compute Savings.}{8}{}\protected@file@percent }
 \@writefile{lot}{\contentsline {table}{\numberline {2}{\ignorespaces \textbf  {Ablation of temporal window planning and windowing strategies on OMTG Bench ($N=320$, 128-frame budget).} Isolating semantic scouting, single-window bounding, and soft continuity merging.}}{9}{}\protected@file@percent }
 \newlabel{tab:ablation_windowing}{{2}{9}{}{table.2}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {4}{\ignorespaces \textbf  {Evaluation of timeline scoring and candidate extraction methods on OMTG Bench.} (a) Action span retrieval: $Z$-score normalization and energy scoring increase Ground-Truth coverage to 80.3\% and cut missed spans by 31.1\% relative. (b) Proposal continuity and overlap: achieving 95.9\% 1-window continuity and 48.6\% proposal IoU.}}{9}{}\protected@file@percent }
-\newlabel{fig:scoring_ablation}{{4}{9}{}{figure.4}{}}
-\@writefile{toc}{\contentsline {paragraph}{3. Comparison with Ground-Truth Window Upper Bound.}{9}{}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{4. Precision-Recall Dynamics and Compute Savings.}{9}{}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {5}{\ignorespaces \textbf  {Merge threshold ($\rho $) sweep on OMTG Bench.} (a) Continuity vs. GT coverage: setting $\rho =70\%$ retains 95.0\% of videos within a single continuous prompt while covering 79.71\% of GT action spans. (b) Background duration pruned: achieving 37.17\% background pruning across the benchmark.}}{10}{}\protected@file@percent }
-\newlabel{fig:soft_merge_ablation}{{5}{10}{}{figure.5}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {4.3}Algorithmic Analysis: Window Planning and Windowing Topologies}{10}{}\protected@file@percent }
-\newlabel{sec:exp_ablations}{{4.3}{10}{}{subsection.4.3}{}}
-\@writefile{toc}{\contentsline {paragraph}{1. Semantic Guidance vs. Random Windowing.}{10}{}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{2. Single-Window vs. Multi-Window Topology.}{10}{}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {3}{\ignorespaces \textbf  {Evaluation of timeline scoring and candidate extraction methods on OMTG Bench.} (a) Action span retrieval: $Z$-score normalization and energy scoring increase Ground-Truth coverage to 80.3\% and cut missed spans by 31.1\% relative. (b) Proposal continuity and overlap: achieving 95.9\% 1-window continuity and 48.6\% proposal IoU.}}{9}{}\protected@file@percent }
+\newlabel{fig:scoring_ablation}{{3}{9}{}{figure.3}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.3}Algorithmic Analysis: Window Planning and Windowing Topologies}{9}{}\protected@file@percent }
+\newlabel{sec:exp_ablations}{{4.3}{9}{}{subsection.4.3}{}}
+\@writefile{toc}{\contentsline {paragraph}{1. Semantic Guidance vs. Random Windowing.}{9}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{2. Single-Window vs. Multi-Window Topology.}{9}{}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {4}{\ignorespaces \textbf  {Merge threshold ($\rho $) sweep on OMTG Bench.} (a) Continuity vs. GT coverage: setting $\rho =70\%$ retains 95.0\% of videos within a single continuous prompt while covering 79.71\% of GT action spans. (b) Background duration pruned: achieving 37.17\% background pruning across the benchmark.}}{10}{}\protected@file@percent }
+\newlabel{fig:soft_merge_ablation}{{4}{10}{}{figure.4}{}}
 \@writefile{toc}{\contentsline {paragraph}{3. Timeline Scoring Function Evaluation.}{10}{}\protected@file@percent }
 \@writefile{toc}{\contentsline {paragraph}{4. Soft Merge Span Ratio Optimization.}{10}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {5}Conclusion}{10}{}\protected@file@percent }
+\newlabel{sec:conclusion}{{5}{10}{}{section.5}{}}
 \bibstyle{splncs04}
 \bibdata{references}
 \bibcite{gao2017tall}{1}
@@ -106,7 +106,5 @@
 \bibcite{lin2023unitime}{8}
 \bibcite{bai2024qwen2vl}{9}
 \bibcite{omtg2026}{10}
-\@writefile{toc}{\contentsline {section}{\numberline {5}Conclusion}{11}{}\protected@file@percent }
-\newlabel{sec:conclusion}{{5}{11}{}{section.5}{}}
 \@writefile{toc}{\contentsline {paragraph}{Limitations and Future Work.}{11}{}\protected@file@percent }
 \gdef \@abspage@last{11}
