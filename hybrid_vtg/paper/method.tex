@@ -9,14 +9,14 @@ Given an untrimmed video $\mathcal{V} = \{f_t\}_{t=1}^{T}$ of duration $T$ secon
     \mathcal{Y}^* = \big\{ [s_k^*, e_k^*] \big\}_{k=1}^{K}, \quad \text{subject to } 0 \le s_1^* < e_1^* < s_2^* < \dots < e_K^* \le T,
     \label{eq:omtg_formulation}
 \end{equation}
-where each temporal segment $[s_k^*, e_k^*]$ semantically satisfies $\mathcal{Q}$. OMTG introduces a dual objective: (1) \emph{cardinality perception} (correctly predicting total event count $K$), and (2) \emph{boundary localization} (predicting precise continuous boundaries $[s_k, e_k]$ for each retrieved moment). Standard Multimodal Large Language Models (MLLMs) fail on OMTG ($0.00\%$ Count Accuracy in official evaluations~\cite{omtg2026}) due to unpruned background visual distractors and prompt format misalignment.
+where each temporal segment $[s_k^*, e_k^*]$ semantically satisfies $\mathcal{Q}$. OMTG requires: (1) \emph{cardinality perception} (predicting total event count $K$), and (2) \emph{boundary localization} (predicting start and end timestamps $[s_k, e_k]$ for each retrieved moment). Standard Multimodal Large Language Models (MLLMs) perform poorly on OMTG ($0.00\%$ Count Accuracy in official evaluations~\cite{omtg2026}) due to background visual distractors in long videos and prompt format misalignment.
 
-To overcome these challenges without fine-tuning, we propose \textbf{Adaptive Scout-Guided Dense Evidence (Adaptive SGDE)}. As illustrated in Fig.~\ref{fig:pipeline}, Adaptive SGDE decouples long-video grounding into a four-stage coarse-to-fine pipeline: (1) 1.0~FPS timeline scouting ($\S$\ref{sec:stage1}), (2) dual-threshold hysteresis energy mining ($\S$\ref{sec:stage2}), (3) sub-linear duration-adaptive window geometry ($\S$\ref{sec:stage3}), and (4) budgeted dense decoding with structured multi-span output ($\S$\ref{sec:stage4}).
+To address these challenges without fine-tuning, we propose \textbf{Adaptive Scout-Guided Dense Evidence (Adaptive SGDE)}. As illustrated in Fig.~\ref{fig:pipeline}, Adaptive SGDE uses a four-stage coarse-to-fine pipeline: (1) 1.0~FPS timeline scouting ($\S$\ref{sec:stage1}), (2) dual-threshold hysteresis energy mining ($\S$\ref{sec:stage2}), (3) duration-adaptive window geometry ($\S$\ref{sec:stage3}), and (4) budgeted dense decoding with structured multi-span output ($\S$\ref{sec:stage4}).
 
 \begin{figure}[t]
     \centering
     \includegraphics[width=\textwidth]{pipeline_large.png}
-    \caption{\textbf{Adaptive SGDE architecture.} Decoupling 1.0~FPS scouting and duration-adaptive windowing prunes background dead-zones while preserving multi-event cardinality.}
+    \caption{\textbf{Adaptive SGDE architecture.} Decoupling 1.0~FPS scouting and duration-adaptive windowing removes background frames while preserving multi-event cardinality.}
     \label{fig:pipeline}
 \end{figure}
 
@@ -25,68 +25,68 @@ To overcome these challenges without fine-tuning, we propose \textbf{Adaptive Sc
 \subsection{Stage 1: Coarse-Grained Temporal Timeline Scouting}
 \label{sec:stage1}
 
-\paragraph{Lightweight Multimodal Scouting.} Directly feeding unpruned raw video into an 8B Vision Transformer (ViT) incurs excessive $O(T)$ FLOPs and dilutes attention over thousands of irrelevant background frames. We instead deploy a lightweight, frozen 1.04B multimodal scout $\mathcal{M}_{\text{scout}}$ (Llama-Nemotron-Embed-VL-1B) at a uniform coarse rate of 1.0~FPS. For each timestamp $t \in \{1, \dots, T\}$, we extract frame embedding $\mathbf{v}(t) = \mathcal{M}_{\text{scout}}(f_t)$ and query embedding $\mathbf{q} = \mathcal{M}_{\text{scout}}(\mathcal{Q})$, computing continuous cross-modal cosine similarity:
+\paragraph{Lightweight Multimodal Scouting.} Feeding unpruned raw video into an 8B Vision Transformer (ViT) requires evaluating large numbers of irrelevant background frames. We instead deploy a lightweight, frozen 1.04B scout $\mathcal{M}_{\text{scout}}$ (Llama-Nemotron-Embed-VL-1B) at a uniform coarse rate of 1.0~FPS. For each timestamp $t \in \{1, \dots, T\}$, we extract frame embedding $\mathbf{v}(t) = \mathcal{M}_{\text{scout}}(f_t)$ and query embedding $\mathbf{q} = \mathcal{M}_{\text{scout}}(\mathcal{Q})$, computing continuous cross-modal cosine similarity:
 \begin{equation}
     S(t) = \frac{\langle \mathbf{v}(t), \mathbf{q} \rangle}{\|\mathbf{v}(t)\|_2 \|\mathbf{q}\|_2}, \quad t \in \{1, \dots, T\}.
     \label{eq:cosine_sim}
 \end{equation}
 
-\paragraph{Video-Adaptive $Z$-Score Normalization.} Global similarity cutoffs fail because baseline similarity shifts across video domains, lighting conditions, and camera motions. To isolate relative semantic surges from background baselines, we compute video-level $Z$-score normalization:
+\paragraph{Video-Adaptive $Z$-Score Normalization.} Global similarity cutoffs fail because baseline similarity shifts across video domains, lighting conditions, and camera motions. To isolate semantic peaks from background baselines, we compute video-level $Z$-score normalization:
 \begin{equation}
     Z(t) = \frac{S(t) - \mu_S}{\sigma_S + \epsilon}, \quad \text{where } \mu_S = \frac{1}{T}\sum_{t=1}^T S(t), \quad \sigma_S = \sqrt{\frac{1}{T}\sum_{t=1}^T \big(S(t) - \mu_S\big)^2},
     \label{eq:z_score}
 \end{equation}
-with numerical stability constant $\epsilon = 10^{-6}$. The resulting timeline $Z(t)$ standardizes cross-modal saliency across heterogeneous video distributions, enabling consistent peak and energy thresholding independent of domain baseline shifts.
+with numerical stability constant $\epsilon = 10^{-6}$. The resulting timeline $Z(t)$ standardizes saliency scores across heterogeneous video distributions, enabling consistent peak and energy thresholding independent of domain baseline shifts.
 
 % -------------------------------------------------------------------------
 
 \subsection{Stage 2: Dual-Threshold Hysteresis and Excess Energy Mining}
 \label{sec:stage2}
 
-\paragraph{Dual-Threshold Hysteresis Search.} Single-threshold filtering introduces a fundamental dilemma: high thresholds fragment extended actions into disjoint micro-spans, whereas low thresholds trigger spurious background noise. We introduce a dual-threshold hysteresis search parameterized by trigger threshold $\tau_{\text{high}} = 0.80$ and expansion threshold $\tau_{\text{low}} = 0.25$. An action candidate $c = [a, b]$ is initiated only if it contains at least one prominent peak $Z(t_p) \ge \tau_{\text{high}}$ ($t_p \in [a, b]$), and is grown bidirectionally until the score falls below $\tau_{\text{low}}$ ($Z(a-1) < \tau_{\text{low}}$ and $Z(b+1) < \tau_{\text{low}}$).
+\paragraph{Dual-Threshold Hysteresis Search.} Single-threshold filtering faces a trade-off: high thresholds fragment extended actions into disjoint segments, while low thresholds introduce spurious background detections. We use a dual-threshold hysteresis search with trigger threshold $\tau_{\text{high}} = 0.80$ and expansion threshold $\tau_{\text{low}} = 0.25$. An action candidate $c = [a, b]$ is initiated only if it contains a peak $Z(t_p) \ge \tau_{\text{high}}$ ($t_p \in [a, b]$), and is grown bidirectionally until the score falls below $\tau_{\text{low}}$ ($Z(a-1) < \tau_{\text{low}}$ and $Z(b+1) < \tau_{\text{low}}$).
 
-\paragraph{Dimensionally Consistent Excess Energy Mining.} To score candidate proposals without length bias or dimensional inconsistency, we formulate the normalized excess semantic energy density $\bar{J}(a, b)$:
+\paragraph{Proposal Scoring via Normalized Excess Energy.} To score candidate proposals without length bias, we compute the normalized excess semantic energy density $\bar{J}(a, b)$:
 \begin{equation}
     \bar{J}(a, b) = \frac{1}{b - a + 1} \sum_{t=a}^{b} \max\big(0, \, Z(t) - \tau_{\text{base}}\big),
     \label{eq:excess_energy}
 \end{equation}
-where baseline offset $\tau_{\text{base}} = 0.30$. Both peak saliency and energy density are dimensionless standardized quantities. Each candidate $c = [a, b]$ is assigned a composite saliency score:
+where baseline offset $\tau_{\text{base}} = 0.30$. Each candidate $c = [a, b]$ is assigned a composite saliency score:
 \begin{equation}
     \mathrm{Score}(c) = \max_{t \in [a, b]} Z(t) + \alpha_{\text{energy}} \cdot \bar{J}(a, b),
     \label{eq:composite_score}
 \end{equation}
-with $\alpha_{\text{energy}} = 0.50$. Applying 1D Non-Maximum Suppression (NMS) based on temporal Intersection-over-Union $\mathrm{tIoU}(c_i, c_j) = \frac{|c_i \cap c_j|}{|c_i \cup c_j|}$ with threshold $\theta_{\text{nms}} = 0.30$ discards redundant overlapping proposals, increasing ground-truth action span coverage from $70.9\%$ to $80.3\%$ while cutting missed action instances by $31.1\%$ relative.
+with $\alpha_{\text{energy}} = 0.50$. Applying 1D Non-Maximum Suppression (NMS) with threshold $\theta_{\text{nms}} = 0.30$ removes overlapping proposals, increasing ground-truth action span coverage from $70.9\%$ to $80.3\%$ while cutting missed action instances by $31.1\%$ relative.
 
 % -------------------------------------------------------------------------
 
 \subsection{Stage 3: Sub-Linear Duration-Adaptive Window Geometry}
 \label{sec:stage3}
 
-\paragraph{Sub-Linear Margin and Clustering Gap.} Fixed-second temporal windows fail across diverse durations, over-expanding brief clips and truncating long videos. We introduce duration-adaptive geometry governed by sub-linear duration functions:
+\paragraph{Sub-Linear Margin and Clustering Gap.} Fixed temporal windows do not scale well across diverse video durations, over-expanding short clips and truncating long videos. We introduce duration-adaptive geometry governed by sub-linear functions:
 \begin{equation}
     \Delta(T) = \mathrm{clamp}(3.5 \ln T, \, 8.0, \, 22.0)\,\mathrm{s}, \quad G(T) = \max(15.0, \, 3.5\sqrt{T})\,\mathrm{s},
     \label{eq:adaptive_geometry}
 \end{equation}
-where $\Delta(T)$ denotes the logarithmic context margin and $G(T)$ is the square-root clustering gap. The margin $\Delta(T)$ provides a concise $8.0\,\mathrm{s}$ context buffer for $30\,\mathrm{s}$ clips while expanding to $22.0\,\mathrm{s}$ for $10\text{-minute}$ videos. Adjacent proposals separated by distance $\le G(T)$ are clustered into candidate corridors.
+where $\Delta(T)$ denotes the context margin and $G(T)$ is the clustering gap. The margin $\Delta(T)$ provides an $8.0\,\mathrm{s}$ context buffer for $30\,\mathrm{s}$ clips while expanding to $22.0\,\mathrm{s}$ for long videos. Adjacent proposals separated by distance $\le G(T)$ are clustered into candidate windows.
 
-\paragraph{Soft Continuity Merge.} Video comprehension suffers when action instances from the same video are split into disjoint prompts. For candidate envelope $W_{\text{start}} = \max\big(0, \, \min_i (a_i - \Delta(T))\big)$ and $W_{\text{end}} = \min\big(T, \, \max_i (b_i + \Delta(T))\big)$ clamped to video boundaries $[0, T]$, we merge intervals into a single continuous window if the envelope span ratio satisfies:
+\paragraph{Soft Continuity Merge.} Action comprehension degrades when instances from the same video are split into disjoint prompts. For candidate envelope $W_{\text{start}} = \max\big(0, \, \min_i (a_i - \Delta(T))\big)$ and $W_{\text{end}} = \min\big(T, \, \max_i (b_i + \Delta(T))\big)$ clamped to video boundaries $[0, T]$, we merge intervals into a single continuous window if the envelope span ratio satisfies:
 \begin{equation}
     \frac{W_{\text{end}} - W_{\text{start}}}{T} \ge \rho = 0.70, \quad \text{or adjacent gap } \le G(T).
     \label{eq:soft_merge}
 \end{equation}
-This $70\%$ soft merge rule preserves $95.0\%$ of benchmark videos within a single continuous prompt, maintaining multi-event relational context while eliminating $37.2\%-85.2\%$ of background dead-zones.
+This $70\%$ soft merge rule keeps $95.0\%$ of benchmark videos within a single continuous prompt, preserving multi-event context while eliminating $37.2\%-85.2\%$ of background frames.
 
 % -------------------------------------------------------------------------
 
 \subsection{Stage 4: Dense Grounding and Structured Multi-Span Decoding}
 \label{sec:stage4}
 
-\paragraph{Budgeted Corridor Frame Allocation.} Within the focused window $[W_{\text{start}}, W_{\text{end}}]$, we allocate a fixed frame budget $B \in \{64, 128, 256\}$. Sampling $B$ frames inside the action corridor yields an effective local frame rate of $\mathrm{FPS}_{\text{local}} = B / (W_{\text{end}} - W_{\text{start}}) \approx 4.0\text{--}6.0\text{ FPS}$ ($2\times\text{--}3\times$ denser than native 2.0~FPS), while reducing 8B ViT frame evaluations by $60.3\%$.
+\paragraph{Budgeted Window Frame Allocation.} Within the candidate window $[W_{\text{start}}, W_{\text{end}}]$, we allocate a fixed frame budget $B \in \{64, 128, 256\}$. Sampling $B$ frames inside the candidate window yields an effective local frame rate of $\mathrm{FPS}_{\text{local}} = B / (W_{\text{end}} - W_{\text{start}}) \approx 4.0\text{--}6.0\text{ FPS}$ ($2\times\text{--}3\times$ denser than native 2.0~FPS), while reducing 8B ViT frame evaluations by $60.3\%$.
 
-\paragraph{Schema-Delimited Multi-Span Prompting.} Unstructured prompts cause autoregressive format confusion. We structure the inference query into a clear schema-delimited prompt:
+\paragraph{Schema-Delimited Multi-Span Prompting.} Unstructured prompts often cause generation issues. We format the inference query into a structured JSON prompt:
 \begin{center}
 \fbox{\parbox{0.92\textwidth}{\raggedright\small\ttfamily
 Given the query: "\{query\}", return ALL time spans (in seconds) where the query is relevant. Output format MUST be a JSON array of [start, end] pairs: [[s1, e1], [s2, e2], ...].
 }}
 \end{center}
-The primary grounder $\mathcal{M}_{\text{ground}}$ (TimeLens-8B~\cite{timelens2024}) decodes exact boundary timestamps $\mathcal{Y} = \{[s_k, e_k]\}_{k=1}^M$ over the densely sampled action corridor. For the $5.0\%$ of benchmark videos with widely separated action clusters ($\rho < 0.70$), disjoint corridors $[W_{\text{start}}^{(j)}, W_{\text{end}}^{(j)}]$ are prompted independently with frame budget $B$, and their resulting predicted JSON timestamp lists are concatenated and chronologically sorted. For larger frame budgets ($B \ge 256$), in-ViT motion-residual patch pruning can evict static background tokens to maintain strict visual token limits.
+The primary grounder $\mathcal{M}_{\text{ground}}$ (TimeLens-8B~\cite{timelens2024}) decodes exact boundary timestamps $\mathcal{Y} = \{[s_k, e_k]\}_{k=1}^M$ over the densely sampled candidate window. For the $5.0\%$ of benchmark videos with widely separated action clusters ($\rho < 0.70$), disjoint windows $[W_{\text{start}}^{(j)}, W_{\text{end}}^{(j)}]$ are prompted independently with frame budget $B$, and their resulting predicted JSON timestamp lists are concatenated and chronologically sorted.

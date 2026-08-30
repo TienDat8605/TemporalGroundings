@@ -41,7 +41,7 @@ TimeLens-8B (JSON Prompt) & 103.3k & Baseline & 19.69\% & \textbf{47.98\%} & 46.
 + Adaptive SGDE-128 (128f) [Proposed] & 41.0k & \textbf{-60.3\%} & \underline{33.12\%} & 41.82\% & 44.76\% & \underline{19.14\%} & \textbf{1.75} \\
 + Adaptive SGDE-256 (256f) & 81.9k & -20.7\% & 31.88\% & 41.82\% & \underline{45.42\%} & \textbf{19.86\%} & \underline{1.81} \\
 \hline
-\emph{Theoretical Limit (Oracle GT Corridor, 128f)} & 41.0k & -60.3\% & \textbf{33.44\%} & \underline{47.59\%} & \textbf{50.54\%} & \textbf{20.99\%} & 2.08 \\
+\emph{Upper Bound (Ground-Truth Window, 128f)} & 41.0k & -60.3\% & \textbf{33.44\%} & \underline{47.59\%} & \textbf{50.54\%} & \textbf{20.99\%} & 2.08 \\
 \hline
 \end{tabular}
 }
@@ -50,37 +50,37 @@ TimeLens-8B (JSON Prompt) & 103.3k & Baseline & 19.69\% & \textbf{47.98\%} & 46.
 \begin{figure}[t]
     \centering
     \includegraphics[width=0.66\textwidth]{omtg_video_length_and_pruning.png}
-    \caption{\textbf{Original video duration vs. retained candidate corridor duration on OMTG Bench ($N=320$).} The diagonal dashed line ($W_{\mathrm{len}} = T$) denotes the unpruned baseline. For short videos ($T \le 45\text{s}$), Adaptive SGDE safely retains the full video span ($0\%$ pruned, red points). For longer videos ($T > 45\text{s}$), candidate corridor extraction prunes an average of $58.1\%$ of background dead-zones (green points, shaded area).}
+    \caption{\textbf{Original video duration vs. retained candidate window duration on OMTG Bench ($N=320$).} The diagonal dashed line ($W_{\mathrm{len}} = T$) denotes the unpruned baseline. For short videos ($T \le 45\text{s}$), Adaptive SGDE retains the full video span ($0\%$ pruned, red points). For longer videos ($T > 45\text{s}$), candidate window extraction removes an average of $58.1\%$ of background frames (green points, shaded area).}
     \label{fig:video_length_pruning}
 \end{figure}
 
 Table~\ref{tab:main_results} and Fig.~\ref{fig:video_length_pruning} present grounding accuracy and compute efficiency on OMTG Bench. Four primary insights emerge:
 
-\paragraph{1. Prompt Syntax vs. Latent Capacity.} Under the unstructured prompt used in the official OMTG study~\cite{omtg2026}, TimeLens-8B completely collapses on multi-span events ($0.00\%$ C-Acc and $0.00\%$ EtF1). Enforcing schema-delimited JSON syntax unlocks latent multi-span localization, recovering $19.69\%$ C-Acc and $14.23\%$ EtF1. This reveals that reported baseline failures stem substantially from syntactic misalignment rather than lack of grounding capability.
+\paragraph{1. Prompt Syntax vs. Grounding Capacity.} Under the unstructured prompt used in the official OMTG study~\cite{omtg2026}, TimeLens-8B outputs conversational fragments or single moments ($0.00\%$ C-Acc and $0.00\%$ EtF1). Enforcing schema-delimited JSON syntax restores multi-span output, reaching $19.69\%$ C-Acc and $14.23\%$ EtF1. This indicates that baseline failure in prior benchmarks was partly caused by prompt formatting rather than model capacity.
 
-\paragraph{2. Video Length Scaling and Dead-Zone Pruning.} As shown in Fig.~\ref{fig:video_length_pruning}, benchmark videos span wide temporal ranges ($12.0\text{s}-506.0\text{s}$). When fed raw, unpruned long videos, models hallucinate across uninformative background segments. Adaptive SGDE dynamically preserves short videos ($0\%$ pruned for $T \le 45\text{s}$) while pruning an average of \textbf{58.1\% of background frames} on longer videos (rising to $69.5\%$ on videos $>180\text{s}$ and up to $85.2\%$). Eliminating these dead-zones enables Adaptive SGDE-128 to boost Count Accuracy to \textbf{33.12\%} ($+13.43\%$ over the prompt baseline) and reduce Cardinality Error from $2.07 \rightarrow \textbf{1.75}$.
+\paragraph{2. Video Length Scaling and Background Removal.} As shown in Fig.~\ref{fig:video_length_pruning}, benchmark videos range from $12.0\text{s}$ to $506.0\text{s}$. On long unpruned videos, models often make false positive detections across uninformative background segments. Adaptive SGDE preserves short videos ($0\%$ pruned for $T \le 45\text{s}$) while removing an average of \textbf{58.1\% of background frames} on longer videos (rising to $69.5\%$ on videos $>180\text{s}$ and up to $85.2\%$). Removing these background segments enables Adaptive SGDE-128 to increase Count Accuracy to \textbf{33.12\%} ($+13.43\%$ over the prompt baseline) and reduce Cardinality Error from $2.07 \rightarrow \textbf{1.75}$.
 
-\paragraph{3. Approaching the Theoretical Ceiling.} To quantify the performance upper bound of the frozen TimeLens-8B grounder under a 128-frame budget, we evaluate a \emph{Theoretical Limit} baseline using an Oracle ground-truth corridor ($100\%$ GT span retention, $0\%$ background false alarms). As reported in Table~\ref{tab:main_results}, this oracle corridor achieves $33.44\%$ C-Acc and $20.99\%$ EtF1. Completely training-free and operating without ground-truth access, our proposed Adaptive SGDE-128 closely approaches this oracle ceiling, achieving \textbf{33.12\% vs. 33.44\% C-Acc} (within $0.32\%$) and \textbf{19.14\% vs. 20.99\% EtF1}, demonstrating that training-free semantic scouting successfully isolates informative event regions without requiring supervision.
+\paragraph{3. Comparison with Ground-Truth Window Upper Bound.} To quantify the upper bound of the frozen TimeLens-8B grounder under a 128-frame budget, we evaluate an upper bound using a ground-truth temporal window ($100\%$ GT span retention, $0\%$ background false alarms). As reported in Table~\ref{tab:main_results}, this upper bound achieves $33.44\%$ C-Acc and $20.99\%$ EtF1. Operating completely training-free without ground-truth annotations, our proposed Adaptive SGDE-128 closely approaches this upper bound, achieving \textbf{33.12\% vs. 33.44\% C-Acc} (a $0.32\%$ difference) and \textbf{19.14\% vs. 20.99\% EtF1}, demonstrating that training-free semantic scouting effectively isolates informative event regions.
 
-\paragraph{4. Precision-Recall Dynamics and Compute Savings.} The prompt baseline displays high precision ($60.70\%$) but low recall ($40.84\%$) due to conservative single-instance under-prediction ($0\%$ multi-event C-Acc). Adaptive SGDE actively exposes multiple candidate intervals, elevating Recall to $44.11\%$ and reaching \textbf{19.86\% EtF1} with 256 frames ($+5.63\%$ over prompt-only baseline and $+7.57\%$ over naive downsampling). Simultaneously, concentrating 8B ViT decoding solely on candidate corridors slashes heavy frame evaluations by \textbf{60.3\%} (consuming 128 fixed frames vs. $322.8\text{f}$ average on raw video), offloading initial temporal search to the lightweight 1.04B scout.
+\paragraph{4. Precision-Recall Dynamics and Compute Savings.} The prompt baseline exhibits higher precision ($60.70\%$) but low recall ($40.84\%$) because it under-predicts ($0\%$ multi-event C-Acc). Adaptive SGDE exposes candidate action intervals across the focused window, increasing Recall to $44.11\%$ and reaching \textbf{19.86\% EtF1} with 256 frames ($+5.63\%$ over prompt-only baseline and $+7.57\%$ over naive downsampling). In addition, focusing 8B ViT decoding on candidate windows reduces frame evaluations by \textbf{60.3\%} (128 fixed frames vs. $322.8\text{f}$ average on raw video), offloading initial temporal search to the lightweight 1.04B scout.
 
 % -------------------------------------------------------------------------
 
-\subsection{Algorithmic Analysis: Corridor Planning and Windowing Topologies}
+\subsection{Algorithmic Analysis: Window Planning and Windowing Topologies}
 \label{sec:exp_ablations}
 
 \begin{table}[t]
 \centering
-\caption{\textbf{Ablation of temporal corridor planning and windowing strategies on OMTG Bench ($N=320$, 128-frame budget).} Isolating semantic scouting, single-window bounding, and soft continuity merging.}
+\caption{\textbf{Ablation of temporal window planning and windowing strategies on OMTG Bench ($N=320$, 128-frame budget).} Isolating semantic scouting, single-window bounding, and soft continuity merging.}
 \label{tab:ablation_windowing}
 \vspace{2pt}
 \resizebox{\textwidth}{!}{
 \begin{tabular}{l l c c c c c}
 \hline
-\textbf{Corridor Strategy} & \textbf{Planning Mode} & \textbf{C-Acc$\uparrow$} & \textbf{tF1@.5} & \textbf{tIoU$\uparrow$} & \textbf{EtF1$\uparrow$} & \textbf{Err$\downarrow$} \\
+\textbf{Window Strategy} & \textbf{Planning Mode} & \textbf{C-Acc$\uparrow$} & \textbf{tF1@.5} & \textbf{tIoU$\uparrow$} & \textbf{EtF1$\uparrow$} & \textbf{Err$\downarrow$} \\
 \hline
 (a) Random Temporal Crop & Uniform Random ($40\%$ dur) & 18.44\% & 24.29\% & 24.18\% & 3.61\% & 2.02 \\
-(b) Single-Window Corridor & Coarse Bounding Span & 28.44\% & 38.26\% & 36.81\% & 16.86\% & 1.94 \\
+(b) Single-Window Baseline & Coarse Bounding Span & 28.44\% & 38.26\% & 36.81\% & 16.86\% & 1.94 \\
 (c) Multi-Window (No Merge) & Gap-Only Split ($\rho=1.0$) & 28.44\% & 38.49\% & 37.12\% & 16.81\% & 1.94 \\
 (d) \textbf{Adaptive SGDE-128 (Full)} & \textbf{Sub-Linear + Soft Merge ($\rho=0.7$)} & \textbf{33.12\%} & \textbf{41.82\%} & \textbf{44.76\%} & \textbf{19.14\%} & \textbf{1.75} \\
 \hline
@@ -95,9 +95,9 @@ Table~\ref{tab:main_results} and Fig.~\ref{fig:video_length_pruning} present gro
     \label{fig:scoring_ablation}
 \end{figure}
 
-\paragraph{1. Semantic Guidance vs. Random Windowing.} As shown in Table~\ref{tab:ablation_windowing}, evaluating a random temporal window matching the average candidate duration ratio ($40\%$) collapses EtF1 to \textbf{3.61\%} and tIoU to \textbf{24.18\%}. This demonstrates that temporal windowing without cross-modal semantic guidance severely degrades grounding fidelity.
+\paragraph{1. Semantic Guidance vs. Random Windowing.} As shown in Table~\ref{tab:ablation_windowing}, evaluating a random temporal window matching the average candidate duration ratio ($40\%$) drops EtF1 to \textbf{3.61\%} and tIoU to \textbf{24.18\%}. This shows that temporal windowing without semantic guidance degrades grounding performance.
 
-\paragraph{2. Single-Window vs. Multi-Window Topology.} Transitioning from raw video to a single continuous scout corridor (strategy b) improves Count Accuracy from $16.88\% \rightarrow \textbf{28.44\%}$ and EtF1 from $12.29\% \rightarrow \textbf{16.86\%}$. However, forcing distant multi-event clusters into one window retains unpruned intermediate background, capping tIoU at $36.81\%$. While naively splitting intervals without soft merging (strategy c) fragments adjacent moments ($16.81\%$ EtF1), our proposed **Adaptive SGDE** with $70\%$ soft continuity merging (strategy d) dynamically unifies proximate clusters while isolating distant intervals, boosting tIoU to \textbf{44.76\%}, Count Accuracy to \textbf{33.12\%}, and EtF1 to \textbf{19.14\%}.
+\paragraph{2. Single-Window vs. Multi-Window Topology.} Moving from raw video to a single continuous window (strategy b) improves Count Accuracy from $16.88\% \rightarrow \textbf{28.44\%}$ and EtF1 from $12.29\% \rightarrow \textbf{16.86\%}$. However, forcing distant multi-event clusters into one window retains background frames between events, limiting tIoU to $36.81\%$. While splitting intervals without soft merging (strategy c) can fragment adjacent actions ($16.81\%$ EtF1), our proposed **Adaptive SGDE** with $70\%$ soft continuity merging (strategy d) groups proximate clusters while isolating distant intervals, improving tIoU to \textbf{44.76\%}, Count Accuracy to \textbf{33.12\%}, and EtF1 to \textbf{19.14\%}.
 
 \begin{figure}[t]
     \centering
@@ -106,6 +106,6 @@ Table~\ref{tab:main_results} and Fig.~\ref{fig:video_length_pruning} present gro
     \label{fig:soft_merge_ablation}
 \end{figure}
 
-\paragraph{3. Timeline Scoring Function Robustness.} As depicted in Fig.~\ref{fig:scoring_ablation}, naive cosine similarity with a fixed cutoff suffers from baseline similarity shifts across video domains, causing $25.1\%$ missed action spans. Video-adaptive $Z$-score normalization combined with dual-threshold hysteresis ($\tau_{\text{high}}=0.80, \tau_{\text{low}}=0.25$) and excess energy integral $J(a,b)$ raises ground-truth coverage from $70.9\% \rightarrow \textbf{80.3\%}$ ($+9.4\%$), improves proposal IoU from $34.2\% \rightarrow \textbf{48.6\%}$, and cuts missed action spans by $31.1\%$ relative.
+\paragraph{3. Timeline Scoring Function Evaluation.} As shown in Fig.~\ref{fig:scoring_ablation}, raw cosine similarity with a fixed cutoff is sensitive to baseline shifts across videos, resulting in $25.1\%$ missed action spans. Video-adaptive $Z$-score normalization with dual-threshold hysteresis ($\tau_{\text{high}}=0.80, \tau_{\text{low}}=0.25$) and excess energy scoring $J(a,b)$ improves ground-truth coverage from $70.9\% \rightarrow \textbf{80.3\%}$ ($+9.4\%$), improves proposal IoU from $34.2\% \rightarrow \textbf{48.6\%}$, and reduces missed action spans by $31.1\%$ relative.
 
-\paragraph{4. Soft Merge Span Ratio Optimization ($\rho$).} Fig.~\ref{fig:soft_merge_ablation} plots the continuity-versus-pruning trade-off across merge ratio thresholds $\rho \in [30\%, 100\%]$. Low thresholds ($\rho \le 40\%$) preserve all videos in 1-window prompts but prune fewer background frames ($33.3\%$). High thresholds ($\rho \ge 90\%$) or gap-only merging fragment $7.5\%-14.7\%$ of videos across multiple disjoint prompts, disrupting relational multi-event context. Setting $\rho = 70\%$ achieves the optimal trade-off: keeping \textbf{95.0\% of videos in a single continuous prompt} while capturing \textbf{79.71\% of GT action spans} and pruning \textbf{37.17\% of background frames} overall (up to $85.2\%$ on videos $>180\text{s}$).
+\paragraph{4. Soft Merge Span Ratio Optimization ($\rho$).} Fig.~\ref{fig:soft_merge_ablation} shows the trade-off across merge ratio thresholds $\rho \in [30\%, 100\%]$. Low thresholds ($\rho \le 40\%$) preserve all videos in 1-window prompts but prune fewer background frames ($33.3\%$). High thresholds ($\rho \ge 90\%$) or gap-only merging split $7.5\%-14.7\%$ of videos across multiple disjoint prompts, disrupting multi-event context. Setting $\rho = 70\%$ achieves a balanced trade-off: keeping \textbf{95.0\% of videos in a single continuous prompt} while capturing \textbf{79.71\% of GT action spans} and removing \textbf{37.17\% of background frames} overall (up to $85.2\%$ on videos $>180\text{s}$).
