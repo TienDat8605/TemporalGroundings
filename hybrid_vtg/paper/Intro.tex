@@ -1,29 +1,29 @@
 \section{Introduction}
 \label{sec:intro}
 
-Video Temporal Grounding (VTG) aims to identify start and end timestamps in untrimmed video corresponding to a natural language query~\cite{gao2017tall,anne2017localizing}. While traditional VTG benchmarks focus on the single-instance setting where each query matches exactly one moment, real-world videos frequently contain recurring actions. In domains such as surveillance, sports analytics, and video search, an action described by a query (e.g., \emph{"the athlete drinks water"} or \emph{"person opens the refrigerator"}) often repeats multiple times across non-contiguous intervals.
+Video Temporal Grounding (VTG) aims to identify start and end timestamps in untrimmed video corresponding to a natural language query~\cite{gao2017tall,anne2017localizing}. While traditional benchmarks focus on the single-instance setting where each query matches exactly one moment, real-world videos frequently contain recurring actions. In domains such as surveillance, sports analytics, and video search, an action described by a query often repeats multiple times across non-contiguous intervals.
 
-To evaluate this capability, recent work introduced \textbf{One-to-Many Video Temporal Grounding (OMTG)}~\cite{omtg2026}. Unlike traditional single-span retrieval, OMTG requires both: (1) \emph{cardinality perception} (predicting the total number of event occurrences $K \ge 1$), and (2) \emph{boundary localization} (predicting temporal timestamps for each event). Current Multimodal Large Language Models (MLLMs), including Gemini-1.5-Pro, Video-LLaVA~\cite{lin2023videollava}, and TimeLens-8B~\cite{timelens2024}, struggle on OMTG, obtaining $0.00\%$ Count Accuracy (C-Acc) and $0.00\%$ Effective Temporal F1 (EtF1) under standard prompts in official evaluations~\cite{omtg2026}.
+To evaluate this capability, recent work introduced One-to-Many Video Temporal Grounding (OMTG)~\cite{omtg2026}. Unlike traditional single-span retrieval, OMTG requires both event counting and boundary localization for each event occurrence. Standard Multimodal Large Language Models (MLLMs), including Gemini-1.5-Pro, Video-LLaVA~\cite{lin2023videollava}, and TimeLens-8B~\cite{timelens2024}, struggle on OMTG, obtaining 0.00\% Count Accuracy and 0.00\% Effective Temporal F1 under standard prompts in official evaluations~\cite{omtg2026}.
 
 \begin{figure}[t]
     \centering
     \includegraphics[width=\textwidth]{pipeline_large.png}
-    \caption{\textbf{Overview of Adaptive Scout-Guided Dense Evidence (Adaptive SGDE).} Long untrimmed videos are first scanned by a lightweight 1.04B scout at 1.0~FPS. Video-adaptive $Z$-score normalization and hysteresis energy mining extract candidate action proposals, which are grouped via duration-adaptive windowing ($\Delta(T) \propto \ln T, G(T) \propto \sqrt{T}$) and soft continuity merging. The focused candidate window is decoded with dense frames by a frozen 8B Vision-Language model using schema-delimited JSON syntax, removing background frames while preserving event cardinality.}
+    \caption{\textbf{Overview of Adaptive Scout-Guided Dense Evidence (Adaptive SGDE).} Long untrimmed videos are first scanned by a lightweight 1.04B scout at 1.0~FPS. Local $Z$-score normalization and thresholding extract candidate action proposals, which are grouped by duration-adaptive windowing and continuity merging. The focused candidate window is decoded with dense frames by a frozen 8B Vision-Language model using schema-delimited JSON syntax, removing background frames while preserving event cardinality.}
     \label{fig:pipeline_intro}
 \end{figure}
 
 In this paper, we analyze the performance drop of MLLMs on OMTG and find two primary causes:
 \begin{enumerate}
-    \item \textbf{Prompt Format Misalignment}: Default benchmark prompts embed output instructions within unstructured natural language dialogue. This causes instruction-tuned models to output conversational text or a single timestamp instead of structured multi-span lists.
-    \item \textbf{Background Frames in Long Videos}: In long untrimmed videos ($100\text{s}-500\text{s}$), uniform sampling forces the Vision Transformer to process thousands of irrelevant background frames, which can trigger false positive detections and degrade event counting accuracy.
+    \item \textbf{Prompt Format Misalignment}: Default benchmark prompts embed output instructions within unstructured dialogue. This causes instruction-tuned models to output conversational text or a single timestamp instead of structured multi-span lists.
+    \item \textbf{Background Frames in Long Videos}: In long untrimmed videos spanning several minutes, uniform sampling forces the Vision Transformer to process thousands of irrelevant background frames, which can trigger false positive detections and degrade event counting accuracy.
 \end{enumerate}
 
-To address both issues without parameter fine-tuning, we propose \textbf{Adaptive Scout-Guided Dense Evidence (Adaptive SGDE)}, a training-free framework for multi-event temporal grounding. As shown in Fig.~\ref{fig:pipeline_intro}, Adaptive SGDE uses a four-stage coarse-to-fine pipeline:
+To address both issues without parameter fine-tuning, we propose Adaptive Scout-Guided Dense Evidence (Adaptive SGDE), a training-free framework for multi-event temporal grounding. As shown in Fig.~\ref{fig:pipeline_intro}, Adaptive SGDE uses a four-stage coarse-to-fine pipeline:
 \begin{itemize}
     \item \textbf{Stage 1: Coarse Multimodal Scouting}: A frozen 1.04B embedding scout scans the untrimmed video at 1.0~FPS, producing a cross-modal similarity timeline normalized by video-level $Z$-scores to handle domain baseline shifts.
-    \item \textbf{Stage 2: Hysteresis Energy Mining}: Dual-threshold hysteresis search ($\tau_{\text{high}}=0.80, \tau_{\text{low}}=0.25$) combined with normalized excess energy scoring $\bar{J}(a,b)$ extracts candidate action intervals.
-    \item \textbf{Stage 3: Duration-Adaptive Windowing}: Sub-linear context margins ($\Delta(T) \propto \ln T$) and clustering gaps ($G(T) \propto \sqrt{T}$) cluster candidates across diverse video lengths ($12\text{s}-500\text{s}$), unified by a $70\%$ soft continuity merge rule to maintain cross-event context.
+    \item \textbf{Stage 2: Proposal Extraction}: Dual-threshold search and energy scoring extract candidate action intervals.
+    \item \textbf{Stage 3: Duration-Adaptive Windowing}: Sub-linear context margins and clustering gaps group candidates across diverse video lengths, unified by a continuity merge rule to maintain cross-event context.
     \item \textbf{Stage 4: Focused Dense Grounding}: The primary grounder (TimeLens-8B~\cite{timelens2024}) processes only the candidate window under a structured JSON prompt, focusing frame allocation on relevant action regions.
 \end{itemize}
 
-Evaluations on the complete OMTG benchmark ($N=320$) show that Adaptive SGDE improves training-free grounding, increasing Count Accuracy from $0.00\% \rightarrow \mathbf{33.12\%}$ ($+13.43\%$ over prompt-only baselines) and Effective Temporal F1 to $\mathbf{19.86\%}$ (+19.86 points over the official paper baseline). Furthermore, by removing $50\%-85\%$ of irrelevant background intervals, Adaptive SGDE reduces 8B Vision Transformer frame evaluations by $\mathbf{60.3\%}$, achieving a net $\mathbf{-54.0\%}$ inference compute reduction.
+Evaluations on the OMTG benchmark demonstrate that Adaptive SGDE improves training-free grounding, achieving 33.12\% Count Accuracy and 19.86\% Effective Temporal F1. Furthermore, by removing irrelevant background intervals, Adaptive SGDE reduces 8B Vision Transformer frame evaluations by 60.3\%.
