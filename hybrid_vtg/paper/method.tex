@@ -76,10 +76,13 @@ This merge rule preserves contextual continuity across proximate actions while r
 
 \paragraph{Frame Allocation.} Within the candidate window $[W_{\text{start}}, W_{\text{end}}]$, we allocate a fixed frame budget $B \in \{64, 128, 256\}$. Sampling $B$ frames inside the candidate window yields an effective local frame rate of $\mathrm{FPS}_{\text{local}} = B / (W_{\text{end}} - W_{\text{start}})$, which concentrates visual resolution on the candidate region compared to uniform whole-video sampling.
 
-\paragraph{Schema-Delimited Multi-Span Prompting.} Unstructured prompts often cause generation issues. We format the inference query into a structured JSON prompt:
+\paragraph{Schema-Delimited Multi-Span Prompting.} Standard benchmark prompts embed output instructions within unstructured conversational dialogue, which causes instruction-tuned decoders to output conversational text or a single moment. In contrast, we format the inference query using an explicit, schema-delimited JSON template:
 \begin{center}
-\fbox{\parbox{0.92\textwidth}{\raggedright\small\ttfamily
-Given the query: "\{query\}", return ALL time spans (in seconds) where the query is relevant. Output format MUST be a JSON array of [start, end] pairs: [[s1, e1], [s2, e2], ...].
+\fbox{\parbox{0.95\textwidth}{\raggedright\small
+\textbf{Original OMTG Benchmark Prompt}~\cite{omtg2026}:\\
+\texttt{"Please carefully watch the video according to the given textual query '\{query\}' and determine all timestamp intervals where this query is relevant in the format of [[start1, end1], [start2, end2], ...]."}\\[4pt]
+\textbf{Our Structured JSON Prompt (ScoutTG)}:\\
+\texttt{"Given the query: '\{query\}', return ALL time spans (in seconds) where the query is relevant. Output format MUST be a JSON array of [start, end] pairs: [[s1, e1], [s2, e2], ...]."}
 }}
 \end{center}
 The primary grounder $\mathcal{M}_{\text{ground}}$ (TimeLens-8B~\cite{timelens2024}) decodes exact boundary timestamps $\mathcal{Y} = \{[s_k, e_k]\}_{k=1}^M$ over the densely sampled candidate window. When candidate proposals form widely separated clusters ($\frac{W_{\text{end}} - W_{\text{start}}}{T} < \rho$), disjoint windows are prompted independently with frame budget $B$, and their resulting predicted JSON timestamp lists are concatenated and chronologically sorted.
