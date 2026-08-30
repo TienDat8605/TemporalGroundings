@@ -16,7 +16,7 @@
     \item \textbf{Processed Frames and Compute Saved (\%) $\uparrow$}: Aggregate video frames processed by the 8B Vision Transformer across all 320 evaluations ($N_{\text{frames}} = \sum_i F_i$), and relative frame reduction $\text{Saved} = (1 - N_{\text{frames}}^{\text{method}} / N_{\text{frames}}^{\text{native}}) \times 100\%$.
 \end{enumerate}
 
-\paragraph{Implementation Details.} Our primary grounder is frozen TimeLens-8B~\cite{timelens2024} (Qwen3-VL-8B-Instruct backbone). The temporal scout is frozen Llama-Nemotron-Embed-VL-1B (1.04B parameters) sampled at a coarse 1.0~FPS. Hyperparameters are fixed across all benchmark videos without dataset-specific tuning: hysteresis thresholds $\tau_{\text{high}}=0.80, \tau_{\text{low}}=0.25$ ($\S$\ref{sec:stage2}), excess energy offset $\tau_{\text{base}}=0.30$ (Eq.~\ref{eq:excess_energy}), sub-linear adaptive geometry coefficients $\alpha_{\text{margin}}=3.5\text{s}, \beta_{\text{gap}}=3.5\text{s}$ (Eq.~\ref{eq:adaptive_geometry}), and soft merge span threshold $\rho=0.70$ (Eq.~\ref{eq:soft_merge}).
+\paragraph{Implementation Details.} Our primary grounder is frozen TimeLens-8B~\cite{timelens2024} (Qwen3-VL-8B-Instruct backbone). The temporal scout is frozen Llama-Nemotron-Embed-VL-1B (1.04B parameters) sampled at a coarse 1.0~FPS. Hyperparameters are fixed across all benchmark videos without dataset-specific tuning: detection thresholds $\tau_{\text{high}}=0.80, \tau_{\text{low}}=0.25$ ($\S$\ref{sec:stage2}), energy baseline offset $\tau_{\text{base}}=0.30$ (Eq.~\ref{eq:excess_energy}), adaptive window coefficients $\alpha_{\text{margin}}=3.5\text{s}, \beta_{\text{gap}}=3.5\text{s}$ (Eq.~\ref{eq:adaptive_geometry}), and merge threshold $\rho=0.70$ (Eq.~\ref{eq:soft_merge}).
 
 % -------------------------------------------------------------------------
 
@@ -79,10 +79,10 @@ Table~\ref{tab:main_results} and Fig.~\ref{fig:video_length_pruning} present gro
 \hline
 \textbf{Window Strategy} & \textbf{Planning Mode} & \textbf{C-Acc$\uparrow$} & \textbf{tF1@.5} & \textbf{tIoU$\uparrow$} & \textbf{EtF1$\uparrow$} & \textbf{Err$\downarrow$} \\
 \hline
-(a) Random Temporal Crop & Uniform Random ($40\%$ dur) & 18.44\% & 24.29\% & 24.18\% & 3.61\% & 2.02 \\
-(b) Single-Window Baseline & Coarse Bounding Span & 28.44\% & 38.26\% & 36.81\% & 16.86\% & 1.94 \\
-(c) Multi-Window (No Merge) & Gap-Only Split ($\rho=1.0$) & 28.44\% & 38.49\% & 37.12\% & 16.81\% & 1.94 \\
-(d) \textbf{Adaptive SGDE-128 (Full)} & \textbf{Sub-Linear + Soft Merge ($\rho=0.7$)} & \textbf{33.12\%} & \textbf{41.82\%} & \textbf{44.76\%} & \textbf{19.14\%} & \textbf{1.75} \\
+(a) Random Temporal Crop & Random window ($40\%$ dur) & 18.44\% & 24.29\% & 24.18\% & 3.61\% & 2.02 \\
+(b) Single-Window Baseline & Single bounding window & 28.44\% & 38.26\% & 36.81\% & 16.86\% & 1.94 \\
+(c) Multi-Window (No Merge) & Split on gaps ($\rho=1.0$) & 28.44\% & 38.49\% & 37.12\% & 16.81\% & 1.94 \\
+(d) \textbf{Adaptive SGDE-128 (Full)} & \textbf{Adaptive window + merge ($\rho=0.7$)} & \textbf{33.12\%} & \textbf{41.82\%} & \textbf{44.76\%} & \textbf{19.14\%} & \textbf{1.75} \\
 \hline
 \end{tabular}
 }
@@ -91,7 +91,7 @@ Table~\ref{tab:main_results} and Fig.~\ref{fig:video_length_pruning} present gro
 \begin{figure}[t]
     \centering
     \includegraphics[width=0.86\textwidth]{scoring_method_ablation.png}
-    \caption{\textbf{Evaluation of timeline scoring and candidate extraction methods on OMTG Bench.} (a) Action span retrieval: $Z$-score hysteresis energy mining increases Ground-Truth coverage to $80.3\%$ and cuts missed spans by $31.1\%$ relative. (b) Proposal continuity and overlap: achieving $95.9\%$ 1-window continuity and $48.6\%$ proposal IoU.}
+    \caption{\textbf{Evaluation of timeline scoring and candidate extraction methods on OMTG Bench.} (a) Action span retrieval: $Z$-score normalization and energy scoring increase Ground-Truth coverage to $80.3\%$ and cut missed spans by $31.1\%$ relative. (b) Proposal continuity and overlap: achieving $95.9\%$ 1-window continuity and $48.6\%$ proposal IoU.}
     \label{fig:scoring_ablation}
 \end{figure}
 
@@ -102,10 +102,10 @@ Table~\ref{tab:main_results} and Fig.~\ref{fig:video_length_pruning} present gro
 \begin{figure}[t]
     \centering
     \includegraphics[width=0.88\textwidth]{soft_merge_ratio_ablation.png}
-    \caption{\textbf{Soft merge span ratio threshold ($\rho$) optimization sweep on OMTG Bench.} (a) Continuity vs. GT coverage: setting $\rho=70\%$ retains $95.0\%$ of videos within a single continuous prompt while covering $79.71\%$ of GT action spans. (b) Background duration pruned: achieving $37.17\%$ background pruning across the benchmark (up to $85.2\%$ on videos $>180\text{s}$).}
+    \caption{\textbf{Merge threshold ($\rho$) sweep on OMTG Bench.} (a) Continuity vs. GT coverage: setting $\rho=70\%$ retains $95.0\%$ of videos within a single continuous prompt while covering $79.71\%$ of GT action spans. (b) Background duration pruned: achieving $37.17\%$ background pruning across the benchmark (up to $85.2\%$ on videos $>180\text{s}$).}
     \label{fig:soft_merge_ablation}
 \end{figure}
 
-\paragraph{3. Timeline Scoring Function Evaluation.} As shown in Fig.~\ref{fig:scoring_ablation}, raw cosine similarity with a fixed cutoff is sensitive to baseline shifts across videos, resulting in $25.1\%$ missed action spans. Video-adaptive $Z$-score normalization with dual-threshold hysteresis ($\tau_{\text{high}}=0.80, \tau_{\text{low}}=0.25$) and excess energy scoring $J(a,b)$ improves ground-truth coverage from $70.9\% \rightarrow \textbf{80.3\%}$ ($+9.4\%$), improves proposal IoU from $34.2\% \rightarrow \textbf{48.6\%}$, and reduces missed action spans by $31.1\%$ relative.
+\paragraph{3. Timeline Scoring Function Evaluation.} As shown in Fig.~\ref{fig:scoring_ablation}, raw cosine similarity with a fixed cutoff is sensitive to baseline shifts across videos, resulting in $25.1\%$ missed action spans. Video-adaptive $Z$-score normalization with dual-threshold search ($\tau_{\text{high}}=0.80, \tau_{\text{low}}=0.25$) and energy scoring $\bar{J}(a,b)$ improves ground-truth coverage from $70.9\% \rightarrow \textbf{80.3\%}$ ($+9.4\%$), improves proposal IoU from $34.2\% \rightarrow \textbf{48.6\%}$, and reduces missed action spans by $31.1\%$ relative.
 
 \paragraph{4. Soft Merge Span Ratio Optimization ($\rho$).} Fig.~\ref{fig:soft_merge_ablation} shows the trade-off across merge ratio thresholds $\rho \in [30\%, 100\%]$. Low thresholds ($\rho \le 40\%$) preserve all videos in 1-window prompts but prune fewer background frames ($33.3\%$). High thresholds ($\rho \ge 90\%$) or gap-only merging split $7.5\%-14.7\%$ of videos across multiple disjoint prompts, disrupting multi-event context. Setting $\rho = 70\%$ achieves a balanced trade-off: keeping \textbf{95.0\% of videos in a single continuous prompt} while capturing \textbf{79.71\% of GT action spans} and removing \textbf{37.17\% of background frames} overall (up to $85.2\%$ on videos $>180\text{s}$).

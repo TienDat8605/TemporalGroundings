@@ -40,12 +40,12 @@ with numerical stability constant $\epsilon = 10^{-6}$. The resulting timeline $
 
 % -------------------------------------------------------------------------
 
-\subsection{Stage 2: Dual-Threshold Hysteresis and Excess Energy Mining}
+\subsection{Stage 2: Candidate Proposal Extraction and Scoring}
 \label{sec:stage2}
 
-\paragraph{Dual-Threshold Hysteresis Search.} Single-threshold filtering faces a trade-off: high thresholds fragment extended actions into disjoint segments, while low thresholds introduce spurious background detections. We use a dual-threshold hysteresis search with trigger threshold $\tau_{\text{high}} = 0.80$ and expansion threshold $\tau_{\text{low}} = 0.25$. An action candidate $c = [a, b]$ is initiated only if it contains a peak $Z(t_p) \ge \tau_{\text{high}}$ ($t_p \in [a, b]$), and is grown bidirectionally until the score falls below $\tau_{\text{low}}$ ($Z(a-1) < \tau_{\text{low}}$ and $Z(b+1) < \tau_{\text{low}}$).
+\paragraph{Dual-Threshold Search.} Single-threshold filtering faces a trade-off: high thresholds fragment extended actions into disjoint segments, while low thresholds introduce spurious background detections. We use a dual-threshold search with trigger threshold $\tau_{\text{high}} = 0.80$ and expansion threshold $\tau_{\text{low}} = 0.25$. An action candidate $c = [a, b]$ is initiated only if it contains a peak $Z(t_p) \ge \tau_{\text{high}}$ ($t_p \in [a, b]$), and is grown bidirectionally until the score falls below $\tau_{\text{low}}$ ($Z(a-1) < \tau_{\text{low}}$ and $Z(b+1) < \tau_{\text{low}}$).
 
-\paragraph{Proposal Scoring via Normalized Excess Energy.} To score candidate proposals without length bias, we compute the normalized excess semantic energy density $\bar{J}(a, b)$:
+\paragraph{Proposal Scoring via Average Saliency Energy.} To score candidate proposals without length bias, we compute the average excess similarity energy $\bar{J}(a, b)$:
 \begin{equation}
     \bar{J}(a, b) = \frac{1}{b - a + 1} \sum_{t=a}^{b} \max\big(0, \, Z(t) - \tau_{\text{base}}\big),
     \label{eq:excess_energy}
@@ -59,17 +59,17 @@ with $\alpha_{\text{energy}} = 0.50$. Applying 1D Non-Maximum Suppression (NMS) 
 
 % -------------------------------------------------------------------------
 
-\subsection{Stage 3: Sub-Linear Duration-Adaptive Window Geometry}
+\subsection{Stage 3: Duration-Adaptive Window Planning}
 \label{sec:stage3}
 
-\paragraph{Sub-Linear Margin and Clustering Gap.} Fixed temporal windows do not scale well across diverse video durations, over-expanding short clips and truncating long videos. We introduce duration-adaptive geometry governed by sub-linear functions:
+\paragraph{Adaptive Margin and Clustering Gap.} Fixed temporal windows do not scale well across diverse video durations, over-expanding short clips and truncating long videos. We introduce duration-adaptive geometry governed by sub-linear functions:
 \begin{equation}
     \Delta(T) = \mathrm{clamp}(3.5 \ln T, \, 8.0, \, 22.0)\,\mathrm{s}, \quad G(T) = \max(15.0, \, 3.5\sqrt{T})\,\mathrm{s},
     \label{eq:adaptive_geometry}
 \end{equation}
 where $\Delta(T)$ denotes the context margin and $G(T)$ is the clustering gap. The margin $\Delta(T)$ provides an $8.0\,\mathrm{s}$ context buffer for $30\,\mathrm{s}$ clips while expanding to $22.0\,\mathrm{s}$ for long videos. Adjacent proposals separated by distance $\le G(T)$ are clustered into candidate windows.
 
-\paragraph{Soft Continuity Merge.} Action comprehension degrades when instances from the same video are split into disjoint prompts. For candidate envelope $W_{\text{start}} = \max\big(0, \, \min_i (a_i - \Delta(T))\big)$ and $W_{\text{end}} = \min\big(T, \, \max_i (b_i + \Delta(T))\big)$ clamped to video boundaries $[0, T]$, we merge intervals into a single continuous window if the envelope span ratio satisfies:
+\paragraph{Continuous Window Merging.} Action comprehension degrades when instances from the same video are split into disjoint prompts. For candidate envelope $W_{\text{start}} = \max\big(0, \, \min_i (a_i - \Delta(T))\big)$ and $W_{\text{end}} = \min\big(T, \, \max_i (b_i + \Delta(T))\big)$ clamped to video boundaries $[0, T]$, we merge intervals into a single continuous window if the envelope span ratio satisfies:
 \begin{equation}
     \frac{W_{\text{end}} - W_{\text{start}}}{T} \ge \rho = 0.70, \quad \text{or adjacent gap } \le G(T).
     \label{eq:soft_merge}
