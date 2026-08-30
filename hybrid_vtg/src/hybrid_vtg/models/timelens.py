@@ -26,11 +26,18 @@ def require_native_video_reader() -> None:
         )
 
 
-def native_timelens_prediction(model: Any, processor: Any, sample: Sample, *, family: str) -> Prediction:
+def native_timelens_prediction(
+    model: Any, processor: Any, sample: Sample, *, family: str, frame_budget: int | None = None
+) -> Prediction:
     """Run the released checkpoint using the corresponding official model-card recipe."""
     import torch
     from qwen_vl_utils import process_vision_info
 
+    sample_fps = (
+        float(frame_budget) / max(1.0, float(sample.duration))
+        if frame_budget is not None
+        else 2.0
+    )
     if family == "qwen3":
         prompt = (
             f'Given the query: "{sample.query}", return ALL time spans (in seconds) where the query is relevant.\n'
@@ -39,7 +46,7 @@ def native_timelens_prediction(model: Any, processor: Any, sample: Sample, *, fa
         video = {
             "type": "video",
             "video": sample.video_path.resolve().as_uri(),
-            "fps": 2.0,
+            "fps": sample_fps,
             "min_pixels": 32 * 32,
             "max_pixels": 480 * 480,
             "total_pixels": TIMELENS_VISUAL_TOKEN_BUDGET * 32 * 32,

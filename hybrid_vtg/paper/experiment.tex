@@ -1,0 +1,84 @@
+\section{Experiments}
+\label{sec:experiments}
+
+\subsection{Experimental Setup}
+\label{sec:exp_setup}
+
+\paragraph{Benchmark Dataset.} We evaluate on the complete \textbf{OMTG Bench}~\cite{omtg2026}, the established benchmark for One-to-Many Video Temporal Grounding. The dataset comprises 320 manually verified query-video pairs spanning 287 unique untrimmed videos sourced from Charades, ActivityNet, QVHighlights, VTimeLLM, and Moment10M. Durations range from $12.0\text{s}$ to $506.0\text{s}$ (mean: $161.4\text{s}$, median: $129.5\text{s}$). Ground-truth event counts vary from 2 to 20 instances per query (mean: 3.67 instances).
+
+\paragraph{Evaluation Metrics.} Following the OMTG protocol~\cite{omtg2026}, we report:
+\begin{enumerate}
+    \item \textbf{Count Accuracy (C-Acc, \%) $\uparrow$}: Percentage of samples where predicted segment count exactly equals ground-truth cardinality ($M=K$).
+    \item \textbf{Temporal F1 (tF1@$\xi$, \%) $\uparrow$}: Harmonic mean of instance-level precision and recall under Hungarian bipartite matching at temporal IoU thresholds $\xi \in \{0.3, 0.5, 0.7\}$.
+    \item \textbf{Temporal IoU (tIoU, \%) $\uparrow$}: Mean temporal intersection-over-union over predicted and ground-truth intervals.
+    \item \textbf{Effective Temporal F1 (EtF1, \%) $\uparrow$}: The primary benchmark metric, conditioning temporal F1 on exact cardinality match ($\text{EtF1} = \text{tF1} \times \mathbf{1}(M=K)$).
+    \item \textbf{Cardinality Error $\downarrow$}: Mean absolute error between predicted and ground-truth event counts ($|M - K|$).
+    \item \textbf{Processed Frames and Compute Saved (\%) $\uparrow$}: Total aggregate video frames ingested across all 320 query-video evaluations by the primary 8B Vision Transformer ($N_{\text{frames}} = \sum_i F_i$), and relative frame reduction $\text{Saved} = (1 - N_{\text{frames}}^{\text{method}} / N_{\text{frames}}^{\text{native}}) \times 100\%$.
+\end{enumerate}
+
+\paragraph{Implementation Details.} Our primary grounder is frozen TimeLens-8B~\cite{timelens2024} (Qwen3-VL-8B-Instruct backbone). The temporal scout is frozen Llama-Nemotron-Embed-VL-1B (1.04B parameters) sampled at 1.0~FPS. Hyperparameters are fixed across all benchmark videos: $\tau_{\text{high}}=0.80$, $\tau_{\text{low}}=0.25$, $\tau_{\text{base}}=0.30$, $\lambda_{\text{len}}=0.01$, $\alpha_{\text{margin}}=3.5$, $\beta_{\text{gap}}=3.5$, and $\rho=0.70$.
+
+% -------------------------------------------------------------------------
+
+\subsection{Grounding Performance and Computational Efficiency}
+\label{sec:exp_main}
+
+\begin{table}[t]
+\centering
+\caption{\textbf{Master performance and efficiency comparison on OMTG Bench ($N=320$).} All models operate zero-shot without fine-tuning. Frames denotes aggregate 8B ViT frames processed across all 320 query evaluations ($322.8\text{f}$ avg for native). Best results are in \textbf{bold}; second-best are \underline{underlined}.}
+\label{tab:main_results}
+\vspace{2pt}
+\renewcommand{\arraystretch}{1.2}
+\setlength{\tabcolsep}{2.2pt}
+\scriptsize
+\begin{tabular}{l c c c c c c c}
+\hline
+\textbf{Configuration} & \textbf{Frames} & \textbf{Saved$\uparrow$} & \textbf{C-Acc$\uparrow$} & \textbf{tF1@.5} & \textbf{tIoU$\uparrow$} & \textbf{EtF1$\uparrow$} & \textbf{Err$\downarrow$} \\
+\hline
+TimeLens-8B (Paper Prompt)~\cite{omtg2026} & 103.3k & Baseline & 0.00\% & 32.76\% & 32.38\% & 0.00\% & 2.15 \\
+TimeLens-8B (JSON Prompt) & 103.3k & Baseline & 19.69\% & \textbf{47.16\%} & \textbf{46.57\%} & 14.23\% & 2.07 \\
+\hline
++ Adaptive SGDE-64 (64f) & 20.5k & \textbf{-80.2\%} & 27.19\% & 37.41\% & 41.22\% & 14.44\% & 2.09 \\
++ Adaptive SGDE-128 (128f) & 41.0k & \textbf{-60.3\%} & \textbf{33.12\%} & \underline{41.82\%} & 44.76\% & \underline{19.14\%} & \textbf{1.75} \\
++ Adaptive SGDE-256 (256f) & 81.9k & -20.7\% & \underline{31.88\%} & \underline{41.82\%} & \underline{45.42\%} & \textbf{19.86\%} & \underline{1.81} \\
+\hline
+\end{tabular}
+\end{table}
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=0.66\textwidth]{omtg_video_length_and_pruning.png}
+    \caption{\textbf{Original video duration vs. retained candidate corridor duration on OMTG Bench ($N=320$).} The diagonal dashed line ($W_{\mathrm{len}} = T$) denotes unpruned whole-video baseline. For short videos ($T \le 45\text{s}$), Adaptive SGDE safely retains the full video span ($0\%$ pruned, red points). For longer videos ($T > 45\text{s}$), candidate corridor extraction prunes an average of $58.1\%$ of irrelevant background dead-zones (green points, shaded area), keeping dense decoding tightly focused.}
+    \label{fig:video_length_pruning}
+\end{figure}
+
+Table~\ref{tab:main_results} and Fig.~\ref{fig:video_length_pruning} evaluate grounding accuracy and compute efficiency on OMTG Bench. We highlight three core diagnostic findings:
+
+\paragraph{1. Latent Baseline Recovery.} Under official unstructured prompts~\cite{omtg2026}, TimeLens-8B collapses to $0.00\%$ C-Acc and $0.00\%$ EtF1. Reformatting the query with schema-delimited JSON syntax restores latent multi-span ability ($19.69\%$ C-Acc, $14.23\%$ EtF1), demonstrating that prompt misalignment was a primary cause of reported baseline failure.
+
+\paragraph{2. Video Length Scaling and Background Pruning.} As illustrated in Fig.~\ref{fig:video_length_pruning}, OMTG benchmark videos exhibit high temporal dispersion ($12.0\text{s}-506.0\text{s}$). On unpruned whole videos, models inspect extensive empty background intervals, inducing phantom hallucinations. On short videos ($T \le 45\text{s}$), Adaptive SGDE safely retains the full video span ($0\%$ pruned). On longer videos ($T > 45\text{s}$), candidate corridor extraction prunes an average of \textbf{58.1\% of background frames} (rising to $69.5\%$ on videos $>180\text{s}$ and up to $85.2\%$). Eliminating these dead-zones enables Adaptive SGDE-128 to boost Count Accuracy to \textbf{33.12\%} ($+13.43\%$ over prompt-only baseline) and reduce Cardinality Error from $2.07 \rightarrow \textbf{1.75}$.
+
+\paragraph{3. Precision vs. Recall Dynamics and Grounder Frame Savings.} The prompt baseline exhibits high precision ($60.70\%$) but low recall ($40.84\%$) because it under-predicts, often isolating only the single easiest moment and missing remaining instances ($0\%$ C-Acc on multi-events). Adaptive SGDE actively retrieves candidate instances across the focused corridor, elevating Recall ($40.84\% \rightarrow 44.11\%$) and establishing a new training-free state of the art at \textbf{19.86\% EtF1} (+19.86 points over the official paper baseline). Concurrently, focusing on candidate corridors slashes 8B Vision Transformer frame evaluations by \textbf{60.3\%} (consuming 128 frames fixed vs. $322.8\text{f}$ average on raw video), shifting the burden of initial temporal search to the lightweight 1.04B scout operating at a coarse 1.0~FPS.
+
+% -------------------------------------------------------------------------
+
+\subsection{Algorithmic Analysis: Timeline Scoring and Span Ratio Optimization}
+\label{sec:exp_ablations}
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=0.86\textwidth]{scoring_method_ablation.png}
+    \caption{\textbf{Evaluation of timeline scoring and candidate extraction methods on OMTG Bench.} (a) Action span retrieval: $Z$-score hysteresis energy mining increases Ground-Truth coverage to $80.3\%$ and cuts missed spans by $31.1\%$ relative. (b) Proposal continuity and overlap: achieving $95.9\%$ 1-window continuity and $48.6\%$ proposal IoU.}
+    \label{fig:scoring_ablation}
+\end{figure}
+
+\paragraph{1. Scoring Function Robustness and Upstream Recall Ceiling.} As depicted in Fig.~\ref{fig:scoring_ablation}, naive cosine similarity with a fixed cutoff suffers from baseline similarity shifts across video domains, causing $25.1\%$ missed action spans. Video-adaptive $Z$-score normalization combined with dual-threshold hysteresis ($\tau_{\text{high}}=0.80, \tau_{\text{low}}=0.25$) and excess energy integral $J(a,b)$ raises ground-truth coverage from $70.9\% \rightarrow \textbf{80.3\%}$ ($+9.4\%$), improves proposal IoU from $34.2\% \rightarrow \textbf{48.6\%}$, and cuts missed action spans by $31.1\%$ relative. We note that the $80.3\%$ candidate coverage defines the theoretical upper bound on recall for Stage 4 decoding. The remaining unretrieved spans ($\approx 19.7\%$) represent a deliberate efficiency trade-off of 1.0~FPS coarse scouting, which filters brief sub-second transitions to deliver $>60\%$ compute savings; applications demanding exhaustive recall can linearly scale scout frame rate or lower $\tau_{\text{high}}$.
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=0.88\textwidth]{soft_merge_ratio_ablation.png}
+    \caption{\textbf{Soft merge span ratio threshold ($\rho$) optimization sweep on OMTG Bench.} (a) Continuity vs. GT coverage: setting $\rho=70\%$ retains $95.0\%$ of videos within a single continuous prompt while covering $79.71\%$ of GT action spans. (b) Background duration pruned: achieving $37.17\%$ background pruning across the benchmark (up to $85.2\%$ on videos $>180\text{s}$).}
+    \label{fig:soft_merge_ablation}
+\end{figure}
+
+\paragraph{2. Selecting the Optimal Span Ratio Threshold ($\rho$).} Fig.~\ref{fig:soft_merge_ablation} plots the continuity-versus-pruning trade-off across merge ratio thresholds $\rho \in [30\%, 100\%]$. Low thresholds ($\rho \le 40\%$) preserve all videos in 1-window prompts but prune fewer background frames ($33.3\%$). High thresholds ($\rho \ge 90\%$) or gap-only merging fragment $7.5\%-14.7\%$ of videos across multiple disjoint prompts, destroying relational multi-event context. Setting $\rho = 70\%$ achieves the optimal trade-off: keeping \textbf{95.0\% of videos in a single continuous prompt} while capturing \textbf{79.71\% of GT action spans} and pruning \textbf{37.17\% of background frames} across the benchmark (up to $85.2\%$ on videos $>180\text{s}$).

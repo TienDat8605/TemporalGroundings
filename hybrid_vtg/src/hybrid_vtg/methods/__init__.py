@@ -8,12 +8,17 @@ from typing import Any
 def register_methods(registry: Any) -> None:
     from .anchored_corridor_64 import AnchoredCorridor64
     from .coarse_to_fine_64 import CoarseToFine64
-    from .native import Native
+    from .native import Native, NativeFixedFrames, OracleCorridorBaseline, RandomCropBaseline
     from .sgde_64 import SGDE64, ScoutProvider
 
     registry.register(AnchoredCorridor64.name, AnchoredCorridor64)
     registry.register(CoarseToFine64.name, CoarseToFine64)
     registry.register(Native.name, Native)
+    registry.register("native-128f", lambda **kwargs: NativeFixedFrames(frame_budget=128, name="native-128f"))
+    registry.register("native-64f", lambda **kwargs: NativeFixedFrames(frame_budget=64, name="native-64f"))
+    registry.register("random-crop-128f", lambda **kwargs: RandomCropBaseline(frame_budget=128, name="random-crop-128f"))
+    registry.register("oracle-corridor-128f", lambda **kwargs: OracleCorridorBaseline(frame_budget=128, name="oracle-corridor-128f"))
+
     import os
     from ..scout_features import DEFAULT_MODEL
 
@@ -40,3 +45,9 @@ def register_methods(registry: Any) -> None:
     registry.register("sgde-128-multiwindow", _make_sgde(128, 256, planning_mode="multi_window", name="sgde-128-multiwindow"))
     registry.register("sgde-256", _make_sgde(256, 256, planning_mode="multi_window", name="sgde-256"))
     registry.register("sgde-256-multiwindow", _make_sgde(256, 256, planning_mode="multi_window", name="sgde-256-multiwindow"))
+
+    # Stepwise Ablation Methods
+    registry.register("sgde-step1-raw-cosine", _make_sgde(128, 256, planning_mode="single_window", name="sgde-step1-raw-cosine"))
+    registry.register("sgde-step2-zscore", _make_sgde(128, 256, planning_mode="single_window", name="sgde-step2-zscore"))
+    registry.register("sgde-step3-energy", _make_sgde(128, 256, planning_mode="single_window", name="sgde-step3-energy"))
+    registry.register("sgde-step4-adaptive-geom", _make_sgde(128, 256, planning_mode="multi_window", name="sgde-step4-adaptive-geom"))

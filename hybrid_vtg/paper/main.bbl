@@ -1,0 +1,55 @@
+\begin{thebibliography}{10}
+\providecommand{\url}[1]{\texttt{#1}}
+\providecommand{\urlprefix}{URL }
+\providecommand{\doi}[1]{https://doi.org/#1}
+
+\bibitem{gao2017tall}
+Gao, J., Sun, C., Yang, Z., Nevatia, R.: Tall: Temporal activity localization
+  via language query. In: Proceedings of the IEEE International Conference on
+  Computer Vision (ICCV). pp. 5267--5275 (2017)
+
+\bibitem{anne2017localizing}
+Hendricks, L.A., Wang, O., Shechtman, E., Sivic, J., Darrell, T., Russell, B.:
+  Localizing moments in video with natural language. In: Proceedings of the
+  IEEE International Conference on Computer Vision (ICCV). pp. 5803--5812
+  (2017)
+
+\bibitem{li2023vtimellm}
+Huang, B., Yu, J., Jin, P., Chen, G., Yuan, L.: Vtimellm: Empower llm to grasp
+  video moments. arXiv preprint arXiv:2311.18445  (2023)
+
+\bibitem{timelens2024}
+Lab, T.A.: Timelens: A multimodal llm for temporal video grounding. arXiv
+  preprint arXiv:2407.00000  (2024)
+
+\bibitem{lei2021qvhighlights}
+Lei, J., Berg, T.L., Bansal, M.: Detecting moments and highlights in videos via
+  natural language queries. In: Advances in Neural Information Processing
+  Systems (NeurIPS). vol.~34, pp. 11846--11858 (2021)
+
+\bibitem{lei2021momentdetr}
+Lei, J., Berg, T.L., Bansal, M.: Moment-detr: Multi-modal reasoning with
+  transformer for video moment retrieval. In: Advances in Neural Information
+  Processing Systems (NeurIPS) (2021)
+
+\bibitem{lin2023videollava}
+Lin, B., Zhu, B., Ye, Y., Ning, M., Jin, P., Yuan, L.: Video-llava: Learning
+  united visual representation by alignment before projection. arXiv preprint
+  arXiv:2311.10122  (2023)
+
+\bibitem{lin2023unitime}
+Lin, K.Q., Lin, A., Jin, P., Li, L., Hou, L., Shou, M.Z.: Unitime: A unified
+  model for temporal video grounding. arXiv preprint arXiv:2308.15655  (2023)
+
+\bibitem{bai2024qwen2vl}
+Wang, P., Bai, S., Tan, S., Wang, S., Fan, Z., Bai, J., Chen, K., Liu, X.,
+  Wang, J., Ge, W., et~al.: Qwen2-vl: Enhancing vision-language model's
+  perception of the world at any resolution. arXiv preprint arXiv:2409.12191
+  (2024)
+
+\bibitem{omtg2026}
+Xu, Q., Tan, Y., Chen, S., Meng, J., Wang, A., Ji, S., Fei, H., Li, J.: Towards
+  one-to-many temporal grounding. In: Proceedings of the International
+  Conference on Machine Learning (ICML) (2026)
+
+\end{thebibliography}

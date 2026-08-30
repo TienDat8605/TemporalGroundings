@@ -642,7 +642,7 @@ class QwenEvidenceBackend(ModelBackend):
             },
         )
 
-    def predict_video(self, sample: Sample) -> Prediction:
+    def predict_video(self, sample: Sample, frame_budget: int | None = None) -> Prediction:
         """Run the official whole-video control path."""
         if self.name not in {"timelens2-4b", "timelens-8b", "qwen3-vl-8b", "qwen3-vl-4b"}:
             raise ValueError("native video inference is available only for TimeLens or Qwen3 checkpoints")
@@ -650,4 +650,4 @@ class QwenEvidenceBackend(ModelBackend):
 
         require_native_video_reader()
         model, processor = self._load()
-        return native_timelens_prediction(model, processor, sample, family="qwen3")
+        return native_timelens_prediction(model, processor, sample, family="qwen3", frame_budget=frame_budget)
