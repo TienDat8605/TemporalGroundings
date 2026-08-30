@@ -414,7 +414,7 @@ class QwenEvidenceBackend(ModelBackend):
     @classmethod
     def _prompt(cls_or_self, sample: Sample, context: GroundingContext) -> str:
         name = getattr(cls_or_self, "name", None)
-        if name in {"timelens2-4b", "timelens-8b"}:
+        if name in {"timelens2-4b", "timelens-8b", "qwen3-vl-8b", "qwen3-vl-4b"}:
             return (
                 f'Given the query: "{sample.query}", return ALL time spans (in seconds) where the query is relevant.\n'
                 "Output format MUST be a JSON array of [start, end] pairs.\n"
@@ -499,7 +499,7 @@ class QwenEvidenceBackend(ModelBackend):
 
         model, processor = self._load()
         is_dense_timelens = (
-            self.name in {"timelens2-4b", "timelens-8b"}
+            self.name in {"timelens2-4b", "timelens-8b", "qwen3-vl-8b", "qwen3-vl-4b"}
             and self.post_pruning == "none"
             and self.encoder_pruning == "none"
         )
@@ -643,9 +643,9 @@ class QwenEvidenceBackend(ModelBackend):
         )
 
     def predict_video(self, sample: Sample) -> Prediction:
-        """Run the official TimeLens2 whole-video control path."""
-        if self.name not in {"timelens2-4b", "timelens-8b"}:
-            raise ValueError("native video inference is available only for a TimeLens checkpoint")
+        """Run the official whole-video control path."""
+        if self.name not in {"timelens2-4b", "timelens-8b", "qwen3-vl-8b", "qwen3-vl-4b"}:
+            raise ValueError("native video inference is available only for TimeLens or Qwen3 checkpoints")
         from .timelens import native_timelens_prediction, require_native_video_reader
 
         require_native_video_reader()

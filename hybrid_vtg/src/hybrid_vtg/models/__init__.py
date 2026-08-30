@@ -46,6 +46,23 @@ def register_models(registry: Any) -> None:
         ),
     )
     registry.register(
+        "qwen3-vl-8b",
+        lambda cache_dir, checkpoint=None, model_spec=None, feature_roots=(), encoder_pruning="none",
+        encoder_retention=1.0, encoder_prune_layer=0, post_pruning="none", post_retention=1.0: (
+            QwenEvidenceBackend(
+                checkpoint or "Qwen/Qwen3-VL-8B-Instruct",
+                Path(cache_dir),
+                name="qwen3-vl-8b",
+                encoder_pruning=encoder_pruning,
+                encoder_retention=encoder_retention,
+                encoder_prune_layer=encoder_prune_layer,
+                post_pruning=post_pruning,
+                post_retention=post_retention,
+                maximum_evidence_units=4_096,
+            )
+        ),
+    )
+    registry.register(
         "timelens2-4b",
         lambda cache_dir, checkpoint=None, model_spec=None, feature_roots=(), encoder_pruning="none",
         encoder_retention=1.0, encoder_prune_layer=0, post_pruning="none", post_retention=1.0: (

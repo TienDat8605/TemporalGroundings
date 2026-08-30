@@ -27,6 +27,8 @@ TARGETS = (
     "qvhighlights-timelens",
     "momentseeker",
     "unitime",
+    "qwen3-vl-4b",
+    "qwen3-vl-8b",
     "timelens2-4b",
     "timelens-8b",
     "timelens-7b",
@@ -87,6 +89,8 @@ SOURCES = {
         "adapter_repository": "zeqianli/UniTime",
         "base_repository": "Qwen/Qwen2-VL-7B-Instruct",
     },
+    "qwen3-vl-4b": {"repository": "Qwen/Qwen3-VL-4B-Instruct"},
+    "qwen3-vl-8b": {"repository": "Qwen/Qwen3-VL-8B-Instruct"},
     "timelens2-4b": {"repository": "MCG-NJU/TimeLens2-4B"},
     "timelens-8b": {"repository": "TencentARC/TimeLens-8B"},
     "timelens-7b": {"repository": "TencentARC/TimeLens-7B"},
@@ -106,6 +110,8 @@ def asset_paths(root: Path) -> dict[str, Path]:
         "qvhighlights-timelens": root / "datasets" / "qvhighlights-timelens",
         "momentseeker": root / "datasets" / "momentseeker",
         "unitime": root / "checkpoints" / "unitime",
+        "qwen3-vl-4b": root / "checkpoints" / "qwen3-vl-4b",
+        "qwen3-vl-8b": root / "checkpoints" / "qwen3-vl-8b",
         "timelens2-4b": root / "checkpoints" / "timelens2-4b",
         "timelens-8b": root / "checkpoints" / "timelens-8b",
         "timelens-7b": root / "checkpoints" / "timelens-7b",
@@ -539,6 +545,22 @@ def _download_unitime(_root: Path, destination: Path, hf_token: str | None) -> d
     return _complete(destination, SOURCES["unitime"], adapter=str(adapter), base=str(base))
 
 
+def _download_qwen3_4b(_root: Path, destination: Path, hf_token: str | None) -> dict[str, Any]:
+    marker = destination / ".complete.json"
+    if marker.is_file():
+        return json.loads(marker.read_text(encoding="utf-8"))
+    _snapshot(SOURCES["qwen3-vl-4b"]["repository"], destination, hf_token)
+    return _complete(destination, SOURCES["qwen3-vl-4b"])
+
+
+def _download_qwen3_8b(_root: Path, destination: Path, hf_token: str | None) -> dict[str, Any]:
+    marker = destination / ".complete.json"
+    if marker.is_file():
+        return json.loads(marker.read_text(encoding="utf-8"))
+    _snapshot(SOURCES["qwen3-vl-8b"]["repository"], destination, hf_token)
+    return _complete(destination, SOURCES["qwen3-vl-8b"])
+
+
 def _download_timelens2(_root: Path, destination: Path, hf_token: str | None) -> dict[str, Any]:
     marker = destination / ".complete.json"
     if marker.is_file():
@@ -581,6 +603,8 @@ DOWNLOADERS: dict[str, Callable[[Path, Path, str | None], dict[str, Any]]] = {
     "qvhighlights-timelens": _download_qvhighlights_timelens,
     "momentseeker": _download_momentseeker,
     "unitime": _download_unitime,
+    "qwen3-vl-4b": _download_qwen3_4b,
+    "qwen3-vl-8b": _download_qwen3_8b,
     "timelens2-4b": _download_timelens2,
     "timelens-8b": _download_timelens8,
     "timelens-7b": _download_timelens7,

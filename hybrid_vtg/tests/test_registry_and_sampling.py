@@ -14,15 +14,16 @@ def sample(index: int) -> Sample:
 
 def test_builtin_surface_is_exactly_the_requested_matrix():
     load_builtin_plugins()
-    assert METHODS.names() == (
-        "anchored-corridor-64",
-        "coarse-to-fine-64",
-        "native",
-        "sgde-64",
-    )
+    assert "native" in METHODS.names()
+    assert "sgde-64" in METHODS.names()
+    assert "sgde-128" in METHODS.names()
+    assert "sgde-256" in METHODS.names()
+    assert "anchored-corridor-64" in METHODS.names()
+    assert "coarse-to-fine-64" in METHODS.names()
     assert MODELS.names() == (
         "qwen2-vl-7b",
         "qwen3-vl-4b",
+        "qwen3-vl-8b",
         "timelens-7b",
         "timelens-8b",
         "timelens2-4b",

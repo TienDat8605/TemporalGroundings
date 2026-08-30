@@ -67,7 +67,7 @@ def test_native_rejects_unsupported_models_and_timelens_pruning_before_loading_d
         run_benchmark(
             benchmark_name="tacos",
             data=tmp_path,
-            model_name="qwen3-vl-4b",
+            model_name="qwen2-vl-7b",
             method_name="native",
             percentage=1,
             seed=1,

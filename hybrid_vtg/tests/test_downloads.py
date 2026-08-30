@@ -45,6 +45,8 @@ def test_download_layout_is_one_predictable_assets_tree(tmp_path: Path):
         "qvhighlights-timelens",
         "momentseeker",
         "unitime",
+        "qwen3-vl-4b",
+        "qwen3-vl-8b",
         "timelens2-4b",
         "timelens-8b",
         "timelens-7b",

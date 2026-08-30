@@ -161,9 +161,9 @@ def run_benchmark(
     percentage = validate_percentage(percentage)
     if base_checkpoint is not None and model_name != "unitime":
         raise ValueError("base checkpoint override is available only for UniTime")
-    native_models = {"unitime", "timelens2-4b", "timelens-8b", "timelens-7b"}
+    native_models = {"unitime", "timelens2-4b", "timelens-8b", "timelens-7b", "qwen3-vl-4b", "qwen3-vl-8b"}
     if method_name == "native" and model_name not in native_models:
-        raise ValueError("native requires --model unitime, timelens2-4b, timelens-8b, or timelens-7b")
+        raise ValueError("native requires --model unitime, timelens2-4b, timelens-8b, timelens-7b, qwen3-vl-4b, or qwen3-vl-8b")
     if (
         method_name == "native"
         and model_name != "unitime"
@@ -172,6 +172,8 @@ def run_benchmark(
         raise ValueError(
             "native TimeLens inference is dense; use coarse-to-fine-64 for Mage or SemVID"
         )
+    if method_name == "anchored-corridor-64" and (encoder_pruning != "none" or post_pruning != "none"):
+        raise ValueError("anchored-corridor-64 requires dense evidence; pruning is unsupported")
     _validate_pruning_configuration(
         model_name,
         encoder_pruning,
@@ -233,6 +235,15 @@ def run_benchmark(
         manifest["maximum_evidence_units"] = 4_096
     elif model_name == "qwen3-vl-4b":
         manifest["checkpoint"] = checkpoint or "Qwen/Qwen3-VL-4B-Instruct"
+        if method_name == "native":
+            manifest["native_video_fps"] = 2.0
+            manifest["native_total_pixel_budget"] = 4_096 * 32 * 32
+        manifest["maximum_evidence_units"] = 4_096
+    elif model_name == "qwen3-vl-8b":
+        manifest["checkpoint"] = checkpoint or "Qwen/Qwen3-VL-8B-Instruct"
+        if method_name == "native":
+            manifest["native_video_fps"] = 2.0
+            manifest["native_total_pixel_budget"] = 4_096 * 32 * 32
         manifest["maximum_evidence_units"] = 4_096
     elif model_name == "timelens2-4b":
         manifest["checkpoint"] = checkpoint or "MCG-NJU/TimeLens2-4B"
