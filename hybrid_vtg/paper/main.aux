@@ -82,22 +82,23 @@
 \@writefile{lof}{\contentsline {figure}{\numberline {3}{\ignorespaces \textbf  {Original video duration vs. retained candidate corridor duration on OMTG Bench ($N=320$).} The diagonal dashed line ($W_{\mathrm  {len}} = T$) denotes unpruned whole-video baseline. For short videos ($T \le 45\text  {s}$), Adaptive SGDE safely retains the full video span ($0\%$ pruned, red points). For longer videos ($T > 45\text  {s}$), candidate corridor extraction prunes an average of $58.1\%$ of irrelevant background dead-zones (green points, shaded area), keeping dense decoding tightly focused.}}{9}{}\protected@file@percent }
 \newlabel{fig:video_length_pruning}{{3}{9}{}{figure.3}{}}
 \@writefile{toc}{\contentsline {paragraph}{2. Video Length Scaling and Background Pruning.}{9}{}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{3. Precision vs. Recall Dynamics and Grounder Frame Savings.}{9}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{3. Approaching the Theoretical Limit.}{9}{}\protected@file@percent }
 \@writefile{lof}{\contentsline {figure}{\numberline {4}{\ignorespaces \textbf  {Evaluation of timeline scoring and candidate extraction methods on OMTG Bench.} (a) Action span retrieval: $Z$-score hysteresis energy mining increases Ground-Truth coverage to $80.3\%$ and cuts missed spans by $31.1\%$ relative. (b) Proposal continuity and overlap: achieving $95.9\%$ 1-window continuity and $48.6\%$ proposal IoU.}}{10}{}\protected@file@percent }
 \newlabel{fig:scoring_ablation}{{4}{10}{}{figure.4}{}}
+\@writefile{toc}{\contentsline {paragraph}{4. Precision vs. Recall Dynamics and Grounder Frame Savings.}{10}{}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {4.3}Algorithmic Analysis: Timeline Scoring and Span Ratio Optimization}{10}{}\protected@file@percent }
 \newlabel{sec:exp_ablations}{{4.3}{10}{}{subsection.4.3}{}}
 \@writefile{toc}{\contentsline {paragraph}{1. Scoring Function Robustness and Upstream Recall Ceiling.}{10}{}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{2. Selecting the Optimal Span Ratio Threshold ($\rho $).}{10}{}\protected@file@percent }
 \bibstyle{splncs04}
 \bibdata{references}
 \bibcite{gao2017tall}{1}
-\bibcite{anne2017localizing}{2}
 \@writefile{lof}{\contentsline {figure}{\numberline {5}{\ignorespaces \textbf  {Soft merge span ratio threshold ($\rho $) optimization sweep on OMTG Bench.} (a) Continuity vs. GT coverage: setting $\rho =70\%$ retains $95.0\%$ of videos within a single continuous prompt while covering $79.71\%$ of GT action spans. (b) Background duration pruned: achieving $37.17\%$ background pruning across the benchmark (up to $85.2\%$ on videos $>180\text  {s}$).}}{11}{}\protected@file@percent }
 \newlabel{fig:soft_merge_ablation}{{5}{11}{}{figure.5}{}}
+\@writefile{toc}{\contentsline {paragraph}{2. Selecting the Optimal Span Ratio Threshold ($\rho $).}{11}{}\protected@file@percent }
 \@writefile{toc}{\contentsline {section}{\numberline {5}Conclusion}{11}{}\protected@file@percent }
 \newlabel{sec:conclusion}{{5}{11}{}{section.5}{}}
 \@writefile{toc}{\contentsline {paragraph}{Limitations and Future Work.}{11}{}\protected@file@percent }
+\bibcite{anne2017localizing}{2}
 \bibcite{li2023vtimellm}{3}
 \bibcite{timelens2024}{4}
 \bibcite{lei2021qvhighlights}{5}
