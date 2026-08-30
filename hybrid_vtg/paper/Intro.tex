@@ -8,7 +8,7 @@ To evaluate this capability, recent work introduced One-to-Many Video Temporal G
 \begin{figure}[t]
     \centering
     \includegraphics[width=\textwidth]{pipeline_large.png}
-    \caption{\textbf{Overview of Adaptive Scout-Guided Dense Evidence (Adaptive SGDE).} Long untrimmed videos are first scanned by a lightweight 1.04B scout at 1.0~FPS. Local $Z$-score normalization and thresholding extract candidate action proposals, which are grouped by duration-adaptive windowing and continuity merging. The focused candidate window is decoded with dense frames by a frozen 8B Vision-Language model using schema-delimited JSON syntax, removing background frames while preserving the number of events.}
+    \caption{\textbf{Overview of ScoutTG.} Long untrimmed videos are first scanned by a lightweight 1.04B scout at 1.0~FPS. Local $Z$-score normalization and thresholding extract candidate action proposals, which are grouped by duration-adaptive windowing and continuity merging. The focused candidate window is decoded with dense frames by a frozen 8B Vision-Language model using schema-delimited JSON syntax, removing background frames while preserving the number of events.}
     \label{fig:pipeline}
 \end{figure}
 
@@ -18,7 +18,7 @@ In this paper, our empirical analysis highlights two major contributing factors 
     \item \textbf{Background Frames in Long Videos}: In long untrimmed videos spanning several minutes, uniform sampling forces the Vision Transformer to process thousands of irrelevant background frames. These background frames can introduce irrelevant visual evidence and reduce grounding accuracy.
 \end{enumerate}
 
-To address both issues without parameter fine-tuning, we propose Adaptive Scout-Guided Dense Evidence (Adaptive SGDE), a training-free framework for multi-event temporal grounding. As shown in Fig.~\ref{fig:pipeline}, Adaptive SGDE uses a four-stage coarse-to-fine pipeline:
+To address both issues without parameter fine-tuning, we propose ScoutTG, a training-free framework for multi-event temporal grounding. As shown in Fig.~\ref{fig:pipeline}, ScoutTG uses a four-stage coarse-to-fine pipeline:
 \begin{itemize}
     \item \textbf{Stage 1: Coarse Multimodal Scouting}: A frozen 1.04B embedding scout scans the untrimmed video at 1.0~FPS, producing a cross-modal similarity timeline normalized by video-level $Z$-scores because similarity scores vary across videos.
     \item \textbf{Stage 2: Proposal Extraction}: Dual-threshold search and energy scoring extract candidate action intervals.
@@ -26,4 +26,4 @@ To address both issues without parameter fine-tuning, we propose Adaptive Scout-
     \item \textbf{Stage 4: Focused Dense Grounding}: The primary grounder (TimeLens-8B~\cite{timelens2024}) processes only the candidate window under a structured JSON prompt, focusing frame allocation on relevant action regions.
 \end{itemize}
 
-Evaluations on the OMTG benchmark demonstrate that Adaptive SGDE improves training-free grounding, achieving 33.12\% Count Accuracy and 19.86\% Effective Temporal F1. Furthermore, by removing irrelevant background intervals, Adaptive SGDE reduces 8B Vision Transformer frame evaluations by 60.3\%.
+Evaluations on the OMTG benchmark demonstrate that ScoutTG improves training-free grounding, achieving 33.12\% Count Accuracy and 19.86\% Effective Temporal F1. Furthermore, by removing irrelevant background intervals, ScoutTG reduces 8B Vision Transformer frame evaluations by 60.3\%.

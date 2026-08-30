@@ -1,4 +1,4 @@
-\section{Methodology: Adaptive SGDE}
+\section{Methodology: ScoutTG}
 \label{sec:method}
 
 \subsection{Problem Formulation and Overview}
@@ -11,7 +11,7 @@ Given an untrimmed video $\mathcal{V} = \{f_t\}_{t=1}^{T}$ of duration $T$ secon
 \end{equation}
 where each temporal segment $[s_k^*, e_k^*]$ semantically satisfies $\mathcal{Q}$. OMTG requires predicting the total event count $K$ as well as start and end timestamps $[s_k, e_k]$ for each retrieved moment. Standard Multimodal Large Language Models (MLLMs) perform poorly on OMTG due to background frames in long videos and prompt format misalignment.
 
-To address these challenges without fine-tuning, we propose Adaptive Scout-Guided Dense Evidence (Adaptive SGDE). As illustrated in Fig.~\ref{fig:pipeline}, Adaptive SGDE uses a four-stage coarse-to-fine pipeline: (1) 1.0~FPS timeline scouting ($\S$\ref{sec:stage1}), (2) proposal extraction and scoring ($\S$\ref{sec:stage2}), (3) duration-adaptive window planning ($\S$\ref{sec:stage3}), and (4) budgeted dense decoding with structured multi-span output ($\S$\ref{sec:stage4}).
+To address these challenges without fine-tuning, we propose ScoutTG. As illustrated in Fig.~\ref{fig:pipeline}, ScoutTG uses a four-stage coarse-to-fine pipeline: (1) 1.0~FPS timeline scouting ($\S$\ref{sec:stage1}), (2) proposal extraction and scoring ($\S$\ref{sec:stage2}), (3) duration-adaptive window planning ($\S$\ref{sec:stage3}), and (4) budgeted dense decoding with structured multi-span output ($\S$\ref{sec:stage4}).
 
 % -------------------------------------------------------------------------
 

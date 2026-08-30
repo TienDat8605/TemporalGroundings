@@ -4,14 +4,14 @@
 \citation{lin2023videollava}
 \citation{timelens2024}
 \citation{omtg2026}
-\@writefile{toc}{\contentsline {title}{Training-Free One-to-Many Video Temporal Grounding\unskip \ \ignorespaces via Sub-Linear Duration-Adaptive Windowing}{1}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {title}{Training-Free One-to-Many Temporal Grounding\unskip \ \ignorespaces via Semantic Scouting}{1}{}\protected@file@percent }
 \@writefile{toc}{\authcount {1}}
 \@writefile{toc}{\contentsline {author}{Anonymous Authors}{1}{}\protected@file@percent }
 \@writefile{toc}{\contentsline {section}{\numberline {1}Introduction}{1}{}\protected@file@percent }
 \newlabel{sec:intro}{{1}{1}{}{section.1}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces \textbf  {Overview of Adaptive Scout-Guided Dense Evidence (Adaptive SGDE).} Long untrimmed videos are first scanned by a lightweight 1.04B scout at 1.0~FPS. Local $Z$-score normalization and thresholding extract candidate action proposals, which are grouped by duration-adaptive windowing and continuity merging. The focused candidate window is decoded with dense frames by a frozen 8B Vision-Language model using schema-delimited JSON syntax, removing background frames while preserving the number of events.}}{2}{}\protected@file@percent }
-\newlabel{fig:pipeline}{{1}{2}{}{figure.1}{}}
 \citation{timelens2024}
+\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces \textbf  {Overview of ScoutTG.} Long untrimmed videos are first scanned by a lightweight 1.04B scout at 1.0~FPS. Local $Z$-score normalization and thresholding extract candidate action proposals, which are grouped by duration-adaptive windowing and continuity merging. The focused candidate window is decoded with dense frames by a frozen 8B Vision-Language model using schema-delimited JSON syntax, removing background frames while preserving the number of events.}}{2}{}\protected@file@percent }
+\newlabel{fig:pipeline}{{1}{2}{}{figure.1}{}}
 \citation{gao2017tall,anne2017localizing}
 \citation{gao2017tall}
 \citation{lei2021momentdetr}
@@ -24,13 +24,13 @@
 \citation{bai2024qwen2vl}
 \citation{timelens2024}
 \citation{lei2021momentdetr,lin2023unitime}
+\citation{omtg2026}
 \@writefile{toc}{\contentsline {section}{\numberline {2}Related Work}{3}{}\protected@file@percent }
 \newlabel{sec:related_work}{{2}{3}{}{section.2}{}}
 \@writefile{toc}{\contentsline {subsection}{\numberline {2.1}Video Temporal Grounding: Single-Event to One-to-Many}{3}{}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {2.2}Multimodal Large Language Models for Video Understanding}{3}{}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {2.3}Training-Free and Coarse-to-Fine Video Grounding}{3}{}\protected@file@percent }
-\citation{omtg2026}
-\@writefile{toc}{\contentsline {section}{\numberline {3}Methodology: Adaptive SGDE}{4}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {3}Methodology: ScoutTG}{4}{}\protected@file@percent }
 \newlabel{sec:method}{{3}{4}{}{section.3}{}}
 \@writefile{toc}{\contentsline {subsection}{\numberline {3.1}Problem Formulation and Overview}{4}{}\protected@file@percent }
 \newlabel{sec:overview}{{3.1}{4}{}{subsection.3.1}{}}
@@ -71,7 +71,7 @@
 \citation{omtg2026}
 \@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces \textbf  {Master performance and efficiency comparison on OMTG Bench ($N=320$).} All models operate zero-shot without fine-tuning. Frames denotes aggregate 8B ViT frames evaluated across the benchmark. Rows with 128 frames share identical structured prompt schemas for strictly controlled comparison. Best results are in \textbf  {bold}; second-best are \underline  {underlined}.}}{7}{}\protected@file@percent }
 \newlabel{tab:main_results}{{1}{7}{}{table.1}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces \textbf  {Original video duration vs. retained candidate window duration on OMTG Bench ($N=320$).} The diagonal dashed line ($W_{\mathrm  {len}} = T$) denotes the unpruned baseline. For short videos ($T \le 45\text  {s}$), Adaptive SGDE retains the full video span ($0\%$ pruned, red points). For longer videos ($T > 45\text  {s}$), candidate window extraction removes an average of $58.1\%$ of background frames (green points, shaded area).}}{7}{}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces \textbf  {Original video duration vs. retained candidate window duration on OMTG Bench ($N=320$).} The diagonal dashed line ($W_{\mathrm  {len}} = T$) denotes the unpruned baseline. For short videos ($T \le 45\text  {s}$), ScoutTG retains the full video span ($0\%$ pruned, red points). For longer videos ($T > 45\text  {s}$), candidate window extraction removes an average of $58.1\%$ of background frames (green points, shaded area).}}{7}{}\protected@file@percent }
 \newlabel{fig:video_length_pruning}{{2}{7}{}{figure.2}{}}
 \@writefile{toc}{\contentsline {paragraph}{Implementation Details.}{7}{}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {4.2}Grounding Performance and Computational Efficiency}{7}{}\protected@file@percent }
