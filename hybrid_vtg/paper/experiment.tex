@@ -28,21 +28,25 @@
 \caption{\textbf{Master performance and efficiency comparison on OMTG Bench ($N=320$).} All models operate zero-shot without fine-tuning. Frames denotes aggregate 8B ViT frames processed across all 320 query evaluations ($322.8\text{f}$ avg for native). Best results are in \textbf{bold}; second-best are \underline{underlined}.}
 \label{tab:main_results}
 \vspace{2pt}
-\renewcommand{\arraystretch}{1.2}
-\setlength{\tabcolsep}{2.2pt}
-\scriptsize
+\resizebox{\textwidth}{!}{
 \begin{tabular}{l c c c c c c c}
 \hline
 \textbf{Configuration} & \textbf{Frames} & \textbf{Saved$\uparrow$} & \textbf{C-Acc$\uparrow$} & \textbf{tF1@.5} & \textbf{tIoU$\uparrow$} & \textbf{EtF1$\uparrow$} & \textbf{Err$\downarrow$} \\
 \hline
 TimeLens-8B (Paper Prompt)~\cite{omtg2026} & 103.3k & Baseline & 0.00\% & 32.76\% & 32.38\% & 0.00\% & 2.15 \\
-TimeLens-8B (JSON Prompt) & 103.3k & Baseline & 19.69\% & \textbf{47.16\%} & \textbf{46.57\%} & 14.23\% & 2.07 \\
+TimeLens-8B (JSON Prompt) & 103.3k & Baseline & 19.69\% & \textbf{47.98\%} & 46.57\% & 14.23\% & 2.07 \\
 \hline
-+ Adaptive SGDE-64 (64f) & 20.5k & \textbf{-80.2\%} & 27.19\% & 37.41\% & 41.22\% & 14.44\% & 2.09 \\
-+ Adaptive SGDE-128 (128f) & 41.0k & \textbf{-60.3\%} & \textbf{33.12\%} & \underline{41.82\%} & 44.76\% & \underline{19.14\%} & \textbf{1.75} \\
-+ Adaptive SGDE-256 (256f) & 81.9k & -20.7\% & \underline{31.88\%} & \underline{41.82\%} & \underline{45.42\%} & \textbf{19.86\%} & \underline{1.81} \\
++ Naive Uniform Downsample (128f) & 41.0k & -60.3\% & 16.88\% & 45.30\% & 44.23\% & 12.29\% & 1.96 \\
++ Random Temporal Crop (128f) & 41.0k & -60.3\% & 18.44\% & 24.29\% & 24.18\% & 3.61\% & 2.02 \\
+\hline
++ Adaptive SGDE-64 (64f) & \textbf{20.5k} & \textbf{-80.2\%} & 27.19\% & 37.41\% & 41.22\% & 14.44\% & 2.09 \\
++ Adaptive SGDE-128 (128f) & 41.0k & \textbf{-60.3\%} & \underline{33.12\%} & 41.82\% & 44.76\% & \underline{19.14\%} & \textbf{1.75} \\
++ Adaptive SGDE-256 (256f) & 81.9k & -20.7\% & 31.88\% & 41.82\% & \underline{45.42\%} & \textbf{19.86\%} & \underline{1.81} \\
+\hline
+\emph{Oracle GT Corridor (128f Upper Bound)} & 41.0k & -60.3\% & \textbf{33.44\%} & \underline{47.59\%} & \textbf{50.54\%} & \textbf{20.99\%} & 2.08 \\
 \hline
 \end{tabular}
+}
 \end{table}
 
 \begin{figure}[t]
