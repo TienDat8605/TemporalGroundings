@@ -37,11 +37,8 @@ TimeLens-8B (Paper Prompt)~\cite{omtg2026} & 103.3k & Baseline & 0.00\% & 32.76\
 TimeLens-8B (JSON Prompt) & 103.3k & Baseline & 19.69\% & \textbf{47.98\%} & 46.57\% & 14.23\% & 2.07 \\
 \hline
 + Naive Uniform Downsample (128f) & 41.0k & -60.3\% & 16.88\% & 45.30\% & 44.23\% & 12.29\% & 1.96 \\
-+ Random Temporal Crop (128f) & 41.0k & -60.3\% & 18.44\% & 24.29\% & 24.18\% & 3.61\% & 2.02 \\
-+ Single-Window Corridor (128f) & 41.0k & -60.3\% & 28.44\% & 38.26\% & 36.81\% & 16.86\% & 1.94 \\
-\hline
 + Adaptive SGDE-64 (64f) & \textbf{20.5k} & \textbf{-80.2\%} & 27.19\% & 37.41\% & 41.22\% & 14.44\% & 2.09 \\
-+ Adaptive SGDE-128 (128f) & 41.0k & \textbf{-60.3\%} & \underline{33.12\%} & 41.82\% & 44.76\% & \underline{19.14\%} & \textbf{1.75} \\
++ Adaptive SGDE-128 (128f) [Proposed] & 41.0k & \textbf{-60.3\%} & \underline{33.12\%} & 41.82\% & 44.76\% & \underline{19.14\%} & \textbf{1.75} \\
 + Adaptive SGDE-256 (256f) & 81.9k & -20.7\% & 31.88\% & 41.82\% & \underline{45.42\%} & \textbf{19.86\%} & \underline{1.81} \\
 \hline
 \emph{Theoretical Limit (Oracle GT Corridor, 128f)} & 41.0k & -60.3\% & \textbf{33.44\%} & \underline{47.59\%} & \textbf{50.54\%} & \textbf{20.99\%} & 2.08 \\
@@ -69,8 +66,27 @@ Table~\ref{tab:main_results} and Fig.~\ref{fig:video_length_pruning} evaluate gr
 
 % -------------------------------------------------------------------------
 
-\subsection{Algorithmic Analysis: Timeline Scoring and Span Ratio Optimization}
+\subsection{Algorithmic Analysis: Corridor Planning and Windowing Topologies}
 \label{sec:exp_ablations}
+
+\begin{table}[t]
+\centering
+\caption{\textbf{Ablation of temporal corridor planning and windowing strategies on OMTG Bench ($N=320$, 128-frame budget).} Isolating the impact of semantic scouting, single-window bounding, and soft continuity merging.}
+\label{tab:ablation_windowing}
+\vspace{2pt}
+\resizebox{\textwidth}{!}{
+\begin{tabular}{l l c c c c c}
+\hline
+\textbf{Corridor Strategy} & \textbf{Planning Mode} & \textbf{C-Acc$\uparrow$} & \textbf{tF1@.5} & \textbf{tIoU$\uparrow$} & \textbf{EtF1$\uparrow$} & \textbf{Err$\downarrow$} \\
+\hline
+(a) Random Temporal Crop & Uniform Random ($40\%$ dur) & 18.44\% & 24.29\% & 24.18\% & 3.61\% & 2.02 \\
+(b) Single-Window Corridor & Coarse Bounding Span & 28.44\% & 38.26\% & 36.81\% & 16.86\% & 1.94 \\
+(c) Multi-Window (No Merge) & Gap-Only Split ($\rho=1.0$) & 28.44\% & 38.49\% & 37.12\% & 16.81\% & 1.94 \\
+(d) \textbf{Adaptive SGDE-128 (Full)} & \textbf{Sub-Linear + Soft Merge ($\rho=0.7$)} & \textbf{33.12\%} & \textbf{41.82\%} & \textbf{44.76\%} & \textbf{19.14\%} & \textbf{1.75} \\
+\hline
+\end{tabular}
+}
+\end{table}
 
 \begin{figure}[t]
     \centering
@@ -79,7 +95,9 @@ Table~\ref{tab:main_results} and Fig.~\ref{fig:video_length_pruning} evaluate gr
     \label{fig:scoring_ablation}
 \end{figure}
 
-\paragraph{1. Scoring Function Robustness and Upstream Recall Ceiling.} As depicted in Fig.~\ref{fig:scoring_ablation}, naive cosine similarity with a fixed cutoff suffers from baseline similarity shifts across video domains, causing $25.1\%$ missed action spans. Video-adaptive $Z$-score normalization combined with dual-threshold hysteresis ($\tau_{\text{high}}=0.80, \tau_{\text{low}}=0.25$) and excess energy integral $J(a,b)$ raises ground-truth coverage from $70.9\% \rightarrow \textbf{80.3\%}$ ($+9.4\%$), improves proposal IoU from $34.2\% \rightarrow \textbf{48.6\%}$, and cuts missed action spans by $31.1\%$ relative. We note that the $80.3\%$ candidate coverage defines the theoretical upper bound on recall for Stage 4 decoding. The remaining unretrieved spans ($\approx 19.7\%$) represent a deliberate efficiency trade-off of 1.0~FPS coarse scouting, which filters brief sub-second transitions to deliver $>60\%$ compute savings; applications demanding exhaustive recall can linearly scale scout frame rate or lower $\tau_{\text{high}}$.
+\paragraph{1. Semantic Guidance vs. Random Windowing.} As demonstrated in Table~\ref{tab:ablation_windowing}, evaluating a random temporal window matching the average candidate duration ratio ($40\%$) collapses EtF1 to \textbf{3.61\%} and tIoU to \textbf{24.18\%}. This confirms that temporal windowing without cross-modal semantic guidance severely damages event localization.
+
+\paragraph{2. Single-Window vs. Multi-Window Topology.} Transitioning from unpruned video to a single continuous scout corridor (strategy b) lifts Count Accuracy from $16.88\% \rightarrow \textbf{28.44\%}$ and EtF1 from $12.29\% \rightarrow \textbf{16.86\%}$. However, forcing distant multi-event clusters into a single window includes unpruned intermediate background, capping tIoU at $36.81\%$. While naively splitting intervals without soft merging (strategy c) risks fragmenting nearby moments ($16.81\%$ EtF1), our proposed **Adaptive SGDE** with $70\%$ soft continuity merging (strategy d) dynamically unifies proximate clusters while isolating distant intervals, boosting tIoU to \textbf{44.76\%}, Count Accuracy to \textbf{33.12\%}, and EtF1 to \textbf{19.14\%}.
 
 \begin{figure}[t]
     \centering
