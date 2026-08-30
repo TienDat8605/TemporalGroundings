@@ -51,11 +51,11 @@
 \newlabel{sec:stage3}{{3.4}{5}{}{subsection.3.4}{}}
 \@writefile{toc}{\contentsline {paragraph}{Adaptive Margin and Clustering Gap.}{5}{}\protected@file@percent }
 \newlabel{eq:adaptive_geometry}{{6}{5}{}{equation.6}{}}
+\@writefile{toc}{\contentsline {paragraph}{Continuous Window Merging.}{5}{}\protected@file@percent }
+\newlabel{eq:soft_merge}{{7}{5}{}{equation.7}{}}
 \citation{timelens2024}
 \citation{omtg2026}
 \citation{omtg2026}
-\@writefile{toc}{\contentsline {paragraph}{Continuous Window Merging.}{6}{}\protected@file@percent }
-\newlabel{eq:soft_merge}{{7}{6}{}{equation.7}{}}
 \@writefile{toc}{\contentsline {subsection}{\numberline {3.5}Stage 4: Dense Grounding and Structured Multi-Span Decoding}{6}{}\protected@file@percent }
 \newlabel{sec:stage4}{{3.5}{6}{}{subsection.3.5}{}}
 \@writefile{toc}{\contentsline {paragraph}{Budgeted Window Frame Allocation.}{6}{}\protected@file@percent }
@@ -65,20 +65,20 @@
 \@writefile{toc}{\contentsline {subsection}{\numberline {4.1}Experimental Setup}{6}{}\protected@file@percent }
 \newlabel{sec:exp_setup}{{4.1}{6}{}{subsection.4.1}{}}
 \@writefile{toc}{\contentsline {paragraph}{Benchmark Dataset.}{6}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Evaluation Metrics.}{6}{}\protected@file@percent }
 \citation{timelens2024}
 \citation{omtg2026}
 \citation{omtg2026}
 \@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces \textbf  {Master performance and efficiency comparison on OMTG Bench ($N=320$).} All models operate zero-shot without fine-tuning. Frames denotes aggregate 8B ViT frames evaluated across the benchmark. Rows with 128 frames share identical structured prompt schemas for strictly controlled comparison. Best results are in \textbf  {bold}; second-best are \underline  {underlined}.}}{7}{}\protected@file@percent }
 \newlabel{tab:main_results}{{1}{7}{}{table.1}{}}
-\@writefile{toc}{\contentsline {paragraph}{Evaluation Metrics.}{7}{}\protected@file@percent }
 \@writefile{toc}{\contentsline {paragraph}{Implementation Details.}{7}{}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {4.2}Grounding Performance and Computational Efficiency}{7}{}\protected@file@percent }
 \newlabel{sec:exp_main}{{4.2}{7}{}{subsection.4.2}{}}
+\@writefile{toc}{\contentsline {paragraph}{1. Prompt Syntax vs. Grounding Capacity.}{7}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{2. Video Length Scaling and Background Removal.}{7}{}\protected@file@percent }
 \@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces \textbf  {Original video duration vs. retained candidate window duration on OMTG Bench ($N=320$).} The diagonal dashed line ($W_{\mathrm  {len}} = T$) denotes the unpruned baseline. For short videos ($T \le 45\text  {s}$), Adaptive SGDE retains the full video span ($0\%$ pruned, red points). For longer videos ($T > 45\text  {s}$), candidate window extraction removes an average of $58.1\%$ of background frames (green points, shaded area).}}{8}{}\protected@file@percent }
 \newlabel{fig:video_length_pruning}{{2}{8}{}{figure.2}{}}
-\@writefile{toc}{\contentsline {paragraph}{1. Prompt Syntax vs. Grounding Capacity.}{8}{}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{2. Video Length Scaling and Background Removal.}{8}{}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{3. Comparison with Ground-Truth Window Upper Bound.}{8}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{3. Comparison with Oracle Ground-Truth Window Reference.}{8}{}\protected@file@percent }
 \@writefile{toc}{\contentsline {paragraph}{4. Precision-Recall Dynamics and Compute Savings.}{8}{}\protected@file@percent }
 \@writefile{lot}{\contentsline {table}{\numberline {2}{\ignorespaces \textbf  {Ablation of temporal window planning and windowing strategies on OMTG Bench ($N=320$, 128-frame budget).} Isolating semantic scouting, single-window bounding, and soft continuity merging.}}{9}{}\protected@file@percent }
 \newlabel{tab:ablation_windowing}{{2}{9}{}{table.2}{}}
@@ -88,15 +88,16 @@
 \newlabel{sec:exp_ablations}{{4.3}{9}{}{subsection.4.3}{}}
 \@writefile{toc}{\contentsline {paragraph}{1. Semantic Guidance vs. Random Windowing.}{9}{}\protected@file@percent }
 \@writefile{toc}{\contentsline {paragraph}{2. Single-Window vs. Multi-Window Topology.}{9}{}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {4}{\ignorespaces \textbf  {Merge threshold ($\rho $) sweep on OMTG Bench.} (a) Continuity vs. GT coverage: setting $\rho =70\%$ retains 95.0\% of videos within a single continuous prompt while covering 79.71\% of GT action spans. (b) Background duration pruned: achieving 37.17\% background pruning across the benchmark.}}{10}{}\protected@file@percent }
-\newlabel{fig:soft_merge_ablation}{{4}{10}{}{figure.4}{}}
-\@writefile{toc}{\contentsline {paragraph}{3. Timeline Scoring Function Evaluation.}{10}{}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{4. Soft Merge Span Ratio Optimization.}{10}{}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {5}Conclusion}{10}{}\protected@file@percent }
-\newlabel{sec:conclusion}{{5}{10}{}{section.5}{}}
+\@writefile{toc}{\contentsline {paragraph}{3. Timeline Scoring Function Evaluation.}{9}{}\protected@file@percent }
 \bibstyle{splncs04}
 \bibdata{references}
 \bibcite{gao2017tall}{1}
+\@writefile{lof}{\contentsline {figure}{\numberline {4}{\ignorespaces \textbf  {Merge threshold ($\rho $) sweep on OMTG Bench.} (a) Continuity vs. GT coverage: setting $\rho =70\%$ retains 95.0\% of videos within a single continuous prompt while covering 79.71\% of GT action spans. (b) Background duration pruned: achieving 37.17\% background pruning across the benchmark.}}{10}{}\protected@file@percent }
+\newlabel{fig:soft_merge_ablation}{{4}{10}{}{figure.4}{}}
+\@writefile{toc}{\contentsline {paragraph}{4. Merge Threshold Selection ($\rho $).}{10}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {5}Conclusion}{10}{}\protected@file@percent }
+\newlabel{sec:conclusion}{{5}{10}{}{section.5}{}}
+\@writefile{toc}{\contentsline {paragraph}{Limitations and Future Work.}{10}{}\protected@file@percent }
 \bibcite{anne2017localizing}{2}
 \bibcite{li2023vtimellm}{3}
 \bibcite{timelens2024}{4}
@@ -106,5 +107,4 @@
 \bibcite{lin2023unitime}{8}
 \bibcite{bai2024qwen2vl}{9}
 \bibcite{omtg2026}{10}
-\@writefile{toc}{\contentsline {paragraph}{Limitations and Future Work.}{11}{}\protected@file@percent }
 \gdef \@abspage@last{11}

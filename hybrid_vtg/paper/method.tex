@@ -9,7 +9,7 @@ Given an untrimmed video $\mathcal{V} = \{f_t\}_{t=1}^{T}$ of duration $T$ secon
     \mathcal{Y}^* = \big\{ [s_k^*, e_k^*] \big\}_{k=1}^{K}, \quad \text{subject to } 0 \le s_1^* < e_1^* < s_2^* < \dots < e_K^* \le T,
     \label{eq:omtg_formulation}
 \end{equation}
-where each temporal segment $[s_k^*, e_k^*]$ semantically satisfies $\mathcal{Q}$. OMTG requires predicting the total event count $K$ as well as start and end timestamps $[s_k, e_k]$ for each retrieved moment. Standard Multimodal Large Language Models (MLLMs) perform poorly on OMTG due to background visual distractors in long videos and prompt format misalignment.
+where each temporal segment $[s_k^*, e_k^*]$ semantically satisfies $\mathcal{Q}$. OMTG requires predicting the total event count $K$ as well as start and end timestamps $[s_k, e_k]$ for each retrieved moment. Standard Multimodal Large Language Models (MLLMs) perform poorly on OMTG due to background frames in long videos and prompt format misalignment.
 
 To address these challenges without fine-tuning, we propose Adaptive Scout-Guided Dense Evidence (Adaptive SGDE). As illustrated in Fig.~\ref{fig:pipeline}, Adaptive SGDE uses a four-stage coarse-to-fine pipeline: (1) 1.0~FPS timeline scouting ($\S$\ref{sec:stage1}), (2) proposal extraction and scoring ($\S$\ref{sec:stage2}), (3) duration-adaptive window planning ($\S$\ref{sec:stage3}), and (4) budgeted dense decoding with structured multi-span output ($\S$\ref{sec:stage4}).
 
@@ -48,7 +48,7 @@ where baseline offset $\tau_{\text{base}} = 0.30$. Each candidate $c = [a, b]$ i
     \mathrm{Score}(c) = \max_{t \in [a, b]} Z(t) + \alpha_{\text{energy}} \cdot \bar{J}(a, b),
     \label{eq:composite_score}
 \end{equation}
-with $\alpha_{\text{energy}} = 0.50$. Applying 1D Non-Maximum Suppression (NMS) with threshold $\theta_{\text{nms}} = 0.30$ removes overlapping proposals, increasing ground-truth action span coverage from 70.9\% to 80.3\% while cutting missed action instances by 31.1\% relative.
+with $\alpha_{\text{energy}} = 0.50$. Applying 1D Non-Maximum Suppression (NMS) with threshold $\theta_{\text{nms}} = 0.30$ removes redundant overlapping proposals.
 
 % -------------------------------------------------------------------------
 
@@ -67,14 +67,14 @@ where $\Delta(T)$ denotes the context margin and $G(T)$ is the clustering gap. T
     \frac{W_{\text{end}} - W_{\text{start}}}{T} \ge \rho = 0.70, \quad \text{or adjacent gap } \le G(T).
     \label{eq:soft_merge}
 \end{equation}
-This 70\% merge rule keeps 95.0\% of benchmark videos within a single continuous prompt, preserving multi-event context while eliminating 37.2\% to 85.2\% of background frames.
+This merge rule preserves contextual continuity across proximate actions while removing uninformative background frames outside the candidate envelope. The parameter $\rho$ controls the trade-off between prompt continuity and background pruning, which we analyze in $\S$\ref{sec:exp_ablations}.
 
 % -------------------------------------------------------------------------
 
 \subsection{Stage 4: Dense Grounding and Structured Multi-Span Decoding}
 \label{sec:stage4}
 
-\paragraph{Budgeted Window Frame Allocation.} Within the candidate window $[W_{\text{start}}, W_{\text{end}}]$, we allocate a fixed frame budget $B \in \{64, 128, 256\}$. Sampling $B$ frames inside the candidate window yields an effective local frame rate of $\mathrm{FPS}_{\text{local}} = B / (W_{\text{end}} - W_{\text{start}})$, while reducing 8B ViT frame evaluations by 60.3\%.
+\paragraph{Budgeted Window Frame Allocation.} Within the candidate window $[W_{\text{start}}, W_{\text{end}}]$, we allocate a fixed frame budget $B \in \{64, 128, 256\}$. Sampling $B$ frames inside the candidate window yields an effective local frame rate of $\mathrm{FPS}_{\text{local}} = B / (W_{\text{end}} - W_{\text{start}})$, which concentrates visual resolution on the candidate region compared to uniform whole-video sampling.
 
 \paragraph{Schema-Delimited Multi-Span Prompting.} Unstructured prompts often cause generation issues. We format the inference query into a structured JSON prompt:
 \begin{center}
@@ -82,4 +82,4 @@ This 70\% merge rule keeps 95.0\% of benchmark videos within a single continuous
 Given the query: "\{query\}", return ALL time spans (in seconds) where the query is relevant. Output format MUST be a JSON array of [start, end] pairs: [[s1, e1], [s2, e2], ...].
 }}
 \end{center}
-The primary grounder $\mathcal{M}_{\text{ground}}$ (TimeLens-8B~\cite{timelens2024}) decodes exact boundary timestamps $\mathcal{Y} = \{[s_k, e_k]\}_{k=1}^M$ over the densely sampled candidate window. For the minority of benchmark videos with widely separated action clusters ($\rho < 0.70$), disjoint windows are prompted independently with frame budget $B$, and their resulting predicted JSON timestamp lists are concatenated and chronologically sorted.
+The primary grounder $\mathcal{M}_{\text{ground}}$ (TimeLens-8B~\cite{timelens2024}) decodes exact boundary timestamps $\mathcal{Y} = \{[s_k, e_k]\}_{k=1}^M$ over the densely sampled candidate window. When candidate proposals form widely separated clusters ($\frac{W_{\text{end}} - W_{\text{start}}}{T} < \rho$), disjoint windows are prompted independently with frame budget $B$, and their resulting predicted JSON timestamp lists are concatenated and chronologically sorted.

@@ -12,7 +12,7 @@ To evaluate this capability, recent work introduced One-to-Many Video Temporal G
     \label{fig:pipeline}
 \end{figure}
 
-In this paper, we analyze the performance drop of MLLMs on OMTG and find two primary causes:
+In this paper, our empirical analysis highlights two major contributing factors behind the low multi-event grounding performance of MLLMs:
 \begin{enumerate}
     \item \textbf{Prompt Format Misalignment}: Default benchmark prompts embed output instructions within unstructured dialogue. This causes instruction-tuned models to output conversational text or a single timestamp instead of structured multi-span lists.
     \item \textbf{Background Frames in Long Videos}: In long untrimmed videos spanning several minutes, uniform sampling forces the Vision Transformer to process thousands of irrelevant background frames, which can trigger false positive detections and degrade event counting accuracy.
