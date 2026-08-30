@@ -47,39 +47,38 @@ def generate_dot_plot_retained_vs_original(output_paths):
             
     retained_durations = np.array(retained_durations)
     
-    fig, ax = plt.subplots(figsize=(6.8, 3.8))
-    plt.subplots_adjust(bottom=0.15, top=0.95, left=0.12, right=0.95)
+    fig, ax = plt.subplots(figsize=(7.2, 4.0), layout='constrained')
 
     x_line = np.linspace(0, 520, 100)
     ax.plot(x_line, x_line, color='gray', linestyle='--', linewidth=1.8, label=r'Unpruned Whole Video ($W_{\mathrm{len}} = T$)')
-    ax.fill_between(x_line, 0, x_line, color='#3498db', alpha=0.08, label='Pruned Background Dead-Zones')
+    ax.fill_between(x_line, 0, x_line, color='#3498db', alpha=0.08, label='Pruned Background Regions')
 
     mask_fallback = durations <= 45.0
     mask_pruned = ~mask_fallback
     
     ax.scatter(durations[mask_pruned], retained_durations[mask_pruned], 
                color='#10ac84', alpha=0.85, s=36, edgecolors='#0b6b52', linewidth=0.6,
-               label=r'Adaptive SGDE Corridor ($T > 45$s, $58.1\%$ avg prune)')
+               label=r'ScoutTG ($T > 45$s, $58.1\%$ avg prune)')
     
     ax.scatter(durations[mask_fallback], retained_durations[mask_fallback], 
                color='#e74c3c', alpha=0.85, s=36, edgecolors='#962d22', linewidth=0.6,
-               label=r'Safe Fallback ($T \leq 45$s, full span)')
+               label=r'Short Videos ($T \leq 45$s, full span)')
 
-    ax.set_xlabel('Original Video Duration $T$ (seconds)', fontweight='bold')
-    ax.set_ylabel(r'Retained Corridor Duration $W_{\mathrm{len}}$ (seconds)', fontweight='bold')
+    ax.set_xlabel('Original Video Duration $T$ (seconds)', fontweight='bold', labelpad=6)
+    ax.set_ylabel(r'Retained Window Duration $W_{\mathrm{len}}$ (seconds)', fontweight='bold', labelpad=6)
     ax.set_xlim(0, 530)
     ax.set_ylim(0, 530)
     ax.legend(loc='upper left', framealpha=0.92, frameon=True)
 
     for p in output_paths:
         os.makedirs(os.path.dirname(p), exist_ok=True)
-        fig.savefig(p, dpi=300)
+        fig.savefig(p, dpi=300, bbox_inches='tight')
         print(f"Saved: {p}")
     plt.close(fig)
 
 def generate_scoring_figure(output_paths):
     setup_style()
-    methods = ['Fixed Cutoff\n(Naive Cosine)', 'Adaptive Energy Mining\n($Z$-Score + Hyst. + $J$)']
+    methods = ['Fixed Cutoff\n(Naive Cosine)', 'ScoutTG Scoring\n($Z$-Score + Energy)']
     x = np.arange(len(methods))
     
     gt_cov = [70.9, 80.3]
@@ -125,13 +124,13 @@ def generate_scoring_figure(output_paths):
 
     for p in output_paths:
         os.makedirs(os.path.dirname(p), exist_ok=True)
-        fig.savefig(p, dpi=300)
+        fig.savefig(p, dpi=300, bbox_inches='tight')
         print(f"Saved: {p}")
     plt.close(fig)
 
 def generate_soft_merge_figure(output_paths):
     setup_style()
-    rhos = ['30%', '40%', '50%', '60%', '70%', '80%', '90%', '100%', 'Gap Only']
+    rhos = ['30%', '40%', '50%', '60%', '70%', '80%', '90%', '100%', 'Gap\nOnly']
     x = np.arange(len(rhos))
     
     one_win = [100.0, 99.1, 97.8, 96.9, 95.0, 94.1, 92.5, 90.6, 85.3]
@@ -148,11 +147,11 @@ def generate_soft_merge_figure(output_paths):
     opt_idx = 4
     ax1.axvline(x=opt_idx, color='#e74c3c', linestyle=':', linewidth=1.6, alpha=0.85)
     ax1.scatter([opt_idx, opt_idx], [one_win[opt_idx], gt_cov[opt_idx]], color=['#27ae60', '#1f618d'], s=80, zorder=5, edgecolor='black')
-    ax1.annotate(r'Optimal $\rho=70\%$', xy=(opt_idx, 95.0), xytext=(-38, 12), textcoords="offset points",
+    ax1.annotate(r'Selected $\rho=0.70$', xy=(opt_idx, 95.0), xytext=(-42, 12), textcoords="offset points",
                  fontsize=8.5, fontweight='bold', color='#c0392b',
                  arrowprops=dict(arrowstyle="->", color='#c0392b', lw=1.2))
 
-    ax1.set_xlabel(r'Soft Merge Threshold ($\rho$)', fontweight='bold')
+    ax1.set_xlabel(r'Merge Threshold ($\rho$)', fontweight='bold')
     ax1.set_ylabel('Continuity & Coverage (%)', fontweight='bold')
     ax1.set_title('(a) Continuity vs. GT Coverage', fontweight='bold', pad=7, fontsize=11)
     ax1.set_xticks(x)
@@ -175,7 +174,7 @@ def generate_soft_merge_figure(output_paths):
         ax2.annotate(f'{h:.1f}%', xy=(b.get_x() + b.get_width()/2, h), xytext=(0, 2.5),
                      textcoords="offset points", ha='center', va='bottom', fontsize=8, fontweight=fw, color=col)
 
-    ax2.set_xlabel(r'Soft Merge Threshold ($\rho$)', fontweight='bold')
+    ax2.set_xlabel(r'Merge Threshold ($\rho$)', fontweight='bold')
     ax2.set_ylabel('Background Pruned (%)', fontweight='bold')
     ax2.set_title('(b) Background Duration Pruned', fontweight='bold', pad=7, fontsize=11)
     ax2.set_xticks(x)
@@ -184,7 +183,7 @@ def generate_soft_merge_figure(output_paths):
 
     for p in output_paths:
         os.makedirs(os.path.dirname(p), exist_ok=True)
-        fig.savefig(p, dpi=300)
+        fig.savefig(p, dpi=300, bbox_inches='tight')
         print(f"Saved: {p}")
     plt.close(fig)
 
